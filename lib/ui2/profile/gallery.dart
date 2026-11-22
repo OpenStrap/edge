@@ -387,7 +387,8 @@ Map<String, Widget> _coachFigureCases() => {
   // default cloud endpoint — which is the case worth capturing: the local one
   // is the reassuring half.
   'coach_sent_payload': SentPayload(
-    config: CoachConfig(),
+    endpoint: CoachConfig().apiBase,
+    model: CoachConfig().model,
     inputs: const {
       'readiness': 62,
       'rmssd_ms': 48,

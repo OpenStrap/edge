@@ -27,6 +27,18 @@ import '../ui2/screens/home_screen.dart' as ring show readinessBand;
 import 'briefing.dart';
 import 'nightly_sweep.dart';
 
+/// Where a briefing's request went, as stored on the [Briefing]: Apple's
+/// on-device pseudo-base, or the endpoint's scheme, host and port ONLY. A
+/// custom base URL can carry an access key in its path or query, and saved
+/// briefings travel in backups, so nothing past the host is kept. Null when
+/// the endpoint has no host, which the screen then reports as unknown.
+String? briefingEndpointOf(CoachConfig config) {
+  if (config.usesApple) return kAppleOnDeviceBase;
+  final u = Uri.tryParse(config.apiBase.trim());
+  if (u == null || u.host.isEmpty) return null;
+  return '${u.scheme}://${u.host}${u.hasPort ? ':${u.port}' : ''}';
+}
+
 /// Injectable one-shot completion (tests pass a fake; production defaults to
 /// [CoachEngine.completeText] — the shared BYOK plumbing).
 typedef BriefingComplete = Future<String> Function({
@@ -574,6 +586,8 @@ class BriefingEngine {
       breakdownMd: parsed.breakdownMd,
       generatedAtMs: (wallNow ?? effectiveNow).millisecondsSinceEpoch,
       inputs: inputs,
+      endpoint: briefingEndpointOf(config),
+      model: config.model,
     );
     // An older request must not overwrite a complete briefing a newer one
     // already stored while this one waited on the model.

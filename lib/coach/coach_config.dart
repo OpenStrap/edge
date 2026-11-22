@@ -214,7 +214,12 @@ class CoachConfig extends ChangeNotifier {
   /// user can fix by pasting one — this one fixes itself on the next unlocked
   /// read, and telling them to set a key up again would be wrong.
   bool _keyUnreadable = false;
-  bool get keyUnreadable => _useChatGpt ? chatgpt.unreadable : _keyUnreadable;
+  /// Never while Apple's on-device model is in use: it needs no key, so a
+  /// saved provider's unreadable key must not hide its chat. The flags stay
+  /// as they are for when Apple is switched off.
+  bool get keyUnreadable => usesApple
+      ? false
+      : (_useChatGpt ? chatgpt.unreadable : _keyUnreadable);
 
   /// True while it is still unknown whether a key is stored — an install that
   /// predates the marker, read while the keychain was unavailable. Not shown to

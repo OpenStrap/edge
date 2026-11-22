@@ -2,6 +2,7 @@
 // pure prompt building + response parsing, and the day+period cache round-trip.
 // The LLM is mocked (BriefingComplete injected) — no network.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +12,9 @@ import 'package:openstrap_edge/ai/nightly_sweep.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
+import 'package:openstrap_edge/ui2/screens/ai_briefing.dart' show SentPayload;
+import 'package:openstrap_edge/ui2/ui2.dart' show buildTheme;
 import 'package:openstrap_edge/state/prefs.dart';
 
 /// A repository stub returning canned Today/sleep/session shapes.
@@ -416,6 +420,38 @@ void main() {
       expect(BriefingStore.read(BriefingPeriod.evening), isNull);
     });
 
+    test('a briefing records where it went: host only, never the path or query',
+        () async {
+      final cfg = CoachConfig();
+      await cfg.save(
+          baseUrl: 'https://llm.example.com:8443/v1/secret-path?token=abc',
+          model: 'm1');
+      final engine = BriefingEngine(
+        config: cfg,
+        repo: _FakeRepo(today: _sampleToday()),
+        complete: ({required system, required user}) async =>
+            'Recovered and ready.\n---\n- Readiness 74',
+      );
+      final b = await engine.generate(BriefingPeriod.morning);
+      expect(b.endpoint, 'https://llm.example.com:8443');
+      expect(b.model, 'm1');
+      final cached = BriefingStore.read(BriefingPeriod.morning);
+      expect(cached?.endpoint, 'https://llm.example.com:8443');
+      expect(cached?.model, 'm1');
+    });
+
+    test('a briefing saved before the endpoint was recorded reads as unknown',
+        () {
+      final b = Briefing.fromJson({
+        'day': '2026-11-21',
+        'period': 'morning',
+        'one_liner': 'x',
+        'inputs': {'readiness': 70},
+      });
+      expect(b?.endpoint, isNull);
+      expect(b?.model, isNull);
+    });
+
     test('a boring evening calls nobody and says so in one line', () async {
       var called = false;
       final engine = BriefingEngine(
@@ -479,5 +515,47 @@ void main() {
     BriefingStore.markJournalDone();
     expect(BriefingStore.journalDoneToday(), isTrue);
     expect(BriefingStore.journalDoneToday('1999-01-01'), isFalse);
+  });
+
+  group('SentPayload describes the briefing, not today\'s settings', () {
+    Future<String> bannerFor(WidgetTester tester, String? endpoint) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.dark),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SentPayload(
+                inputs: const {'readiness': 70},
+                endpoint: endpoint,
+                model: 'm1'),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .join('\n');
+    }
+
+    testWidgets('an unrecorded endpoint is never called on-device',
+        (tester) async {
+      final text = await bannerFor(tester, null);
+      expect(text, contains('can’t say where these numbers were sent'));
+      expect(text, isNot(contains('Nothing left it')));
+    });
+
+    testWidgets('a cloud briefing stays a cloud briefing', (tester) async {
+      final text = await bannerFor(tester, 'https://api.openai.com');
+      expect(text, contains('api.openai.com'));
+      expect(text, isNot(contains('Nothing left it')));
+    });
+
+    testWidgets('an Apple on-device briefing says nothing left the phone',
+        (tester) async {
+      final text = await bannerFor(tester, kAppleOnDeviceBase);
+      expect(text, contains('Nothing left it'));
+    });
   });
 }

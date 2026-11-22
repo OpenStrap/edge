@@ -202,7 +202,8 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
                   if (b != null)
                     SentPayload(
                       inputs: b.inputs,
-                      config: cfg,
+                      endpoint: b.endpoint,
+                      model: b.model,
                       asked: b.calledModel,
                     ),
                 ],
@@ -221,7 +222,13 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
 /// trusted about the exact question it exists to answer.
 class SentPayload extends StatelessWidget {
   final Map<String, dynamic> inputs;
-  final CoachConfig config;
+
+  /// The endpoint and model recorded on the briefing ([Briefing.endpoint]).
+  /// A null endpoint is a note saved before it was recorded: the banner then
+  /// says it cannot tell, rather than reading today's settings, which may be
+  /// a different provider (or Apple's on-device model) than the one it went to.
+  final String? endpoint;
+  final String? model;
 
   /// Whether a model was called at all — [Briefing.calledModel]. False for a
   /// nightly sweep that found nothing: there was no request, so the banner may
@@ -231,7 +238,8 @@ class SentPayload extends StatelessWidget {
   const SentPayload({
     super.key,
     required this.inputs,
-    required this.config,
+    required this.endpoint,
+    this.model,
     this.asked = true,
   });
 
@@ -260,10 +268,15 @@ class SentPayload extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final host = config.usesApple
-        ? kAppleOnDeviceModel
-        : (Uri.tryParse(config.apiBase)?.host ?? config.apiBase);
-    final local = isLocal(config.apiBase);
+    final base = endpoint;
+    final unknown = base == null;
+    final host = base == null
+        ? ''
+        : base == kAppleOnDeviceBase
+            ? kAppleOnDeviceModel
+            : (Uri.tryParse(base)?.host ?? base);
+    final local = base != null && isLocal(base);
+    final modelName = model ?? '';
     final keys = inputs.keys.toList()..sort();
     // An empty payload is not "we sent an empty payload". The nightly sweep
     // calls no model at all on a day with no finding, so the banner must not go
@@ -295,13 +308,16 @@ class SentPayload extends StatelessWidget {
                         ? (l?.aiBriefingNoneBody ??
                             'Nothing. There was no request — the note above was '
                                 'written on this phone.')
+                        : unknown
+                            ? (l?.aiBriefingUnknownBody ??
+                                'This note was saved before the app recorded where briefings go, so it can’t say where these numbers were sent.')
                         : local
                             ? (l?.aiBriefingLocalBody(host) ??
                                 'These numbers went to $host, on this machine. '
                                     'Nothing left it.')
-                            : (l?.aiBriefingCloudBody(host, config.model) ??
+                            : (l?.aiBriefingCloudBody(host, modelName) ??
                                 'These numbers, and nothing else, were sent to '
-                                    '$host as ${config.model}. No raw '
+                                    '$host as $modelName. No raw '
                                     'recordings, no name, no identifier.'),
                     style: F.cap.copyWith(color: p.ink, height: 1.5),
                   ),

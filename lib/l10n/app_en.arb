@@ -18357,5 +18357,9 @@
   "coachAppleNoEcg": "Apple’s on-device model can’t read an ECG waveform. To analyse this reading, switch Apple Intelligence off in the coach’s AI settings and use another model.",
   "@coachAppleNoEcg": {
     "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "aiBriefingUnknownBody": "This note was saved before the app recorded where briefings go, so it can’t say where these numbers were sent.",
+  "@aiBriefingUnknownBody": {
+    "description": "AI briefing, what-was-sent banner: a briefing saved before its endpoint was recorded."
   }
 }

@@ -150,6 +150,26 @@ void main() {
     expect(relaunched.keyUnreadable, isFalse);
   });
 
+  test('an unreadable saved key does not hide the Apple on-device chat',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final saved = CoachConfig();
+    await saved.save(apiKey: 'sk-test', model: 'gpt-4o');
+    await saved.save(useApple: true);
+
+    keychain.locked = true;
+    final relaunched = CoachConfig();
+    await relaunched.load();
+    expect(relaunched.usesApple, isTrue);
+    expect(relaunched.keyUnreadable, isFalse,
+        reason: 'Apple needs no key, so the warning must not replace its chat');
+
+    // Switched back, the saved provider's state is reported again.
+    await relaunched.save(useApple: false);
+    expect(relaunched.keyUnreadable, isTrue);
+  });
+
   test('a read that throws does not erase a key already in memory', () async {
     final cfg = CoachConfig();
     await cfg.save(apiKey: 'sk-test', model: 'gpt-4o');
