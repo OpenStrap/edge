@@ -4037,5 +4037,7 @@
   "coachAppleDeclined": "El modelo de Apple en el dispositivo se negó a responder a eso. Prueba a decirlo de otra forma.",
   "coachAppleTimeout": "El modelo de Apple en el dispositivo tardó demasiado en responder. Inténtalo de nuevo o haz una pregunta más corta.",
   "coachAppleNoEcg": "El modelo de Apple en el dispositivo no puede leer la curva de un ECG. Para analizar esta lectura, desactiva Apple Intelligence en los ajustes de IA del coach y usa otro modelo.",
-  "aiBriefingUnknownBody": "Esta nota se guardó antes de que la app registrara adónde van los resúmenes, así que no puede decir adónde se enviaron estas cifras."
+  "aiBriefingUnknownBody": "Esta nota se guardó antes de que la app registrara adónde van los resúmenes, así que no puede decir adónde se enviaron estas cifras.",
+  "alarmAllDays": "Todos los días",
+  "alarmCopiedToAllDays": "Hora de despertar copiada a todos los días"
 }

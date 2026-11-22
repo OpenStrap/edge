@@ -18361,5 +18361,9 @@
   "aiBriefingUnknownBody": "This note was saved before the app recorded where briefings go, so it can’t say where these numbers were sent.",
   "@aiBriefingUnknownBody": {
     "description": "AI briefing, what-was-sent banner: a briefing saved before its endpoint was recorded."
-  }
+  },
+  "alarmAllDays": "All days",
+  "@alarmAllDays": {"description": "Snackbar action: copy the wake time just set to every weekday."},
+  "alarmCopiedToAllDays": "Wake time copied to every day",
+  "@alarmCopiedToAllDays": {"description": "Snackbar: wake time copied to every weekday."}
 }
