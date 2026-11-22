@@ -21,9 +21,9 @@ void main() {
     final implicit = {...off}..remove('use_hmm_stages');
     final stored = jsonEncode(deriveDayBundle(off));
     expect(stored, jsonEncode(deriveDayBundle(implicit)));
-    // Captured at 90a879b21 with this six-minute fixture, before production edits.
+    // Captured at 90a879b21; recaptured at v126 (stress floor moved the payload).
     expect(sha256.convert(utf8.encode(stored)).toString(),
-        '01c1d05988233c2902d97e48a3bde7ca2a9261f1c84ab7d357f658ca3270a1d7');
+        '37a9eaa335271aaed19db70a93e43be0f60d595839e7a849742928916d800e29');
     final sleep = deriveDayBundle(off)['sleep'] as Map;
     expect(sleep.keys.where((k) => k.toString().startsWith('staging_') ||
         k.toString().startsWith('stager_')), isEmpty);
@@ -32,7 +32,7 @@ void main() {
   // why: immutable day rows need a new version before provenance can be stored.
   // # catches: leaving the producing algorithm at 124.
   test('provenance has a fresh algorithm version', () {
-    expect(kAlgoVersion, 125);
+    expect(kAlgoVersion, greaterThanOrEqualTo(125));
   });
 
   // why: opting in is not evidence that HMM produced the labels.
