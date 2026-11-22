@@ -52,6 +52,7 @@ import '../../ble/adapters/_registry.dart'
         kCoros,
         kGarmin,
         kHelioStrap,
+        kMiBand7,
         kMiBand234,
         kMiScale2,
         kMiScaleComposition,
@@ -1303,6 +1304,16 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     pick: null,
   ),
   (
+    entry: kMiBand7,
+    blurb: 'A Xiaomi Smart Band 7 (Mi Smart Band 7). First pairing still has '
+        'to go through Zepp Life, which is where the band\'s key comes from. '
+        'Paste that key below to pair it here instead. Syncs heart rate, '
+        'steps, sleep and workouts; the band\'s own stress and SpO2 figures '
+        'are labelled as Xiaomi\'s. HRV is not read yet. Experimental.',
+    // Null for the same reason as the Helio Strap: typed key only.
+    pick: null,
+  ),
+  (
     entry: kPebble,
     blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
         'Classic, which this app cannot reach. Syncs the watch\'s health log: '
@@ -2147,6 +2158,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
         'helio_strap' => () => _syncSensor(c, HelioStrapLink.instance.sync),
+        'zeppos_l66' => () => _syncSensor(c, HelioStrapLink.miBand7.sync),
         'thermometer' || 'miscale_bc' || 'miscale2' =>
           () => _syncSensor(c, SessionLink.forId(s.family)!.sync),
         _ => null,

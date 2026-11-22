@@ -43,6 +43,7 @@ void main() {
       'pebble': kPebbleAdapter.signals,
       'colmi': kColmiAdapter.signals,
       'helio_strap': kHelioStrapAdapter.signals,
+      'zeppos_l66': kMiBand7Adapter.signals,
       'thermometer': ThermometerAdapter().signals,
       'miscale_bc': MiScaleAdapter(kMiScaleComposition).signals,
       'miscale2': MiScaleAdapter(kMiScale2).signals,
