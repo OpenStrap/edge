@@ -150,6 +150,26 @@ void main() {
     expect(relaunched.keyUnreadable, isFalse);
   });
 
+  test('an unreadable saved key does not hide the Apple on-device chat',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final saved = CoachConfig();
+    await saved.save(apiKey: 'sk-test', model: 'gpt-4o');
+    await saved.save(useApple: true);
+
+    keychain.locked = true;
+    final relaunched = CoachConfig();
+    await relaunched.load();
+    expect(relaunched.usesApple, isTrue);
+    expect(relaunched.keyUnreadable, isFalse,
+        reason: 'Apple needs no key, so the warning must not replace its chat');
+
+    // Switched back, the saved provider's state is reported again.
+    await relaunched.save(useApple: false);
+    expect(relaunched.keyUnreadable, isTrue);
+  });
+
   test('a read that throws does not erase a key already in memory', () async {
     final cfg = CoachConfig();
     await cfg.save(apiKey: 'sk-test', model: 'gpt-4o');
@@ -270,6 +290,26 @@ void main() {
 
     expect(relaunched.keyUnreadable, isTrue,
         reason: 'the state must be pending BEFORE the read, not after it');
+  });
+
+  test('a restored Apple choice is published without waiting on the keychain',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await CoachConfig().save(useApple: true);
+
+    keychain.hangReads = true;
+    final relaunched = CoachConfig();
+    var notified = false;
+    relaunched.addListener(() => notified = true);
+    unawaited(relaunched.load());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(relaunched.usesApple, isTrue);
+    expect(relaunched.configured, isTrue);
+    expect(notified, isTrue,
+        reason: 'the coach must not sit on "not set up" behind a hung read');
+    keychain.releaseHung();
   });
 
   test('a save during an in-flight load is not clobbered by it', () async {

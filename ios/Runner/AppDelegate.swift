@@ -4,6 +4,9 @@ import AudioToolbox
 import AVFoundation
 import BackgroundTasks
 import CoreMotion
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -88,6 +91,10 @@ import CoreMotion
     }
     // Home-screen icon switching (setAlternateIconName). iOS only — see the
     // bridge below for the system-alert cost it carries.
+    // Apple's on-device model (Foundation Models) for the AI features.
+    if let registrar = registry.registrar(forPlugin: "AppleIntelligenceBridge") {
+      AppleIntelligenceBridge.register(messenger: registrar.messenger())
+    }
     if let registrar = registry.registrar(forPlugin: "AppIconBridge") {
       AppIconBridge.register(messenger: registrar.messenger())
     }
@@ -375,6 +382,132 @@ enum AppIconBridge {
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+  }
+}
+
+
+/// Apple's on-device language model (Foundation Models, iOS 26+), for the
+/// coach, briefings and journal when "Apple on-device" is chosen. No key, no
+/// network: the prompt and the answer never leave the phone.
+///
+/// `status` → "available" | "notEnabled" | "notReady" | "deviceNotEligible" |
+/// "unsupportedOS". `respond` takes {instructions, prompt, temperature} and
+/// returns the text, or a FlutterError whose CODE names the failure
+/// ("notEnabled", "notReady", "deviceNotEligible", "unsupported", "tooLong",
+/// "declined", "timeout", "failed"); the Dart side turns the code into
+/// translated text, and the message is only a detail for logs.
+enum AppleIntelligenceBridge {
+  private static let channelName = "openstrap/apple_ai"
+
+  /// A stalled generation must not leave the Dart call waiting forever.
+  private static let respondTimeoutSeconds: Double = 60
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "status":
+        result(status())
+      case "respond":
+        let args = call.arguments as? [String: Any] ?? [:]
+        let instructions = args["instructions"] as? String ?? ""
+        let prompt = args["prompt"] as? String ?? ""
+        let temperature = args["temperature"] as? Double
+        let reply = ReplyOnce(result)
+        let work = Task {
+          let out = await respond(instructions: instructions, prompt: prompt,
+                                  temperature: temperature)
+          DispatchQueue.main.async { _ = reply.send(out) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + respondTimeoutSeconds) {
+          if reply.send(.failure(code: "timeout", detail: "no answer in \(Int(respondTimeoutSeconds)) s")) {
+            work.cancel()
+          }
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  enum Outcome { case success(String), failure(code: String, detail: String) }
+
+  /// Delivers the first outcome only: the answer or the timeout, whichever
+  /// comes first. Used on the main queue only, so it needs no lock.
+  final class ReplyOnce {
+    private var result: FlutterResult?
+    init(_ result: @escaping FlutterResult) { self.result = result }
+
+    /// False when an outcome was already delivered.
+    func send(_ outcome: Outcome) -> Bool {
+      guard let r = result else { return false }
+      result = nil
+      switch outcome {
+      case .success(let text): r(text)
+      case .failure(let code, let detail):
+        r(FlutterError(code: code, message: detail, details: nil))
+      }
+      return true
+    }
+  }
+
+  static func status() -> String {
+    #if canImport(FoundationModels)
+    if #available(iOS 26.0, *) {
+      switch SystemLanguageModel.default.availability {
+      case .available:
+        return "available"
+      case .unavailable(.appleIntelligenceNotEnabled):
+        return "notEnabled"
+      case .unavailable(.modelNotReady):
+        return "notReady"
+      case .unavailable(.deviceNotEligible):
+        return "deviceNotEligible"
+      default:
+        return "unavailable"
+      }
+    }
+    #endif
+    return "unsupportedOS"
+  }
+
+  static func respond(instructions: String, prompt: String,
+                      temperature: Double?) async -> Outcome {
+    #if canImport(FoundationModels)
+    if #available(iOS 26.0, *) {
+      let state = status()
+      guard state == "available" else {
+        return .failure(code: unavailableCode(state), detail: state)
+      }
+      do {
+        let session = LanguageModelSession(instructions: instructions)
+        let options = GenerationOptions(temperature: temperature)
+        let response = try await session.respond(to: prompt, options: options)
+        return .success(response.content)
+      } catch let error as LanguageModelSession.GenerationError {
+        switch error {
+        case .exceededContextWindowSize:
+          return .failure(code: "tooLong", detail: error.localizedDescription)
+        case .guardrailViolation:
+          return .failure(code: "declined", detail: error.localizedDescription)
+        default:
+          return .failure(code: "failed", detail: error.localizedDescription)
+        }
+      } catch {
+        return .failure(code: "failed", detail: error.localizedDescription)
+      }
+    }
+    #endif
+    return .failure(code: "unsupported", detail: "unsupportedOS")
+  }
+
+  static func unavailableCode(_ state: String) -> String {
+    switch state {
+    case "notEnabled", "notReady", "deviceNotEligible":
+      return state
+    default:
+      return "unsupported"
     }
   }
 }

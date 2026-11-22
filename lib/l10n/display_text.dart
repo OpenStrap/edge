@@ -155,6 +155,20 @@ String localizedText(AppLocalizations? l, String text) {
     return l.findingLowReadinessScoredDetail(int.parse(lowScore[1]!));
   }
   return switch (text) {
+    "Apple Intelligence on this iPhone" => l.coachAppleTitle,
+    "Free, offline, private. No key needed." => l.coachAppleSub,
+    "Checking Apple Intelligence…" => l.coachAppleChecking,
+    "The coach, briefings and journal now use Apple’s small on-device model. It answers from your last two weeks and can’t log things for you; switch it off to use a bigger model instead." => l.coachAppleOnNote,
+    "Ready. Runs on this iPhone; nothing leaves it." => l.coachAppleReady,
+    "Turn on Apple Intelligence in Settings to use the on-device model." => l.coachAppleNotEnabled,
+    "Apple’s on-device model is still downloading. Try again later." => l.coachAppleNotReady,
+    "This iPhone can’t run Apple’s on-device model." => l.coachAppleNotEligible,
+    "Needs an iPhone with Apple Intelligence on iOS 26 or later." => l.coachAppleUnsupported,
+    "Apple’s on-device model couldn’t answer. Try again." => l.coachAppleFailed,
+    "That was too long for Apple’s on-device model. Start a new chat or ask a shorter question." => l.coachAppleTooLong,
+    "Apple’s on-device model declined to answer that. Try wording it differently." => l.coachAppleDeclined,
+    "Apple’s on-device model took too long to answer. Try again, or ask a shorter question." => l.coachAppleTimeout,
+    "Apple’s on-device model can’t read an ECG waveform. To analyse this reading, switch Apple Intelligence off in the coach’s AI settings and use another model." => l.coachAppleNoEcg,
     "Resting heart rate has been raised" => l.findingIllnessTitle,
     "Recent nights put your resting heart rate above your usual, from one very high night or a few slightly raised ones. One signal: a pattern, not a cause." =>
       l.findingIllnessDetail,

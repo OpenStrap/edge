@@ -4022,5 +4022,20 @@
   "notifSyncStaleBody": "लगभग {hours} घंटे से कोई नया डेटा नहीं आया। दोबारा कनेक्ट करने के लिए OpenStrap खोलें — हो सकता है बैकग्राउंड सिंक रुक गया हो।",
   "devicesTimeUnknown": "समय अज्ञात",
   "devicesClockNotSetSub": "स्ट्रैप ने डेटा रिकॉर्ड किया, लेकिन उसकी घड़ी सेट नहीं है",
-  "homeSyncedTimeUnknown": "बैंड का डेटा, घड़ी सेट नहीं है"
+  "homeSyncedTimeUnknown": "बैंड का डेटा, घड़ी सेट नहीं है",
+  "coachAppleTitle": "इस iPhone पर Apple Intelligence",
+  "coachAppleSub": "मुफ़्त, ऑफ़लाइन, निजी। कोई कुंजी नहीं चाहिए।",
+  "coachAppleChecking": "Apple Intelligence जाँची जा रही है…",
+  "coachAppleOnNote": "कोच, ब्रीफ़िंग और जर्नल अब Apple का छोटा ऑन-डिवाइस मॉडल इस्तेमाल करते हैं। यह आपके पिछले दो हफ़्तों के आधार पर जवाब देता है और आपके लिए कुछ दर्ज नहीं कर सकता; बड़ा मॉडल इस्तेमाल करने के लिए इसे बंद करें।",
+  "coachAppleReady": "तैयार। इसी iPhone पर चलता है; कुछ भी बाहर नहीं जाता।",
+  "coachAppleNotEnabled": "ऑन-डिवाइस मॉडल इस्तेमाल करने के लिए सेटिंग्स में Apple Intelligence चालू करें।",
+  "coachAppleNotReady": "Apple का ऑन-डिवाइस मॉडल अभी डाउनलोड हो रहा है। बाद में फिर कोशिश करें।",
+  "coachAppleNotEligible": "यह iPhone Apple का ऑन-डिवाइस मॉडल नहीं चला सकता।",
+  "coachAppleUnsupported": "iOS 26 या बाद के संस्करण पर Apple Intelligence वाला iPhone चाहिए।",
+  "coachAppleFailed": "Apple का ऑन-डिवाइस मॉडल जवाब नहीं दे सका। फिर कोशिश करें।",
+  "coachAppleTooLong": "यह Apple के ऑन-डिवाइस मॉडल के लिए बहुत लंबा था। नई चैट शुरू करें या छोटा सवाल पूछें।",
+  "coachAppleDeclined": "Apple के ऑन-डिवाइस मॉडल ने इसका जवाब देने से मना कर दिया। इसे दूसरे शब्दों में पूछकर देखें।",
+  "coachAppleTimeout": "Apple के ऑन-डिवाइस मॉडल ने जवाब देने में बहुत देर लगाई। फिर कोशिश करें, या छोटा सवाल पूछें।",
+  "coachAppleNoEcg": "Apple का ऑन-डिवाइस मॉडल ECG वेवफ़ॉर्म नहीं पढ़ सकता। इस रीडिंग का विश्लेषण करने के लिए कोच की AI सेटिंग्स में Apple Intelligence बंद करें और कोई दूसरा मॉडल इस्तेमाल करें।",
+  "aiBriefingUnknownBody": "यह नोट ऐप के यह दर्ज करने से पहले सहेजा गया था कि ब्रीफ़िंग कहाँ जाती हैं, इसलिए यह नहीं बता सकता कि ये आंकड़े कहाँ भेजे गए थे।"
 }

@@ -22,7 +22,7 @@ const _mustTravel = {
   // alert_after_ts, so a restored timestamp cannot log old naps.
   'activity.nap_auto_log_since_sec',
   'coach_api', 'coach_model', 'coach_timeout_seconds',
-  'coach_use_chatgpt',
+  'coach_use_apple', 'coach_use_chatgpt',
   'ai_morning_enabled', 'ai_morning_min', 'ai_evening_enabled', 'ai_evening_min',
   'ai_journal_enabled', 'ai_journal_min',
   'workout.zone_alert_enabled', 'workout.zone_alert_target_zone', 'workout.rpe_skips',

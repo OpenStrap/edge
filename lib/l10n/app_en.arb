@@ -18301,5 +18301,65 @@
         "type": "int"
       }
     }
+  },
+  "coachAppleTitle": "Apple Intelligence on this iPhone",
+  "@coachAppleTitle": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleSub": "Free, offline, private. No key needed.",
+  "@coachAppleSub": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleChecking": "Checking Apple Intelligence…",
+  "@coachAppleChecking": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleOnNote": "The coach, briefings and journal now use Apple’s small on-device model. It answers from your last two weeks and can’t log things for you; switch it off to use a bigger model instead.",
+  "@coachAppleOnNote": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleReady": "Ready. Runs on this iPhone; nothing leaves it.",
+  "@coachAppleReady": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNotEnabled": "Turn on Apple Intelligence in Settings to use the on-device model.",
+  "@coachAppleNotEnabled": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNotReady": "Apple’s on-device model is still downloading. Try again later.",
+  "@coachAppleNotReady": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNotEligible": "This iPhone can’t run Apple’s on-device model.",
+  "@coachAppleNotEligible": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleUnsupported": "Needs an iPhone with Apple Intelligence on iOS 26 or later.",
+  "@coachAppleUnsupported": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleFailed": "Apple’s on-device model couldn’t answer. Try again.",
+  "@coachAppleFailed": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleTooLong": "That was too long for Apple’s on-device model. Start a new chat or ask a shorter question.",
+  "@coachAppleTooLong": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleDeclined": "Apple’s on-device model declined to answer that. Try wording it differently.",
+  "@coachAppleDeclined": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleTimeout": "Apple’s on-device model took too long to answer. Try again, or ask a shorter question.",
+  "@coachAppleTimeout": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNoEcg": "Apple’s on-device model can’t read an ECG waveform. To analyse this reading, switch Apple Intelligence off in the coach’s AI settings and use another model.",
+  "@coachAppleNoEcg": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "aiBriefingUnknownBody": "This note was saved before the app recorded where briefings go, so it can’t say where these numbers were sent.",
+  "@aiBriefingUnknownBody": {
+    "description": "AI briefing, what-was-sent banner: a briefing saved before its endpoint was recorded."
   }
 }

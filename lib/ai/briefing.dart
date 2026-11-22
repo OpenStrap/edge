@@ -64,6 +64,13 @@ class Briefing {
   /// were actually present — absent metrics are never fabricated).
   final Map<String, dynamic> inputs;
 
+  /// Where the request went and which model answered, recorded when it was
+  /// written: the "what was sent" screen describes THIS briefing, not
+  /// whatever the settings say now. Null on a note saved before these were
+  /// recorded, and on one that called no model.
+  final String? endpoint;
+  final String? model;
+
   const Briefing({
     required this.day,
     required this.period,
@@ -71,6 +78,8 @@ class Briefing {
     required this.breakdownMd,
     required this.generatedAtMs,
     required this.inputs,
+    this.endpoint,
+    this.model,
   });
 
   /// Whether producing this note involved a model at all.
@@ -90,6 +99,8 @@ class Briefing {
         'breakdown_md': breakdownMd,
         'generated_at_ms': generatedAtMs,
         'inputs': inputs,
+        'endpoint': ?endpoint,
+        'model': ?model,
       };
 
   static Briefing? fromJson(dynamic j) {
@@ -108,6 +119,8 @@ class Briefing {
       inputs: j['inputs'] is Map
           ? (j['inputs'] as Map).cast<String, dynamic>()
           : const {},
+      endpoint: j['endpoint'] is String ? j['endpoint'] as String : null,
+      model: j['model'] is String ? j['model'] as String : null,
     );
   }
 }
