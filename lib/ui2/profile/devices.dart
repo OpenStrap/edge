@@ -51,6 +51,7 @@ import '../../ble/adapters/_registry.dart'
         kColmi,
         kCoros,
         kGarmin,
+        kHelioStrap,
         kMiBand234,
         kMiScale2,
         kMiScaleComposition,
@@ -62,6 +63,7 @@ import '../../ble/adapters/_registry.dart'
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal, kRankedSignals;
 import '../../ble/colmi_link.dart' show ColmiLink;
+import '../../ble/helio_strap_link.dart' show HelioStrapLink;
 import '../../ble/coros_link.dart' show CorosLink;
 import '../../ble/garmin_link.dart' show GarminLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
@@ -1288,6 +1290,19 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     pick: pairMiBand234,
   ),
   (
+  (
+    entry: kHelioStrap,
+    blurb: 'An Amazfit Helio Strap. First pairing still has to go through '
+        'the real Zepp app — that is where the strap\'s key comes from, and '
+        'nothing here can skip it. Paste that key below to pair it here '
+        'instead. Syncs heart rate, steps, skin temperature, sleep and '
+        'workouts; the strap\'s own stress, HRV, SpO2 and respiratory-rate '
+        'figures are labelled as Amazfit\'s. Experimental.',
+    // Null: this device has no keyless path at all — unlike Oura or Mi
+    // Band, there is no "mint our own key" option, so only the typed-key
+    // field (wired via `onPickedWithKey` in the pairing screens) applies.
+    pick: null,
+  ),
     entry: kPebble,
     blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
         'Classic, which this app cannot reach. Syncs the watch\'s health log: '
@@ -2132,6 +2147,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
         'thermometer' || 'miscale_bc' || 'miscale2' =>
+        'helio_strap' => () => _syncSensor(c, HelioStrapLink.instance.sync),
           () => _syncSensor(c, SessionLink.forId(s.family)!.sync),
         _ => null,
       },

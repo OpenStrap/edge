@@ -47,6 +47,7 @@ import '../../ble/ble_state.dart'
         classifyBleBlocker,
         kMaxConcurrentSecondaryLinks;
 import '../../ble/hrs_link.dart';
+import '../../ble/helio_strap_link.dart' show pairHelioStrapWithTypedKey;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -410,10 +411,14 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
         entry: sensor.entry,
         returnOnPair: returnOnPair,
         onPicked: sensor.pick,
-        // The ring alone can be paired with the key its own app installed —
-        // see `pairOuraRingWithKey`.
-        onPickedWithKey:
-            sensor.entry.id == kOura.id ? pairOuraRingWithTypedKey : null,
+        // The ring can be paired with the key its own app installed — see
+        // `pairOuraRingWithKey`. The strap has no keyless path at all, so
+        // its typed-key function is the only way it pairs.
+        onPickedWithKey: switch (sensor.entry.id) {
+          final id when id == kOura.id => pairOuraRingWithTypedKey,
+          final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
+          _ => null,
+        },
         ),
       ),
     );

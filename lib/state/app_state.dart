@@ -48,6 +48,7 @@ import '../ble/scale_presence.dart' show ScalePresenceWatcher;
 import '../ble/session_link.dart' show SessionLink;
 import '../ble/colmi_link.dart' show ColmiLink;
 import '../ble/coros_link.dart' show CorosLink;
+import '../ble/helio_strap_link.dart' show HelioStrapLink;
 import '../ble/garmin_link.dart' show GarminLink;
 import '../ble/miband_link.dart' show MiBand234Link;
 import '../ble/oura_link.dart' show OuraLink;
@@ -1840,6 +1841,7 @@ class AppState extends ChangeNotifier {
     await bounded('colmi', ColmiLink.instance.stop);
     await bounded('garmin', GarminLink.instance.stop);
     await bounded('miband234', MiBand234Link.instance.stop);
+    await bounded('helio_strap', HelioStrapLink.instance.stop);
     await bounded('pebble', PebbleLink.instance.stop);
     await bounded('coros', CorosLink.instance.stop);
     for (final link in SessionLink.all) {

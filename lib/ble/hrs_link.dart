@@ -78,6 +78,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'colmi_link.dart' show ColmiLink;
+import 'helio_strap_link.dart' show HelioStrapLink;
 import 'session_link.dart' show SessionLink;
 import 'coros_link.dart' show CorosLink;
 import 'adapters/garmin.dart' show garminMlPair;
@@ -982,6 +983,10 @@ class HrsLink {
     }
     if (row?['adapter_id'] == kColmi.id) {
       await ColmiLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kHelioStrap.id) {
+      await HelioStrapLink.forgetStrap(id);
       return;
     }
     final session = SessionLink.forId(row?['adapter_id'] as String?);

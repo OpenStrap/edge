@@ -59,6 +59,8 @@ class HrsReading {
 class _Second {
   int? hr;
   double? skinTempC;
+  double? deviceRmssdMs;
+  double? deviceRespBrpm;
   final List<int> rr = [];
 
   /// Parallel to [rr] when the beats were timed ([beatEndTimesMs]).
@@ -517,6 +519,8 @@ class BandHost {
     final slot = _pending.putIfAbsent(s.tsEpoch, _Second.new);
     if (s.hr != null) slot.hr = s.hr;
     if (s.skinTempC != null) slot.skinTempC = s.skinTempC;
+    if (s.deviceRmssdMs != null) slot.deviceRmssdMs = s.deviceRmssdMs;
+    if (s.deviceRespBrpm != null) slot.deviceRespBrpm = s.deviceRespBrpm;
     // An arrival-stamped strap's beats keep their own times, off the chain.
     // A second's beats are timed together, however many samples carry them
     // (a sensor sending one beat per record): timed one at a time, each
@@ -606,6 +610,8 @@ class BandHost {
       if (fresh != null) {
         if (fresh.hr != null) slot.hr = fresh.hr;
         if (fresh.skinTempC != null) slot.skinTempC = fresh.skinTempC;
+        slot.deviceRmssdMs = fresh.deviceRmssdMs ?? slot.deviceRmssdMs;
+        slot.deviceRespBrpm = fresh.deviceRespBrpm ?? slot.deviceRespBrpm;
         if (slot.beatTs.length == slot.rr.length &&
             fresh.beatTs.length == fresh.rr.length) {
           slot.beatTs.addAll(fresh.beatTs);
@@ -674,6 +680,8 @@ class BandHost {
           hr: slot.hr,
           rrMs: slot.rr,
           skinTempC: slot.skinTempC,
+          deviceRmssdMs: slot.deviceRmssdMs,
+          deviceRespBrpm: slot.deviceRespBrpm,
           beatTsMs: slot.beatTs.length == slot.rr.length && slot.rr.isNotEmpty
               ? slot.beatTs
               : null,

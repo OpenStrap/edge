@@ -24,6 +24,7 @@ import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart' show AlarmConfirmation;
 import '../ble/colmi_link.dart';
+import '../ble/helio_strap_link.dart';
 import '../ble/session_link.dart';
 import '../ble/coros_link.dart';
 import '../ble/garmin_link.dart';
@@ -474,6 +475,14 @@ Future<void> _syncPairedSensors() async {
     await ColmiLink.instance.sync();
   } catch (e) {
     debugPrint('[bgsync] colmi sync skipped: $e');
+  }
+  // Same piggyback, same reasoning: no-ops when unpaired (and also when no
+  // auth key is stored yet — see `HelioStrapLink.sync`'s own doc), must
+  // never let a failure here mark the WHOOP cycle as errored.
+  try {
+    await HelioStrapLink.instance.sync();
+  } catch (e) {
+    debugPrint('[bgsync] helio_strap sync skipped: $e');
   }
   // Thermometer and scales: same piggyback; each no-ops when unpaired and
   // only reaches a device that happens to be awake and nearby.

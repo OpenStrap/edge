@@ -63,6 +63,7 @@ import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
 import '../../ble/ios_ble_restore.dart';
+import '../../ble/helio_strap_link.dart' show pairHelioStrapWithTypedKey;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -337,6 +338,22 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     if (!mounted) return;
     String? failure;
     final typedKey = _key.text.trim();
+    // An empty key is NOT the same thing as "no typed-key path exists".
+    // [kOura] has both a keyless install function AND a typed-key one, so
+    // leaving the field blank correctly means "use the install path" —
+    // but a device with ONLY a typed-key path (no [onPicked] at all, e.g.
+    // Helio) must refuse here, not silently fall through to the generic
+    // plain pairing below, which would create a device row with no
+    // handshake ever attempted and no key the adapter could ever use.
+    if (widget.onPickedWithKey != null &&
+        typedKey.isEmpty &&
+        widget.onPicked == null) {
+      setState(() {
+        _busy = null;
+        _problem = 'Enter the device’s key to pair it.';
+      });
+      return;
+    }
     try {
       failure = widget.onPickedWithKey != null && typedKey.isNotEmpty
           ? await widget.onPickedWithKey!(device, typedKey)
@@ -441,8 +458,11 @@ class _PairSensorScreenState extends State<PairSensorScreen>
           entry: band,
           returnOnPair: true,
           onPicked: sensor.pick,
-          onPickedWithKey:
-              band.id == kOura.id ? pairOuraRingWithTypedKey : null,
+          onPickedWithKey: switch (band.id) {
+            final id when id == kOura.id => pairOuraRingWithTypedKey,
+            final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
+            _ => null,
+          },
         ),
       ));
       return result ?? BandFlowResult.closed;
