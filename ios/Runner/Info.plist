@@ -65,6 +65,7 @@
 		<string>6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E</string>
 		<string>86F65000-F706-58A0-95B2-1FB9261E4DC7</string>
 		<string>FEE1</string>
+		<string>FEE1</string>
 		<string>FED9</string>
 		<string>6A4E2800-667B-11E3-949A-0800200C9A66</string>
 		<string>1809</string>
@@ -107,6 +108,8 @@
 		<string>Ultrahuman Ring Air</string>
 		<key>FEE1</key>
 		<string>Mi Band 2/3</string>
+		<key>FEE1</key>
+		<string>Amazfit Helio Strap</string>
 		<key>FED9</key>
 		<string>Pebble</string>
 		<key>6A4E2800-667B-11E3-949A-0800200C9A66</key>
@@ -136,6 +139,7 @@
 		<string>98ED0001-A541-11E4-B6A0-0002A5D5C51B</string>
 		<string>6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E</string>
 		<string>86F65000-F706-58A0-95B2-1FB9261E4DC7</string>
+		<string>FEE1</string>
 		<string>FEE1</string>
 		<string>FED9</string>
 		<string>6A4E2800-667B-11E3-949A-0800200C9A66</string>
