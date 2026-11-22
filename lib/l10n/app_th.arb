@@ -17341,5 +17341,10 @@
   "coachAppleNotEnabled": "เปิด Apple Intelligence ในการตั้งค่าเพื่อใช้โมเดลบนอุปกรณ์",
   "coachAppleNotReady": "โมเดลบนอุปกรณ์ของ Apple ยังดาวน์โหลดไม่เสร็จ ลองอีกครั้งภายหลัง",
   "coachAppleNotEligible": "iPhone เครื่องนี้ใช้โมเดลบนอุปกรณ์ของ Apple ไม่ได้",
-  "coachAppleUnsupported": "ต้องใช้ iPhone ที่มี Apple Intelligence บน iOS 26 ขึ้นไป"
+  "coachAppleUnsupported": "ต้องใช้ iPhone ที่มี Apple Intelligence บน iOS 26 ขึ้นไป",
+  "coachAppleFailed": "โมเดลบนอุปกรณ์ของ Apple ตอบไม่ได้ ลองอีกครั้ง",
+  "coachAppleTooLong": "ข้อความนี้ยาวเกินไปสำหรับโมเดลบนอุปกรณ์ของ Apple เริ่มแชตใหม่หรือถามให้สั้นลง",
+  "coachAppleDeclined": "โมเดลบนอุปกรณ์ของ Apple ปฏิเสธที่จะตอบเรื่องนี้ ลองถามด้วยคำอื่น",
+  "coachAppleTimeout": "โมเดลบนอุปกรณ์ของ Apple ใช้เวลาตอบนานเกินไป ลองอีกครั้งหรือถามให้สั้นลง",
+  "coachAppleNoEcg": "โมเดลบนอุปกรณ์ของ Apple อ่านคลื่น ECG ไม่ได้ หากต้องการวิเคราะห์การวัดนี้ ให้ปิด Apple Intelligence ในการตั้งค่า AI ของโค้ชแล้วใช้โมเดลอื่น"
 }

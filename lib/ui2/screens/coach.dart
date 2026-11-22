@@ -124,6 +124,14 @@ class _CoachScreenState extends State<CoachScreen> {
 
   static List<String> _starters(BuildContext c) {
     final l = AppLocalizations.of(c);
+    // Apple's on-device model answers from the last two weeks and cannot
+    // chart or log, so it is offered only the questions it can answer.
+    if (c.watch<CoachConfig>().usesApple) {
+      return [
+        l?.coachStarterRecovery ?? 'How recovered am I today, and why?',
+        l?.coachStarterSleep ?? 'How has my sleep been this week?',
+      ];
+    }
     return [
       l?.coachStarterRecovery ?? 'How recovered am I today, and why?',
       l?.coachStarterHrvChart ?? 'Chart my HRV over the last month',
@@ -930,7 +938,7 @@ class CoachSetup extends StatefulWidget {
   State<CoachSetup> createState() => _CoachSetupState();
 }
 
-class _CoachSetupState extends State<CoachSetup> {
+class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
   late final TextEditingController _base;
   late final TextEditingController _key;
   late final TextEditingController _search;
@@ -983,14 +991,16 @@ class _CoachSetupState extends State<CoachSetup> {
     _key = TextEditingController(text: cfg.apiKey ?? '');
     _search = TextEditingController();
     _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
-    _api = cfg.api;
-    _chatgpt = cfg.usesChatGpt;
+    // The saved bring-your-own route and model, not the Apple display values:
+    // they are what switching Apple off must bring back.
+    _chatgpt = cfg.savedUsesChatGpt;
+    _api = _chatgpt ? CoachApi.responses : cfg.api;
     _apple = cfg.usesApple;
-    AppleOnDevice.status().then((st) {
-      if (mounted) setState(() => _appleStatus = st);
-    });
+    _refreshAppleStatus();
+    // Apple Intelligence may be turned on in Settings while this is open.
+    WidgetsBinding.instance.addObserver(this);
     _chatgptAuth = cfg.chatgpt;
-    _model = cfg.model;
+    _model = cfg.savedModel;
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
     // the search box filters the list — both are read during build, so both
@@ -1044,7 +1054,19 @@ class _CoachSetupState extends State<CoachSetup> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshAppleStatus();
+  }
+
+  Future<AppleAiStatus> _refreshAppleStatus() async {
+    final st = await AppleOnDevice.status();
+    if (mounted) setState(() => _appleStatus = st);
+    return st;
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_signingIn) _chatgptAuth.cancelSignIn();
     _base.dispose();
     _key.dispose();
@@ -1414,20 +1436,47 @@ class _CoachSetupState extends State<CoachSetup> {
           ),
           Switch.adaptive(
             value: _apple,
-            onChanged: (on) async {
-              if (on && st != null && !ready) {
-                setState(() => _appleMsg = st.message);
-                return;
-              }
-              await context.read<CoachConfig>().save(useApple: on);
-              if (mounted) {
-                setState(() {
-                  _apple = on;
-                  _appleMsg = null;
-                  _msg = null;
-                });
-              }
-            },
+            // Off until the first availability check is in: nothing is saved
+            // on a guess.
+            onChanged: st == null
+                ? null
+                : (on) async {
+                    final cfg = context.read<CoachConfig>();
+                    if (on) {
+                      // Checked again, not the cached status: the user may
+                      // have just turned Apple Intelligence on in Settings.
+                      final fresh = await _refreshAppleStatus();
+                      if (!mounted) return;
+                      if (fresh != AppleAiStatus.available) {
+                        setState(() => _appleMsg = fresh.message);
+                        return;
+                      }
+                    }
+                    try {
+                      await cfg.save(useApple: on);
+                    } catch (_) {
+                      if (mounted) {
+                        setState(() => _appleMsg =
+                            AppLocalizations.of(context)
+                                    ?.logWorkoutCouldNotSave ??
+                                'Could not save that — try again.');
+                      }
+                      return;
+                    }
+                    if (mounted) {
+                      setState(() {
+                        _apple = on;
+                        _appleMsg = null;
+                        _msg = null;
+                        if (!on) {
+                          // Back to the saved route and model.
+                          _chatgpt = cfg.savedUsesChatGpt;
+                          _api = _chatgpt ? CoachApi.responses : cfg.api;
+                          _model = cfg.savedModel;
+                        }
+                      });
+                    }
+                  },
           ),
         ]),
         const SizedBox(height: S.x3),
@@ -1445,7 +1494,7 @@ class _CoachSetupState extends State<CoachSetup> {
         ],
         if (_appleMsg != null) ...[
           const SizedBox(height: S.x2),
-          Text(_appleMsg!, style: F.cap.copyWith(color: p.on(C.red))),
+          Text(uiText(c, _appleMsg!), style: F.cap.copyWith(color: p.on(C.red))),
         ],
       ]),
     );

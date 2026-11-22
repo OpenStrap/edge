@@ -4031,5 +4031,10 @@
   "coachAppleNotEnabled": "在“设置”中打开 Apple 智能即可使用设备端模型。",
   "coachAppleNotReady": "Apple 设备端模型仍在下载，请稍后再试。",
   "coachAppleNotEligible": "此 iPhone 无法运行 Apple 设备端模型。",
-  "coachAppleUnsupported": "需要搭载 iOS 26 或更高版本并支持 Apple 智能的 iPhone。"
+  "coachAppleUnsupported": "需要搭载 iOS 26 或更高版本并支持 Apple 智能的 iPhone。",
+  "coachAppleFailed": "Apple 设备端模型无法回答，请再试一次。",
+  "coachAppleTooLong": "这对 Apple 设备端模型来说太长了。请开始新的对话，或问一个更短的问题。",
+  "coachAppleDeclined": "Apple 设备端模型拒绝回答这个问题。请换一种说法试试。",
+  "coachAppleTimeout": "Apple 设备端模型回答用时过长。请再试一次，或问一个更短的问题。",
+  "coachAppleNoEcg": "Apple 设备端模型无法读取心电图波形。要分析这条记录，请在教练的 AI 设置中关闭 Apple Intelligence，并使用其他模型。"
 }

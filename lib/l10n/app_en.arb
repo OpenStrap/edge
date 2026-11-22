@@ -18337,5 +18337,25 @@
   "coachAppleUnsupported": "Needs an iPhone with Apple Intelligence on iOS 26 or later.",
   "@coachAppleUnsupported": {
     "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleFailed": "Apple’s on-device model couldn’t answer. Try again.",
+  "@coachAppleFailed": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleTooLong": "That was too long for Apple’s on-device model. Start a new chat or ask a shorter question.",
+  "@coachAppleTooLong": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleDeclined": "Apple’s on-device model declined to answer that. Try wording it differently.",
+  "@coachAppleDeclined": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleTimeout": "Apple’s on-device model took too long to answer. Try again, or ask a shorter question.",
+  "@coachAppleTimeout": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNoEcg": "Apple’s on-device model can’t read an ECG waveform. To analyse this reading, switch Apple Intelligence off in the coach’s AI settings and use another model.",
+  "@coachAppleNoEcg": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
   }
 }

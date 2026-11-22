@@ -4031,5 +4031,10 @@
   "coachAppleNotEnabled": "Schalte Apple Intelligence in den Einstellungen ein, um das Modell auf dem Gerät zu nutzen.",
   "coachAppleNotReady": "Apples Modell auf dem Gerät wird noch geladen. Versuche es später erneut.",
   "coachAppleNotEligible": "Dieses iPhone kann Apples Modell auf dem Gerät nicht ausführen.",
-  "coachAppleUnsupported": "Benötigt ein iPhone mit Apple Intelligence ab iOS 26."
+  "coachAppleUnsupported": "Benötigt ein iPhone mit Apple Intelligence ab iOS 26.",
+  "coachAppleFailed": "Apples Modell auf dem Gerät konnte nicht antworten. Versuche es erneut.",
+  "coachAppleTooLong": "Das war zu lang für Apples Modell auf dem Gerät. Starte einen neuen Chat oder stelle eine kürzere Frage.",
+  "coachAppleDeclined": "Apples Modell auf dem Gerät hat eine Antwort darauf abgelehnt. Versuche es anders zu formulieren.",
+  "coachAppleTimeout": "Apples Modell auf dem Gerät hat zu lange für eine Antwort gebraucht. Versuche es erneut oder stelle eine kürzere Frage.",
+  "coachAppleNoEcg": "Apples Modell auf dem Gerät kann keine EKG-Kurve lesen. Um diese Messung zu analysieren, schalte Apple Intelligence in den KI-Einstellungen des Coachs aus und nutze ein anderes Modell."
 }

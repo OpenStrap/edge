@@ -393,9 +393,15 @@ enum AppIconBridge {
 ///
 /// `status` → "available" | "notEnabled" | "notReady" | "deviceNotEligible" |
 /// "unsupportedOS". `respond` takes {instructions, prompt, temperature} and
-/// returns the text, or a FlutterError whose message is shown to the user.
+/// returns the text, or a FlutterError whose CODE names the failure
+/// ("notEnabled", "notReady", "deviceNotEligible", "unsupported", "tooLong",
+/// "declined", "timeout", "failed"); the Dart side turns the code into
+/// translated text, and the message is only a detail for logs.
 enum AppleIntelligenceBridge {
   private static let channelName = "openstrap/apple_ai"
+
+  /// A stalled generation must not leave the Dart call waiting forever.
+  private static let respondTimeoutSeconds: Double = 60
 
   static func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
@@ -408,15 +414,15 @@ enum AppleIntelligenceBridge {
         let instructions = args["instructions"] as? String ?? ""
         let prompt = args["prompt"] as? String ?? ""
         let temperature = args["temperature"] as? Double
-        Task {
+        let reply = ReplyOnce(result)
+        let work = Task {
           let out = await respond(instructions: instructions, prompt: prompt,
                                   temperature: temperature)
-          DispatchQueue.main.async {
-            switch out {
-            case .success(let text): result(text)
-            case .failure(let message):
-              result(FlutterError(code: "apple_ai", message: message, details: nil))
-            }
+          DispatchQueue.main.async { _ = reply.send(out) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + respondTimeoutSeconds) {
+          if reply.send(.failure(code: "timeout", detail: "no answer in \(Int(respondTimeoutSeconds)) s")) {
+            work.cancel()
           }
         }
       default:
@@ -425,7 +431,26 @@ enum AppleIntelligenceBridge {
     }
   }
 
-  enum Outcome { case success(String), failure(String) }
+  enum Outcome { case success(String), failure(code: String, detail: String) }
+
+  /// Delivers the first outcome only: the answer or the timeout, whichever
+  /// comes first. Used on the main queue only, so it needs no lock.
+  final class ReplyOnce {
+    private var result: FlutterResult?
+    init(_ result: @escaping FlutterResult) { self.result = result }
+
+    /// False when an outcome was already delivered.
+    func send(_ outcome: Outcome) -> Bool {
+      guard let r = result else { return false }
+      result = nil
+      switch outcome {
+      case .success(let text): r(text)
+      case .failure(let code, let detail):
+        r(FlutterError(code: code, message: detail, details: nil))
+      }
+      return true
+    }
+  }
 
   static func status() -> String {
     #if canImport(FoundationModels)
@@ -452,7 +477,9 @@ enum AppleIntelligenceBridge {
     #if canImport(FoundationModels)
     if #available(iOS 26.0, *) {
       let state = status()
-      guard state == "available" else { return .failure(unavailableMessage(state)) }
+      guard state == "available" else {
+        return .failure(code: unavailableCode(state), detail: state)
+      }
       do {
         let session = LanguageModelSession(instructions: instructions)
         let options = GenerationOptions(temperature: temperature)
@@ -461,30 +488,26 @@ enum AppleIntelligenceBridge {
       } catch let error as LanguageModelSession.GenerationError {
         switch error {
         case .exceededContextWindowSize:
-          return .failure("That was too long for Apple's on-device model. Start a new chat or ask a shorter question.")
+          return .failure(code: "tooLong", detail: error.localizedDescription)
         case .guardrailViolation:
-          return .failure("Apple's on-device model declined to answer that. Try wording it differently.")
+          return .failure(code: "declined", detail: error.localizedDescription)
         default:
-          return .failure("Apple's on-device model couldn't answer: \(error.localizedDescription)")
+          return .failure(code: "failed", detail: error.localizedDescription)
         }
       } catch {
-        return .failure("Apple's on-device model couldn't answer: \(error.localizedDescription)")
+        return .failure(code: "failed", detail: error.localizedDescription)
       }
     }
     #endif
-    return .failure(unavailableMessage("unsupportedOS"))
+    return .failure(code: "unsupported", detail: "unsupportedOS")
   }
 
-  static func unavailableMessage(_ state: String) -> String {
+  static func unavailableCode(_ state: String) -> String {
     switch state {
-    case "notEnabled":
-      return "Turn on Apple Intelligence in Settings to use the on-device model."
-    case "notReady":
-      return "Apple's on-device model is still downloading. Try again in a little while."
-    case "deviceNotEligible":
-      return "This iPhone can't run Apple's on-device model."
+    case "notEnabled", "notReady", "deviceNotEligible":
+      return state
     default:
-      return "Apple's on-device model needs iOS 26 or later with Apple Intelligence."
+      return "unsupported"
     }
   }
 }

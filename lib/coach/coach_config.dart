@@ -193,7 +193,7 @@ class CoachConfig extends ChangeNotifier {
   /// the BYOK settings are kept untouched for switching back.
   final ChatGptAuth chatgpt;
   bool _useChatGpt = false;
-  bool get usesChatGpt => _useChatGpt && !_useApple;
+  bool get usesChatGpt => _useChatGpt && !usesApple;
 
   /// Apple's on-device model (Foundation Models, iOS 26+): no key, no network,
   /// nothing leaves the phone. Takes precedence over every other route.
@@ -270,7 +270,12 @@ class CoachConfig extends ChangeNotifier {
 
   String get baseUrl => _baseUrl;
   CoachApi get api => usesChatGpt ? CoachApi.responses : _api;
-  String get model => _useApple ? kAppleOnDeviceModel : _model;
+  String get model => usesApple ? kAppleOnDeviceModel : _model;
+
+  /// The saved bring-your-own route and model, untouched by the Apple switch:
+  /// what the setup screen restores when Apple is switched off.
+  bool get savedUsesChatGpt => _useChatGpt;
+  String get savedModel => _model;
   /// The saved, user-configurable timeout — meaningful only for a local
   /// endpoint (see [requestTimeout]), but kept intact and readable regardless
   /// of the endpoint currently configured so a UI can show/restore it as the
@@ -291,14 +296,14 @@ class CoachConfig extends ChangeNotifier {
   /// Save closed the form, `configured` stayed false, and the coach never came
   /// on with nothing on screen to explain why. See [isLocalCoachHost] for the
   /// host classification.
-  bool get isLocalEndpoint => _useApple || isLocalCoachHost(apiBase);
+  bool get isLocalEndpoint => usesApple || isLocalCoachHost(apiBase);
 
   /// Whether the endpoint is on this device or a private network — the gate
   /// for skipping a consent prompt before health data leaves the phone.
   /// Narrower than [isLocalEndpoint]; see [isPrivateCoachHost].
-  bool get isPrivateEndpoint => _useApple || isPrivateCoachHost(apiBase);
+  bool get isPrivateEndpoint => usesApple || isPrivateCoachHost(apiBase);
 
-  bool get configured => _useApple
+  bool get configured => usesApple
       ? true
       : _useChatGpt
       ? chatgpt.sharing && _model.isNotEmpty
@@ -308,11 +313,11 @@ class CoachConfig extends ChangeNotifier {
   /// only the ChatGPT sign-in counts: a BYOK key left over from before the
   /// switch is not used there, so a signed-out ChatGPT coach is not set up.
   bool get remindersConfigured =>
-      _useApple ? true : (_useChatGpt ? configured : hasKey);
+      usesApple ? true : (_useChatGpt ? configured : hasKey);
 
   /// Normalised base, no trailing slash.
   String get apiBase {
-    if (_useApple) return kAppleOnDeviceBase;
+    if (usesApple) return kAppleOnDeviceBase;
     if (_useChatGpt) return kChatGptApiBase;
     var b = _baseUrl.trim();
     while (b.endsWith('/')) {
@@ -498,8 +503,12 @@ class CoachConfig extends ChangeNotifier {
       _keyUndetermined = false;
     }
     if (useApple != null) {
+      // Stored first, and in memory only once that landed: a failed write
+      // must not leave this run on Apple while the saved choice says off.
+      if (!await prefs.setBool(_kUseApple, useApple)) {
+        throw StateError('Couldn’t save the AI provider choice.');
+      }
       _useApple = useApple;
-      await prefs.setBool(_kUseApple, useApple);
     }
     if (useChatGpt != null) {
       _useChatGpt = useChatGpt;

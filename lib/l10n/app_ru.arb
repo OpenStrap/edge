@@ -9167,5 +9167,10 @@
   "coachAppleNotEnabled": "Включите Apple Intelligence в Настройках, чтобы использовать модель на устройстве.",
   "coachAppleNotReady": "Модель Apple на устройстве ещё загружается. Попробуйте позже.",
   "coachAppleNotEligible": "Этот iPhone не может запускать модель Apple на устройстве.",
-  "coachAppleUnsupported": "Нужен iPhone с Apple Intelligence на iOS 26 или новее."
+  "coachAppleUnsupported": "Нужен iPhone с Apple Intelligence на iOS 26 или новее.",
+  "coachAppleFailed": "Модель Apple на устройстве не смогла ответить. Попробуйте ещё раз.",
+  "coachAppleTooLong": "Это слишком длинно для модели Apple на устройстве. Начните новый чат или задайте вопрос короче.",
+  "coachAppleDeclined": "Модель Apple на устройстве отказалась на это отвечать. Попробуйте сформулировать иначе.",
+  "coachAppleTimeout": "Модель Apple на устройстве отвечала слишком долго. Попробуйте ещё раз или задайте вопрос короче.",
+  "coachAppleNoEcg": "Модель Apple на устройстве не может читать кривую ЭКГ. Чтобы проанализировать эту запись, выключите Apple Intelligence в настройках ИИ коуча и используйте другую модель."
 }

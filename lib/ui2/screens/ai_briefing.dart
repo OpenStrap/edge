@@ -237,6 +237,8 @@ class SentPayload extends StatelessWidget {
 
   /// True when the endpoint is on this machine, in which case nothing left it.
   static bool isLocal(String base) {
+    // Apple's on-device model: the request never leaves the phone.
+    if (base == kAppleOnDeviceBase) return true;
     final h = Uri.tryParse(base)?.host.toLowerCase() ?? '';
     return h == 'localhost' || h == '127.0.0.1' || h == '::1';
   }
@@ -258,7 +260,9 @@ class SentPayload extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final host = Uri.tryParse(config.apiBase)?.host ?? config.apiBase;
+    final host = config.usesApple
+        ? kAppleOnDeviceModel
+        : (Uri.tryParse(config.apiBase)?.host ?? config.apiBase);
     final local = isLocal(config.apiBase);
     final keys = inputs.keys.toList()..sort();
     // An empty payload is not "we sent an empty payload". The nightly sweep
