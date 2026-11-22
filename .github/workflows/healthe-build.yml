@@ -1,0 +1,72 @@
+# HealthE: build the iPhone (.ipa, unsigned, for Sideloadly/AltStore) and
+# Android (.apk) apps on demand, with no Mac and no Apple developer account.
+#
+# Run it from GitHub: Actions > "HealthE build" > Run workflow (pick the branch).
+# The files appear at the bottom of the run's page, under "Artifacts".
+# Firebase is left out on purpose: the app builds with its inert placeholder
+# (see ios/Runner.xcodeproj "Ensure GoogleService-Info.plist") and sends nothing.
+name: HealthE build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6'
+      - name: "Write .env (empty, no OpenStrap backend)"
+        run: |
+          echo "COMPANION_URL=" > .env
+          echo "BACKEND_URL=" >> .env
+      - run: flutter pub get
+      - name: Build APK (debug-signed release, no keystore needed)
+        run: flutter build apk --release --dart-define-from-file=.env
+      - uses: actions/upload-artifact@v4
+        with:
+          name: healthe-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6'
+      - name: "Write .env (empty, no OpenStrap backend)"
+        run: |
+          echo "COMPANION_URL=" > .env
+          echo "BACKEND_URL=" >> .env
+      - name: Install flutterfire (required by the Crashlytics Xcode build phase)
+        run: dart pub global activate flutterfire_cli 1.4.0
+      - run: flutter pub get
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+      # The Watch companion cannot survive a free-account resign (see build.yml).
+      - name: Strip Watch companion
+        run: rm -rf "build/ios/iphoneos/Runner.app/Watch"
+      - name: Package unsigned IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/Runner.app
+          zip -qr -y "$GITHUB_WORKSPACE/healthe-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: healthe-ios-ipa
+          path: healthe-unsigned.ipa
