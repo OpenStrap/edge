@@ -1884,8 +1884,9 @@ class AppState extends ChangeNotifier {
     await bounded('colmi', ColmiLink.instance.stop);
     await bounded('garmin', GarminLink.instance.stop);
     await bounded('miband234', MiBand234Link.instance.stop);
-    await bounded('helio_strap', HelioStrapLink.instance.stop);
-    await bounded('zeppos_l66', HelioStrapLink.miBand7.stop);
+    for (final l in HelioStrapLink.all) {
+      await bounded(l.entry.id, l.stop);
+    }
     await bounded('pebble', PebbleLink.instance.stop);
     await bounded('coros', CorosLink.instance.stop);
     for (final link in SessionLink.all) {

@@ -482,15 +482,14 @@ Future<void> syncPairedSensors() async {
   // Same piggyback, same reasoning: no-ops when unpaired (and also when no
   // auth key is stored yet — see `HelioStrapLink.sync`'s own doc), must
   // never let a failure here mark the WHOOP cycle as errored.
-  try {
-    await HelioStrapLink.instance.sync();
-  } catch (e) {
-    debugPrint('[bgsync] helio_strap sync skipped: $e');
-  }
-  try {
-    await HelioStrapLink.miBand7.sync();
-  } catch (e) {
-    debugPrint('[bgsync] zeppos_l66 sync skipped: $e');
+  // One at a time, each on its own: a failure on one device never skips the
+  // rest. Unpaired ones no-op.
+  for (final link in HelioStrapLink.all) {
+    try {
+      await link.sync();
+    } catch (e) {
+      debugPrint('[bgsync] ${link.entry.id} sync skipped: $e');
+    }
   }
   // Thermometer and scales: same piggyback; each no-ops when unpaired and
   // only reaches a device that happens to be awake and nearby.

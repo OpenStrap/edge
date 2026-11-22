@@ -299,7 +299,8 @@ class HelioStrapAdapter extends BandAdapter {
         authKeyReader =
             authKeyReader ?? (() => _defaultAuthKeyReader(entry));
 
-  /// The device this session drives: [kHelioStrap] or [kMiBand7]. Same
+  /// The device this session drives: [kHelioStrap], [kMiBand7] or one of the
+  /// Zepp OS watches. Same
   /// protocol; the entry decides the key slot, attribution, signals and
   /// which record types are decoded.
   @override
@@ -307,7 +308,7 @@ class HelioStrapAdapter extends BandAdapter {
 
   @override
   Map<InputSignal, Duration> get signals =>
-      entry.id == kMiBand7.id ? kMiBand7Signals : kHelioStrapSignals;
+      entry.id == kHelioStrap.id ? kHelioStrapSignals : kZeppOsSignals;
 
   String get _attribution => zeppOsAttribution(entry);
 
@@ -885,10 +886,11 @@ const Map<InputSignal, Duration> kHelioStrapSignals = {
   InputSignal.vendorScalars: Duration.zero,
 };
 
-/// The signals Mi Band 7 supplies. Mirrored in `kAdapterSignals`. No skin
-/// temperature (no sensor), and no HRV: its HRV records are banked raw,
-/// not decoded ([HelioStrapAdapter._decodesHrv]).
-const Map<InputSignal, Duration> kMiBand7Signals = {
+/// The signals every Zepp OS device other than the Helio Strap supplies
+/// (Mi Band 7, the GTR 3 / GTR 3 Pro / GTS 3 watches). Mirrored in
+/// `kAdapterSignals`. No skin temperature (no channel), and no HRV: their
+/// HRV records are banked raw, not decoded ([HelioStrapAdapter._decodesHrv]).
+const Map<InputSignal, Duration> kZeppOsSignals = {
   InputSignal.hrSparse: Duration(minutes: 1),
   InputSignal.steps: Duration(minutes: 1),
   InputSignal.deviceStages: Duration.zero,

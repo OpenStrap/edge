@@ -77,12 +77,16 @@ Future<String?> pairHelioStrapWithTypedKey(
         BluetoothDevice device, String raw) =>
     _pairZeppOsWithTypedKey(device, raw, kHelioStrap);
 
-/// [pairHelioStrapWithTypedKey] for a Xiaomi / Mi Smart Band 7: the same
-/// handshake and the same verify-then-store rules, under its own key slot
-/// and its own `device` row.
-Future<String?> pairMiBand7WithTypedKey(
-        BluetoothDevice device, String raw) =>
-    _pairZeppOsWithTypedKey(device, raw, kMiBand7);
+/// The typed-key pairing function for [adapterId] when it is one of this
+/// family's devices (Helio Strap, Mi Band 7, the Zepp OS watches), else
+/// null. Same handshake and verify-then-store rules for each, under the
+/// device's own key slot and its own `device` row.
+Future<String?> Function(BluetoothDevice, String)? zeppOsTypedKeyPairFor(
+    String adapterId) {
+  final link = HelioStrapLink.forId(adapterId);
+  if (link == null) return null;
+  return (device, raw) => _pairZeppOsWithTypedKey(device, raw, link.entry);
+}
 
 Future<String?> _pairZeppOsWithTypedKey(
     BluetoothDevice device, String raw, BandEntry entry) async {
@@ -368,6 +372,21 @@ class HelioStrapLink {
   HelioStrapLink._(this.entry);
   static final HelioStrapLink instance = HelioStrapLink._(kHelioStrap);
   static final HelioStrapLink miBand7 = HelioStrapLink._(kMiBand7);
+  static final HelioStrapLink gtr3 = HelioStrapLink._(kAmazfitGtr3);
+  static final HelioStrapLink gtr3Pro = HelioStrapLink._(kAmazfitGtr3Pro);
+  static final HelioStrapLink gts3 = HelioStrapLink._(kAmazfitGts3);
+
+  /// Every link of this family, so app-wide stop / background sync loop over
+  /// them instead of naming each device.
+  static final List<HelioStrapLink> all = [instance, miBand7, gtr3, gtr3Pro, gts3];
+
+  /// The link driving [adapterId], or null when it is not this family.
+  static HelioStrapLink? forId(Object? adapterId) {
+    for (final l in all) {
+      if (l.entry.id == adapterId) return l;
+    }
+    return null;
+  }
 
   /// The family this link drives.
   final BandEntry entry;

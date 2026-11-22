@@ -1117,6 +1117,69 @@ bool _looksLikeMiBand7(String lowercaseName) =>
     lowercaseName == 'mi smart band 7' ||
     RegExp(r'^xiaomi smart band 7( [0-9a-z]{4})?$').hasMatch(lowercaseName);
 
+/// One Zepp OS watch on the Helio engine, keyed by codename. Same protocol,
+/// channels and caveats as [kMiBand7]: EXPERIMENTAL (ASSUMPTIONS R6), nobody
+/// on this project owns one, HRV banked raw, not decoded.
+const BandEntry kAmazfitGtr3 = BandEntry.notify(
+  id: 'zeppos_verona',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTR 3',
+  service: kHuami234Service,
+  characteristics: _kZeppOsChars,
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGtr3,
+  scanByName: true,
+);
+
+/// See [kAmazfitGtr3].
+const BandEntry kAmazfitGtr3Pro = BandEntry.notify(
+  id: 'zeppos_madrid',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTR 3 Pro',
+  service: kHuami234Service,
+  characteristics: _kZeppOsChars,
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGtr3Pro,
+  scanByName: true,
+);
+
+/// See [kAmazfitGtr3].
+const BandEntry kAmazfitGts3 = BandEntry.notify(
+  id: 'zeppos_zurich',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTS 3',
+  service: kHuami234Service,
+  characteristics: _kZeppOsChars,
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGts3,
+  scanByName: true,
+);
+
+const List<String> _kZeppOsChars = <String>[
+  kHuami2021ChunkWriteChar,
+  kHuami2021ChunkNotifyChar,
+  kHuami2021FetchControlChar,
+  kHuami2021FetchDataChar,
+];
+
+/// Exact names only: each codename's retail names plus the codename itself.
+/// "amazfit gtr 3" must never claim a GTR 3 Pro.
+bool _looksLikeGtr3(String n) =>
+    const {'verona', 'amazfit gtr 3', 'amazfit gtr 3e'}.contains(n);
+bool _looksLikeGtr3Pro(String n) =>
+    const {'madrid', 'madrid w', 'madridw', 'amazfit gtr 3 pro'}.contains(n);
+bool _looksLikeGts3(String n) =>
+    const {'zurich', 'amazfit gts 3', 'amazfit gts 3e'}.contains(n);
+
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
 /// PPoGATT carries the inner protocol, whose health data logging the adapter
 /// decodes (HR, steps, the watch's sleep periods). `pebble_link.dart`'s
@@ -1329,6 +1392,9 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kMiBand234,
   kHelioStrap,
   kMiBand7,
+  kAmazfitGtr3,
+  kAmazfitGtr3Pro,
+  kAmazfitGts3,
   kPebble,
   kColmi,
   kGarmin,
@@ -1385,9 +1451,10 @@ final List<BandEntry> kFramedBands =
 /// advertisement can be read for a `bluetoothCompanyIdentifier` or
 /// manufacturer-data blob that differs from Mi Band's.
 ///
-/// [kMiBand7] is listed under the same owner-accepted risk (owner decision
-/// 2026-11-23): a third FEE1 device, told apart from the other two only by
-/// the name it advertises.
+/// [kMiBand7], [kAmazfitGtr3], [kAmazfitGtr3Pro] and [kAmazfitGts3] are
+/// listed under the same owner-accepted risk (owner decision 2026-11-23):
+/// more FEE1 devices, told apart only by the names they advertise. They sit
+/// before [kHelioStrap] so the FEE1 label the picker shows stays the strap's.
 ///
 /// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
 /// [kMiScale2] are listed although they break the rule above: the band is
@@ -1407,6 +1474,9 @@ const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kUltrahuman,
   kMiBand234,
   kMiBand7,
+  kAmazfitGtr3,
+  kAmazfitGtr3Pro,
+  kAmazfitGts3,
   kHelioStrap,
   kPebble,
   kGarmin,
@@ -1564,10 +1634,30 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceStages: Duration.zero,
     InputSignal.vendorScalars: Duration.zero,
   },
-  // Mirrors `kMiBand7Signals` in `helio_strap.dart`. Only what this band is
+  // Mirrors `kZeppOsSignals` in `helio_strap.dart`. Only what this band is
   // known to carry: no skin-temperature sensor, and its HRV records are
   // banked raw, not decoded (unit unconfirmed without hardware).
   'zeppos_l66': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  // The Zepp OS watches: the same declaration as Mi Band 7, for the same
+  // reasons (no skin-temperature channel, HRV not decoded).
+  'zeppos_verona': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  'zeppos_madrid': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  'zeppos_zurich': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(minutes: 1),
     InputSignal.deviceStages: Duration.zero,
