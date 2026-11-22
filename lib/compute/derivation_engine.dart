@@ -1905,7 +1905,15 @@ import 'vendor_sleep.dart';
 // stress_backfill.dart rescales stored history in place from each day's own
 // `stress.si` so the trend has no step at the bump. User-visible: every stress score moves
 // up once (e.g. SI 160 reads ~72, was ~61); nights that read 0 now read low.
-const int kAlgoVersion = 126;
+// 126 → 127 (edge-side derive fixes, no sibling repin): the daytime-HRV and
+// resting-resp stillness gate now reads the gravity-removed vector (a minus
+// its trailing mean), not ||a|-1 g| which only measured a posture's calibration
+// offset, so resp_day and daytime HRV windows move; active_min skips tonight's
+// sleep when it began before midnight; vendor (device-reported) sleep ownership
+// counts covered TIME not rows, so sparse substrates are not called unclaimed;
+// ring naps no longer bridge ring-off holes; the quiet-level repass counts
+// wearable-only days as substrate; calories absence names resting_hr.
+const int kAlgoVersion = 127;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

@@ -6,7 +6,7 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 void main() {
   // WHY: finalized days need a new version when the analytics pin changes outputs.
   test('ED-2b adoption and workout rest repin name their output changes', () {
-    expect(kAlgoVersion, 126);
+    expect(kAlgoVersion, 127);
     expect(kAnalyticsPin, 'a438df40b38a4586a52a68ab7e1c100fca111ccd');
     final src = File('lib/compute/derivation_engine.dart').readAsStringSync();
     final at = src.indexOf('// 121 → 122');
@@ -38,6 +38,11 @@ void main() {
     for (final change in ['#631', 'stress', 'kStressScoreFloorSi',
       'stress_backfill']) {
       expect(stressEntry, contains(change));
+    }
+    final deriveEntry = src.substring(
+        src.indexOf('// 126 → 127'), src.indexOf('const int kAlgoVersion'));
+    for (final change in ['stillness', 'active_min', 'vendor', 'ring naps']) {
+      expect(deriveEntry, contains(change));
     }
   });
 }
