@@ -110,6 +110,7 @@ const Map<String, String> kPrefTypes = {
   'coach_api': 'string',
   'coach_model': 'string',
   'coach_timeout_seconds': 'int',
+  'coach_use_apple': 'bool',
   'coach_use_chatgpt': 'bool',
   'cycle_tracking_enabled': 'bool',
   'dev.mode': 'bool',

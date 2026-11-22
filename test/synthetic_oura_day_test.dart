@@ -220,9 +220,11 @@ void main() {
   test('flag on: every Oura cell derives, stores and serves in its class',
       () async {
     await LocalDb.setCursor(wearableEnabledCursor(kOuraFamily), '1');
+    // 5, not 4: the quiet-level repass now sees wearable-only days, so the
+    // night owed a level is derived a second time after the history fills.
     for (var i = 0; i < 2; i++) {
       expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+          await DerivationEngine().runDays(_profile, _dayIds, force: true), i == 0 ? 5 : 4);
     }
     final cells = (await dayCells(_dayId))!;
     // ignore: avoid_print
@@ -480,7 +482,7 @@ void main() {
 
     // Flag back on, but another wearable is the active one.
     await LocalDb.setCursor(wearableEnabledCursor(kOuraFamily), '1');
-    expect(await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+    expect(await DerivationEngine().runDays(_profile, _dayIds, force: true), 5);
     await LocalDb.upsertDevice(
         id: 'garmin-other', adapterId: 'garmin', label: 'garmin');
     expect(await setActiveWearable('garmin-other'), containsAll(_dayIds));
@@ -490,7 +492,7 @@ void main() {
     // Twice, as above: the second pass reads the nights the first stored.
     for (var i = 0; i < 2; i++) {
       expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+          await DerivationEngine().runDays(_profile, _dayIds, force: true), i == 0 ? 5 : 4);
     }
     final cells = (await dayCells(_dayId))!;
     expect(cells['skin_temp']!['class'], 'ours');

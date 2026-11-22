@@ -28,6 +28,7 @@ import 'coach_actions.dart';
 import 'coach_chat_completions.dart';
 import 'coach_chatgpt.dart';
 import 'coach_config.dart';
+import 'coach_apple.dart';
 import 'coach_db.dart';
 import 'coach_prompt.dart';
 import 'coach_responses.dart';
@@ -832,7 +833,7 @@ class CoachEngine {
         'tools': _toolDefs,
         'tool_choice': 'auto',
         'temperature': 0.3,
-      }, client: _http);
+      }, client: _http, appleToday: _todayReadiness);
 
   /// True when [model] names a Claude version that rejects OpenAI sampling
   /// params (temperature/top_p/top_k) with a 400: Opus >= 4.7, Sonnet and
@@ -874,7 +875,16 @@ class CoachEngine {
     CoachConfig config,
     Map<String, dynamic> body, {
     http.Client? client,
+    Future<({String day, num? readiness})?> Function()? appleToday,
   }) async {
+    // Apple's on-device model: no HTTP, nothing leaves the phone.
+    if (config.usesApple) {
+      try {
+        return await AppleOnDevice.reply(body, today: appleToday);
+      } on StateError catch (e) {
+        throw CoachException(e.message);
+      }
+    }
     final c = client ?? http.Client();
     final model = body['model'] as String? ?? '';
     final api = config.api;

@@ -27,6 +27,20 @@ import '../ui2/screens/home_screen.dart' as ring show readinessBand;
 import 'briefing.dart';
 import 'nightly_sweep.dart';
 
+/// Where a briefing's request went, as stored on the [Briefing]: Apple's
+/// on-device pseudo-base, or the endpoint's scheme, host and port ONLY. A
+/// custom base URL can carry an access key in its path or query, and saved
+/// briefings travel in backups, so nothing past the host is kept. Null when
+/// the endpoint has no host, which the screen then reports as unknown.
+String? briefingEndpointOf(CoachConfig config) {
+  if (config.usesApple) return kAppleOnDeviceBase;
+  final u = Uri.tryParse(config.apiBase.trim());
+  if (u == null || u.host.isEmpty) return null;
+  // Built with Uri so an IPv6 host keeps its brackets (http://[::1]:11434).
+  return Uri(scheme: u.scheme, host: u.host, port: u.hasPort ? u.port : null)
+      .toString();
+}
+
 /// Injectable one-shot completion (tests pass a fake; production defaults to
 /// [CoachEngine.completeText] — the shared BYOK plumbing).
 typedef BriefingComplete = Future<String> Function({
@@ -556,6 +570,11 @@ class BriefingEngine {
       BriefingStore.write(b);
       return b;
     }
+    // Where the request goes, read in the same synchronous run as the request
+    // itself (postChat reads the config before its first await): a provider
+    // switched while the model is answering must not relabel this briefing.
+    final sentTo = briefingEndpointOf(config);
+    final sentModel = config.model;
     final raw = await (complete ??
         (({required String system, required String user}) =>
             CoachEngine.completeText(
@@ -574,6 +593,8 @@ class BriefingEngine {
       breakdownMd: parsed.breakdownMd,
       generatedAtMs: (wallNow ?? effectiveNow).millisecondsSinceEpoch,
       inputs: inputs,
+      endpoint: sentTo,
+      model: sentModel,
     );
     // An older request must not overwrite a complete briefing a newer one
     // already stored while this one waited on the model.

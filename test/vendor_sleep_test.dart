@@ -215,6 +215,17 @@ void main() {
           isEmpty);
       expect(vendorNightUnclaimed(ring, const []), isTrue);
     });
+    test('unclaimed is measured in time, not rows, on a sparse substrate', () {
+      // 1 row per minute all night: covered, not unclaimed.
+      final perMin = [for (var t = _at(26, 22); t < _at(27, 8); t += 60) t];
+      expect(vendorNightUnclaimed(ring, perMin), isFalse);
+      // 5-minute rows all night: covered too.
+      final per5 = [for (var t = _at(26, 22); t < _at(27, 8); t += 300) t];
+      expect(vendorNightUnclaimed(ring, per5), isFalse);
+      // 1/min rows for the first 2 h of an 8 h night only: unclaimed.
+      final head = [for (var t = _at(26, 23); t < _at(27, 1); t += 60) t];
+      expect(vendorNightUnclaimed(ring, head), isTrue);
+    });
     test('an unclaimed night skips only the checks against our data', () {
       final n = _night(_at(26, 23), _at(27, 7));
       expect(

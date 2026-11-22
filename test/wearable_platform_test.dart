@@ -172,7 +172,7 @@ void main() {
         'out of the priority hash', () async {
       for (var i = 0; i < 2; i++) {
         expect(await DerivationEngine().runDays(_profile, _dayIds, force: true),
-            4);
+            i == 0 ? 5 : 4);
       }
       final db = await LocalDb.instance;
       final v = await db.query('metric_series_version',
