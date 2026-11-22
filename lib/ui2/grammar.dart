@@ -35,6 +35,7 @@ import '../l10n/decimal_text.dart' show parseTypedNumber;
 import '../l10n/presentation_text.dart';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
@@ -83,6 +84,14 @@ class Pressable extends StatefulWidget {
 
 class _PressableState extends State<Pressable> {
   bool _down = false;
+  bool _focused = false;
+
+  // A null onTap unmounts the focus detector, which never reports the loss.
+  @override
+  void didUpdateWidget(Pressable old) {
+    super.didUpdateWidget(old);
+    if (widget.onTap == null) _focused = false;
+  }
 
   // The guide run (guides/guide_dim.dart) paints its dim or skeleton INSIDE the
   // component, so it moves with the content in every frame. The mark sits BELOW this
@@ -113,16 +122,38 @@ class _PressableState extends State<Pressable> {
     return Semantics(
       button: true,
       label: widget.semanticLabel,
-      child: GuideUnitMark(component: c, child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        onTapDown: (_) => setState(() => _down = true),
-        onTapUp: (_) => setState(() => _down = false),
-        onTapCancel: () => setState(() => _down = false),
-        child: AnimatedScale(
-          scale: _down ? .975 : 1,
-          duration: motion(c, Motion.fast),
-          child: out,
+      // Enter/Space (ActivateIntent is bound to both by default) fire onTap, and
+      // a ring shows while focus is keyboard-driven.
+      child: GuideUnitMark(component: c, child: FocusableActionDetector(
+        onShowFocusHighlight: (v) => setState(() => _focused = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap?.call();
+              return null;
+            },
+          ),
+        },
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            borderRadius: R.rMd,
+            border: _focused
+                ? Border.all(color: P.of(c).ink, width: 2)
+                : null,
+          ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
+            onTapDown: (_) => setState(() => _down = true),
+            onTapUp: (_) => setState(() => _down = false),
+            onTapCancel: () => setState(() => _down = false),
+            child: AnimatedScale(
+              scale: _down ? .975 : 1,
+              duration: motion(c, Motion.fast),
+              child: out,
+            ),
+          ),
         ),
       )),
     );
@@ -2431,15 +2462,28 @@ class _SubTabsState extends State<SubTabs> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void initState() {
+    super.initState();
     _reveal();
   }
 
+  // Chip widths follow the text scale; re-reveal only when it changes.
+  TextScaler? _scaler;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final s = MediaQuery.textScalerOf(context);
+    if (_scaler != null && _scaler != s) _reveal();
+    _scaler = s;
+  }
+
+  // Parents rebuild the items list on every setState, so compare contents:
+  // an identity check would snap the row back under the user's finger.
   @override
   void didUpdateWidget(SubTabs oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index || oldWidget.items != widget.items) {
+    if (oldWidget.index != widget.index ||
+        !listEquals(oldWidget.items, widget.items)) {
       _reveal();
     }
   }

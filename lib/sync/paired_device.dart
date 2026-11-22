@@ -151,17 +151,26 @@ class PairedDevice {
   /// (`upsertDevice` COALESCEs), and a row that has never been told keeps
   /// NULL, which every per-family metric reads as a refusal instead of
   /// assuming gen4.
+  ///
+  /// [onlyIfPaired] makes it a heal, never a pairing: it writes only when
+  /// [remoteId] is still the paired band. A record loaded before a forget
+  /// (the headless sync holds one across its whole connect) would otherwise
+  /// pair the forgotten band again, because a save queued behind `clear()`
+  /// writes normally.
   static Future<void> save(
     String remoteId,
     String? serial, {
     String? generation,
+    bool onlyIfPaired = false,
   }) =>
-      _serialized(() => _save(remoteId, serial, generation: generation));
+      _serialized(() => _save(remoteId, serial,
+          generation: generation, onlyIfPaired: onlyIfPaired));
 
   static Future<void> _save(
     String remoteId,
     String? serial, {
     String? generation,
+    bool onlyIfPaired = false,
   }) async {
     final epoch = _forgetEpoch;
     final clean = cleanDeviceLabel(serial);
@@ -177,9 +186,13 @@ class PairedDevice {
     // from. Both copies are then written the same way, so the mirror cannot
     // heal a stale generation back over a corrected one.
     final row = await LocalDb.deviceRow();
+    // A heal trusts the row alone: a forget in another isolate deletes it,
+    // while this isolate's prefs cache can still hold the old remote id.
+    final rowRemoteId = row?['remote_id'] as String?;
     final knownRemoteId =
-        (row?['remote_id'] as String?) ?? prefs.getString(_kRemoteId);
+        onlyIfPaired ? rowRemoteId : rowRemoteId ?? prefs.getString(_kRemoteId);
     final sameDevice = knownRemoteId == remoteId;
+    if (onlyIfPaired && !sameDevice) return;
     // A forget that landed while the reads above were in flight wins: this
     // save is describing a band the user has just told us to drop.
     if (epoch != _forgetEpoch) return;
@@ -204,6 +217,14 @@ class PairedDevice {
     final db = await LocalDb.instance;
     try {
       await db.transaction((txn) async {
+        // A forget in another isolate can land between the read above and
+        // this write; recheck under the transaction lock so a heal never
+        // re-pairs it.
+        if (onlyIfPaired) {
+          final r = await txn.query('device',
+              where: 'id = ?', whereArgs: [LocalDb.kPrimaryDeviceId]);
+          if (r.isEmpty || r.first['remote_id'] != remoteId) return;
+        }
         await LocalDb.upsertDevice(
           adapterId: gen,
           remoteId: remoteId,

@@ -88,7 +88,7 @@
 		<string>Bluetooth</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<string>OpenStrap connects to your wearables and sensors over Bluetooth to sync your health data.</string>
 	<!-- GENERATED (see above): service UUID -> ASK picker row label. Cosmetic
 	     only; AccessorySetup.swift falls back to a generic name. -->
 	<key>OSBandLabels</key>
@@ -170,7 +170,7 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts, and the weighings of a scale you have paired, into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<string>OpenStrap connects to your wearables and sensors over Bluetooth to sync your health data.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>OpenStrap records your route during a run, ride or walk so you can see it, colored by heart-rate zone, when the workout ends. Recording continues while your screen is locked or you switch apps, but only while a workout is running — it stops the moment you finish. Your route stays on this device and is never uploaded.</string>
 	<!-- NSLocationAlwaysAndWhenInUseUsageDescription: STILL not requested by app

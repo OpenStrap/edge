@@ -32,6 +32,7 @@ import 'dart:math' as math;
 
 import 'quiet_level_seed.dart' show seedQuietHrrHistoryOnce;
 import 'strain_backfill.dart' show backfillStrainScale;
+import 'stress_backfill.dart' show backfillStressScale;
 import 'readiness_calibration_backfill.dart'
     show backfillReadinessCalibration, seedRecentReadinessZ;
 
@@ -1893,7 +1894,18 @@ import 'vendor_sleep.dart';
 // no window does, instead of the longest of the search window's sessions.
 // HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
 // rebuilds of old checkpoints, isolated by this algorithm version.
-const int kAlgoVersion = 124;
+// 124 → 125 (no analytics change): the strain rescale restamped old bundles
+// at v124 with only strain rewritten, so they publish a readiness that never
+// went through the calibrated mapping. The one-shot readiness backfill
+// (re-keyed v125) re-scores them into v125 rows; v124 rows stay as written.
+// 125 → 126 (edge-side recalibration, no sibling repin): stress score. The
+// Baevsky SI -> 0-100 map floored at SI 20, clamping every genuinely low night
+// (SI < 50 is Baevsky's own "low" band) to a flat 0 and losing all variation
+// for high-HRV sleepers (#631). `kStressScoreFloorSi` is now 5.
+// stress_backfill.dart rescales stored history in place from each day's own
+// `stress.si` so the trend has no step at the bump. User-visible: every stress score moves
+// up once (e.g. SI 160 reads ~72, was ~61); nights that read 0 now read low.
+const int kAlgoVersion = 126;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2680,6 +2692,7 @@ class _BaselineHistoryCache {
     'rhr',
     'resp_rate',
     'skin_temp_adc',
+    'enmo_median_night',
     'readiness',
     // The readiness composite z — later days' scores are calibrated against
     // its spread (`calibratedReadinessScore`).
@@ -3309,8 +3322,6 @@ class DerivationEngine {
     _cardioRowChunks.clear();
     _nightStates.clear();
     _checkpointPlans.clear();
-    debugCheckpoints.lastEncodedPayload = null;
-    debugCheckpoints.lastDecodedPayload = null;
     debugNightStreams?.nightState.clear();
   }
 
@@ -4205,6 +4216,26 @@ class DerivationEngine {
         } catch (e) {
           _log('[derive] strain rescale failed (kept old values): $e');
         }
+        // Same one-shot shape as the strain rescale and for the same reason:
+        // low nights older than `rawRetentionDays` keep a floor-20 score that a
+        // version bump alone cannot reach. Pure function of each day's stored
+        // `stress.si`, so it needs no baseline (#631).
+        _diag['stage'] = 'stress_rescale';
+        var stressRescaled = false;
+        try {
+          final rescaled = await backfillStressScale();
+          if (rescaled.didWork) {
+            stressRescaled = true;
+            _log('[derive] stress rescale: ${rescaled.bundleDays} row(s), '
+                '${rescaled.seriesDays} trend point(s) rescaled in place, '
+                '${rescaled.skipped} skipped (no stored index or imported)');
+          }
+        } catch (e) {
+          // Each day commits on its own, so days before the failure stay
+          // rescaled; the marker is not written, so the next pass resumes.
+          stressRescaled = true;
+          _log('[derive] stress rescale stopped, will retry next pass: $e');
+        }
         // ONE-SHOT, after the sweep for the same reason as the strain rescale:
         // the rest of the readiness_z history, then a re-score of every day
         // below v112 that has no raw substrate left (substrate days were just
@@ -4236,10 +4267,10 @@ class DerivationEngine {
         } catch (e) {
           _log('[derive] readiness calibration failed (will retry): $e');
         }
-        // The strain rescale rewrote stored days after the rollup of this pass
-        // was built from the old values. When the calibration above did not
+        // The strain or stress rescale rewrote stored days after the rollup of
+        // this pass was built from the old values. When the calibration above did not
         // rebuild it (no work, or it failed), rebuild it here.
-        if (strainRescaled && !crossDayRebuilt) {
+        if ((strainRescaled || stressRescaled) && !crossDayRebuilt) {
           try {
             await _refreshBaselines();
             await _runCrossDay(profile);
@@ -4451,7 +4482,9 @@ class DerivationEngine {
     // rows, which the signature check rejects. Read after, it would attach the
     // newer revision to rows that predate it and certify a stale ceiling.
     final ceilingInput = await _ceilingInputRevision(dayId);
-    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union);
+    final useHmmStages = await _hmmStagesOn();
+    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union,
+        useHmmStages: useHmmStages);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
 
@@ -4568,6 +4601,7 @@ class DerivationEngine {
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
     );
     final prepared = candidate.toPreparedDay(
+      useHmmStages: useHmmStages,
       daySub: daySub,
       napSub: napSub,
       sleepSub: sleepSub,
@@ -4725,7 +4759,9 @@ class DerivationEngine {
     String dayId, {
     _PrepareStats? stats,
     _PrepareUnion? union,
+    bool? useHmmStages,
   }) async {
+    final hmmStages = useHmmStages ?? await _hmmStagesOn();
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
     // not shadowed by a stale artifact). The auto path keeps its finalized cache.
@@ -4785,8 +4821,6 @@ class DerivationEngine {
           for (final state in _nightStates.values) { state.clear(); }
           _cardioRowChunks.clear();
           _checkpointPlans.clear();
-          debugCheckpoints.lastEncodedPayload = null;
-          debugCheckpoints.lastDecodedPayload = null;
         }
         _checkpointGeneration = generation;
         final rows = await db.rawQuery(
@@ -4931,6 +4965,7 @@ class DerivationEngine {
           vendorNights: vendorNights,
           activeWearable: stagingWearable,
           prefixContext: prefixContext,
+          useHmmStages: hmmStages,
         );
         if (revisions != null && !debugDisableStagedSleepCache) stagingKey = inputKey(false);
         if (checkpointPlan != null) {
@@ -5012,12 +5047,11 @@ class DerivationEngine {
                   searchRr: searchRr, searchTimes: searchTimes), _perDayTimeout,
               label: 'checkpoint-read $dayId');
             if (restored.rejection != null) {
-              debugCheckpoints.rejections.add(restored.rejection!);
+              debugCheckpoints.reject(restored.rejection!);
               debugCheckpoints.misses++;
             } else if (LocalDb.storeGeneration == checkpointPlan.generation &&
                 rowsEpoch == _retentionEpoch) {
               checkpointPlan.restored = restored.night;
-              debugCheckpoints.lastDecodedPayload = restored.payload;
               if (cacheRows && restored.cardio != null) rowBytes.add(restored.cardio!);
             }
           }
@@ -6659,7 +6693,12 @@ class DerivationEngine {
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
     return _withRunLock(0, () async {
-      final days = calendarDays(sub);
+      // One date (every NoopIngest call): stage only that night, like the
+      // live path. The full walk re-staged the buffered prior evening on the
+      // UI isolate and then threw it away, so an import paid two nights per day.
+      final target = dates.length == 1 ? dates.single : null;
+      final days = calendarDays(sub,
+          targetDay: target, skipUnusedDays: target != null);
       final dataNowSec = sub.lastTs ?? 0;
       var done = 0;
       for (var i = 0; i < days.length; i++) {
@@ -6707,13 +6746,14 @@ class DerivationEngine {
   }
 
   /// Durable review jobs outlive a busy derive or a terminated process.
-  Future<bool> refreshActivityReviews(Profile profile) async {
+  /// true = reviews landed, false = retry later, null = nothing was pending.
+  Future<bool?> refreshActivityReviews(Profile profile) async {
     if (_running) return false;
     _running = true;
     beginWearableDayIndexPass();
     try {
       final revisions = await LocalDb.applyPendingActivityReviews();
-      if (revisions.isEmpty) return true;
+      if (revisions.isEmpty) return null;
       // Rebuild from the accepted day rows, including when an input artifact
       // was already cached today. A failed rollup must leave the work durable.
       if (!await _runCrossDay(profile)) return false;
@@ -6777,6 +6817,7 @@ class DerivationEngine {
     );
     await _derivePreparedDay(
       PreparedDerivationDay(
+        useHmmStages: await _hmmStagesOn(),
         date: day.date,
         endSec: day.endSec,
         confidence: day.confidence,
@@ -6889,6 +6930,23 @@ class DerivationEngine {
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
       sleepSkinTemp: sleepSub.skinTemp,
+      // Per-second ENMO over the sleep window (gravity vector magnitude − 1 g),
+      // for the hybrid HMM input. Absent accel (0,0,0 sentinel) -> 0.0, which
+      // the classifier reads as "no motion evidence", never "still".
+      sleepEnmo: [
+        for (var i = 0; i < sleepSub.tsSec.length; i++)
+          sleepSub.accelPresentAt(i)
+              ? math.max(
+                  0.0,
+                  math.sqrt(
+                        sleepSub.ax[i] * sleepSub.ax[i] +
+                            sleepSub.ay[i] * sleepSub.ay[i] +
+                            sleepSub.az[i] * sleepSub.az[i],
+                      ) -
+                      1.0,
+                )
+              : -1.0, // absent sentinel (CodeRabbit #756): measured zero motion is >= 0
+      ],
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
       sleepOnsetSec: day.sleepOnsetSec,
@@ -6905,7 +6963,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
-      useHmmStages: await _hmmStagesOn(),
+      useHmmStages: day.useHmmStages,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -6967,7 +7025,7 @@ class DerivationEngine {
       }
       final result = deriveDayBundle(withHistory, streamDiagnostics: diagnostics,
           nightState: state);
-      NightCheckpointWrite? checkpoint;
+      Uint8List? checkpoint;
       if (canCheckpoint) {
         try {
           checkpoint = encodeNightCheckpoint(state, checkpointRows, checkpointDay,
@@ -6986,7 +7044,7 @@ class DerivationEngine {
     final bundle = workerResult.$1;
     if (workerResult.$4) debugCheckpoints.hits++;
     if (workerResult.$5) {
-      debugCheckpoints.rejections.add('checkpoint night prefix/window');
+      debugCheckpoints.reject('checkpoint night prefix/window');
       debugCheckpoints.misses++;
     }
     if (diagnostics != null) debugNightStreams = workerResult.$3;
@@ -7759,6 +7817,10 @@ class DerivationEngine {
         // EVERY day (even during the bootstrap window where skin_temp_z is null)
         // so the baseline fills and z begins computing from ~day 4.
         'skin_temp_adc': sc('skin_temp_adc'),
+        // The night's stable-core ENMO median, only for HMM-restaged nights
+        // (null otherwise -> no series row, history fills from HMM nights).
+        if (((bundle['sleep'] as Map?)?['stager_enmo_median'] as num?)?.toDouble() case final v?)
+          if (v >= 0) 'enmo_median_night': v,
         'dip_pct': sc('dip_pct'),
         // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
         // Written even when NULL: an abstaining day must overwrite a value a
@@ -7860,7 +7922,7 @@ class DerivationEngine {
               'day_id': day.date, 'algo_version': kAlgoVersion,
               'fmt': nightCheckpointFormat, 'ctx_sig': checkpointContext,
               'cp_rec_ts': checkpointBoundary, 'rev_vec': checkpointVector,
-              'state': checkpoint.bytes, 'night_ref': null,
+              'state': checkpoint, 'night_ref': null,
               'computed_at': DateTime.now().millisecondsSinceEpoch,
             }, conflictAlgorithm: ConflictAlgorithm.replace);
             await txn.rawDelete('DELETE FROM day_checkpoint WHERE day_id NOT IN '
@@ -7868,8 +7930,6 @@ class DerivationEngine {
               'ORDER BY day_id DESC LIMIT 3) OR algo_version != ?', [kAlgoVersion]);
           });
           debugCheckpoints.writes++;
-          debugCheckpoints.lastEncodedPayload = checkpoint.bytes;
-          debugCheckpoints.lastDecodedPayload = checkpoint.payload;
         }
       } catch (_) {
         // Disposable scratch is never required to commit a day result.
@@ -8383,6 +8443,8 @@ class DerivationEngine {
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
     m['skin_temp_adc_history'] = before('skin_temp_adc');
+    // Per-night stable-core ENMO medians (written only for HMM-staged nights).
+    m['enmo_history'] = before('enmo_median_night');
     // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
     // not a window (see [maxBefore]), and strictly before today so a day is
     // never banded on a ceiling its own session set.
@@ -8610,7 +8672,8 @@ class DerivationEngine {
           String name, int nowOffsetMin, int janOffsetMin, int julOffsetMin) =>
       '$name|$nowOffsetMin|$janOffsetMin|$julOffsetMin';
 
-  /// Whether the stored cross-day ROLLUP was built in another zone. The
+  /// Whether the stored cross-day ROLLUP was built in another zone or by
+  /// another algorithm version. The
   /// rollup, not its inputs: [_refreshBaselines] re-stamps the inputs before
   /// the rollup is written, so a rollup that then timed out would read as
   /// current on the inputs' stamp and never be retried.
@@ -8619,7 +8682,12 @@ class DerivationEngine {
     if (raw is! String || raw.isEmpty) return false;
     try {
       final decoded = jsonDecode(raw);
-      return decoded is Map && decoded['zone'] != crossDayZoneStamp();
+      // A rollup from another algorithm version is rejected by its readers
+      // (`getInsights`), so it is as stale as one from another zone: rebuild it
+      // from stored days even when nothing else in the pass has work.
+      return decoded is Map &&
+          (decoded['zone'] != crossDayZoneStamp() ||
+              (decoded['algo_version'] as num?)?.toInt() != kAlgoVersion);
     } catch (_) {
       return false;
     }

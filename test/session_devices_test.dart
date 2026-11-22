@@ -27,6 +27,16 @@ List<int> _dt(DateTime t) => [
       t.year & 0xff, t.year >> 8, t.month, t.day, t.hour, t.minute, t.second,
     ];
 
+/// What a scale answers to the clock read: UTC wall time at [nowSec].
+Map<String, List<int>> scaleClockAt(int nowSec) {
+  final t = DateTime.fromMillisecondsSinceEpoch(nowSec * 1000, isUtc: true);
+  return {
+    kCurrentTimeChar: [
+      t.year & 0xff, t.year >> 8, t.month, t.day, t.hour, t.minute, t.second,
+    ],
+  };
+}
+
 Future<List<Map<String, Object?>>> _obs() async =>
     (await LocalDb.instance).query('observation', orderBy: 'ts_ms');
 
@@ -85,6 +95,7 @@ void main() {
     await SessionLink.miScaleComposition.ingestForTest(
       'scale-bc-1',
       nowSeconds: _nowSec,
+      reads: scaleClockAt(_nowSec()),
       pushes: [
         (kMiScaleBodyCompositionChar, frame(0x02, 0, 14000)), // settling
         (kMiScaleBodyCompositionChar, frame(0x22, 512, 14368)), // 71.84 kg
@@ -101,6 +112,7 @@ void main() {
     final link = await SessionLink.miScale2.ingestForTest(
       'scale2-1',
       nowSeconds: _nowSec,
+      reads: scaleClockAt(_nowSec()),
       reply: (uuid, value) => switch ((uuid == kMiScaleHistoryChar, value.first)) {
         (true, 0x01) => [(kMiScaleHistoryChar, [0x01, 2, 0])],
         (true, 0x02) => [

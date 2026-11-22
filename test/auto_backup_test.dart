@@ -703,6 +703,28 @@ void main() {
       expect(leftovers, isEmpty);
     });
 
+    test('a backup taken after the clock went back keeps itself', () async {
+      final dir = await backupDirectory();
+      final future = [
+        for (var d = 1; d <= 5; d++) File(p.join(dir.path, backupFileName(DateTime(2030, 1, d)))),
+      ];
+      for (final f in future) {
+        f.writeAsStringSync('future');
+      }
+
+      final outcome = await runBackup(now: DateTime(2026, 8, 10, 9, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+      expect(File(outcome.path!).existsSync(), isTrue,
+          reason: 'retention must not delete the backup it just wrote');
+      expect(sortBackupsNewestFirst(dir.listSync()), hasLength(kBackupsKept));
+      expect(future.first.existsSync(), isFalse,
+          reason: 'the oldest of the rest makes room');
+
+      for (final f in dir.listSync().whereType<File>()) {
+        f.deleteSync();
+      }
+    });
+
     test('an occupied destination is never handed back', () async {
       // Returning the last candidate would give the next backup a real
       // snapshot to overwrite — the exact loss the unique naming prevents.

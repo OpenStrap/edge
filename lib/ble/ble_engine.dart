@@ -627,6 +627,13 @@ class _SessionGapSummary {
 /// How one live-stream transition ended on the wire.
 enum _LiveWrite { ok, failed, stale }
 
+/// A started stopwatch for elapsed time that a phone clock step cannot move.
+/// package:clock's default stopwatch diffs `DateTime.now()`, so it is only
+/// used when a test zone has swapped the clock in (fakeAsync, withClock).
+Stopwatch _elapsedStopwatch() =>
+    (identical(clock, const Clock()) ? Stopwatch() : clock.stopwatch())
+      ..start();
+
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
@@ -750,8 +757,9 @@ class _Session {
   /// and the next connection drains normally from the band's checkpoint.
   bool historyStuck = false;
 
-  /// When [historyStuck] latched. Drives [historyStuckActive].
-  DateTime? historyStuckAt;
+  /// Started when [historyStuck] latched. Drives [historyStuckActive].
+  /// Monotonic, so a phone clock step cannot stretch or shrink the window.
+  Stopwatch? historyStuckFor;
 
   /// Whether the latch is still refusing work.
   ///
@@ -760,9 +768,9 @@ class _Session {
   /// stays true as a session diagnostic ("this connection hit Stuck at least
   /// once") after the window has passed.
   bool get historyStuckActive {
-    final at = historyStuckAt;
-    if (!historyStuck || at == null) return false;
-    return DateTime.now().difference(at) < kHistoryStuckCooldown;
+    final since = historyStuckFor;
+    if (!historyStuck || since == null) return false;
+    return since.elapsed < kHistoryStuckCooldown;
   }
 
   /// Markers dropped, and drain triggers refused, by [historyStuck]
@@ -1926,8 +1934,12 @@ class BleEngine {
   /// judged as "on cadence" or "overdue after a suspension".
   @visibleForTesting
   void debugSetLiveness({DateTime? lastRx, DateTime? lastKeepAliveTick}) {
-    if (lastRx != null) _lastRx = lastRx;
-    _lastKeepAliveTickAt = lastKeepAliveTick;
+    if (lastRx != null) {
+      _lastRx = lastRx;
+      _lastRxMono = _monoAgo(lastRx);
+    }
+    _lastKeepAliveTickMono =
+        lastKeepAliveTick == null ? null : _monoAgo(lastKeepAliveTick);
   }
 
   /// Test seam: run one keep-alive tick against the installed fake link.
@@ -2525,9 +2537,10 @@ class BleEngine {
   // auto-continue run ceiling in particular). Started once and never reset;
   // callers diff two readings of it, same shape as _wallSecs so they compose
   // with existing double-seconds call sites like AutoContinueRun's.
-  // package:clock's stopwatch is the system one in production; under
-  // fakeAsync it follows fake time, so the windows read off it are testable.
-  final Stopwatch _monotonic = clock.stopwatch()..start();
+  // package:clock's own stopwatch reads clock.now(), i.e. the WALL clock in
+  // production, so _elapsedStopwatch hands out a real Stopwatch there and only
+  // uses the clock's under fakeAsync/withClock, where it follows fake time.
+  final Stopwatch _monotonic = _elapsedStopwatch();
   double _monotonicSecs() => _monotonic.elapsedMicroseconds / 1e6;
 
   // Wall-clock of the last BLE notification received on ANY characteristic. iOS
@@ -2537,13 +2550,31 @@ class BleEngine {
   // genuinely live link (recent data) from a stale one. Also drives the UI's
   // "last data: Xs ago" readout.
   DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
+  // Same instant on the monotonic clock: elapsed time is read off this, so a
+  // phone clock step back cannot make the silence negative and disarm the
+  // fuse. Null until the first frame.
+  double? _lastRxMono;
 
-  /// Wall-clock of the previous keep-alive tick. A tick that arrives more
+  void _stampRx() {
+    _lastRx = DateTime.now();
+    _lastRxMono = _monotonicSecs();
+  }
+
+  double _monoAgo(DateTime at) =>
+      _monotonicSecs() - DateTime.now().difference(at).inMicroseconds / 1e6;
+
+  Duration _monoSince(double mono) =>
+      Duration(microseconds: ((_monotonicSecs() - mono) * 1e6).round());
+
+  /// Monotonic time of the previous keep-alive tick. A tick that arrives more
   /// than two periods after this one means the process was suspended in
   /// between (iOS, between band prompts): silence accumulated then is not
   /// evidence — see `livenessSilence`. Null until the first tick of a session.
-  DateTime? _lastKeepAliveTickAt;
-  Duration get sinceLastRx => DateTime.now().difference(_lastRx);
+  double? _lastKeepAliveTickMono;
+  Duration get sinceLastRx {
+    final mono = _lastRxMono;
+    return mono == null ? DateTime.now().difference(_lastRx) : _monoSince(mono);
+  }
 
   /// Wall-clock of the last received BLE notification (any characteristic), for the
   /// UI's "last data: Xs ago". `null` until the first frame this connection.
@@ -3198,6 +3229,12 @@ class BleEngine {
         seedCounter: await cursorReader?.call('counter_hw'),
       );
       _firmwareDecoder = FirmwareAwareR24Decoder();
+      // The cursor reads above can park through a link drop; its teardown has
+      // already run, so arming timers or a drain now would orphan them.
+      if (_sessionIsStale(session)) {
+        _log('link died during connect setup — not arming the session.');
+        return false;
+      }
 
       // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
@@ -3239,8 +3276,8 @@ class BleEngine {
         (_) => _triggerBackfill(BackfillTrigger.periodic),
       );
 
-      _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
-      _lastKeepAliveTickAt = null; // first tick of this link judges raw silence
+      _stampRx(); // fresh link — never treat as stale on resume
+      _lastKeepAliveTickMono = null; // first tick of this link judges raw silence
 
       // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
       // fire INIT — which triggers the historical flood. Historical + live records
@@ -4186,11 +4223,9 @@ class BleEngine {
   // ── keep-alive + periodic backfill ──────────────────────────────────────────
   void _keepAliveFire(_Session session) {
     if (_session != session || !session.connected) return;
-    final now = DateTime.now();
-    final lastTick = _lastKeepAliveTickAt;
-    _lastKeepAliveTickAt = now;
-    final sinceLastTick =
-        lastTick == null ? Duration.zero : now.difference(lastTick);
+    final lastTick = _lastKeepAliveTickMono;
+    _lastKeepAliveTickMono = _monotonicSecs();
+    final sinceLastTick = lastTick == null ? Duration.zero : _monoSince(lastTick);
     // Liveness watchdog: iOS can resume us with the peripheral flagged connected
     // while its GATT notifications silently died. If no frame has arrived for
     // longer than the fuse, bounce the link so the caller's reconnect loop runs.
@@ -4658,7 +4693,7 @@ class BleEngine {
     // Ignore notifications from a session we've already torn down — or are
     // tearing down: ingress is frozen from the first line of the teardown.
     if (_session != session || !session.connected || session.closing) return;
-    _lastRx = DateTime.now();
+    _stampRx();
     session.rx.chunk(role, chunk);
     // A malformed/corrupt chunk (framer bug on an unusual firmware
     // revision) must not become an uncaught async error that silently
@@ -4777,7 +4812,7 @@ class BleEngine {
   /// proves liveness the same as any other notification, so the
   /// staleness/watchdog clock advances.
   void _onMemfaultChunk(List<int> chunk) {
-    _lastRx = DateTime.now();
+    _stampRx();
     _memfaultChunks++;
     _memfaultBytesTotal += chunk.length;
     if (_memfaultChunks == 1) {
@@ -5161,6 +5196,12 @@ class BleEngine {
   bool _flashCommitUnresolved = false;
   String? _flashCommitSerial;
 
+  /// Ticks whenever the unresolved flag changes, so a reopened screen rebuilds.
+  final flashCommitChanges = ValueNotifier<int>(0);
+
+  /// True only when the last [firmwareCommand] reached the transport.
+  bool firmwareCommandSent = false;
+
   bool get flashCommitUnresolved {
     if (!_flashCommitUnresolved) return false;
     final mine = _flashCommitSerial;
@@ -5168,15 +5209,19 @@ class BleEngine {
     return mine == null || now == null || mine == now;
   }
 
-  void markFlashCommitUnresolved() {
+  /// [serial] is the strap the commit was sent to; a late reply must not
+  /// pin the flag on whichever strap is connected by then.
+  void markFlashCommitUnresolved([String? serial]) {
     _flashCommitUnresolved = true;
-    _flashCommitSerial = state.serial;
+    _flashCommitSerial = serial ?? state.serial;
+    flashCommitChanges.value++;
   }
 
   /// The user checked the strap's firmware version and wants to go on.
   void acknowledgeFlashCommit() {
     _flashCommitUnresolved = false;
     _flashCommitSerial = null;
+    flashCommitChanges.value++;
   }
 
   /// Claims the link. Returns the ownership token, or null when refused.
@@ -5205,6 +5250,7 @@ class BleEngine {
   Future<CorrelatedResponse?> firmwareCommand(
       Object token, int opcode, List<int> payload,
       {Duration timeout = const Duration(seconds: 5)}) async {
+    firmwareCommandSent = false;
     if (!_flashLock || !identical(token, _flashToken)) return null;
     if (!canFlashFirmwareLink) return null;
     if (!identical(_session, _flashSession)) return null;
@@ -5224,6 +5270,7 @@ class BleEngine {
       pending.cancel();
       return null;
     }
+    firmwareCommandSent = true;
     return pending.response;
   }
 
@@ -5384,11 +5431,16 @@ class BleEngine {
     // has since programmed.
     final session = _session!;
     final generation = _linkGeneration;
-    await _write(
+    final ok = await _write(
       cmdExitHighFreqSync(_seq.nextLive(), profile: session.band),
       owner: session,
     );
     if (_liveStale(session, generation)) return;
+    if (!ok) {
+      // Keep the mode claimed so the next call retries the EXIT.
+      _log('[SYNC] HighFreq exit ($reason) write FAILED — mode still on.');
+      return;
+    }
     _highFreqModeRequested = false;
     _highFreqReason = null;
     _highFreqUntil = null;
@@ -6492,6 +6544,7 @@ class BleEngine {
     final f = _foreignDrain;
     if (f == null) return;
     if (_foreignThresholdFlush == null &&
+        !_foreignBankFailing &&
         f.bufferedTotal >= _foreignFlushThreshold) {
       final run = _flushForeignBuffer(reason: 'threshold');
       _foreignThresholdFlush = run;
@@ -6505,6 +6558,11 @@ class BleEngine {
   }
 
   Future<void>? _foreignThresholdFlush;
+
+  /// The last foreign bank failed: the size trigger stands down and the
+  /// quiet timer / markers retry, instead of every frame re-running a doomed
+  /// whole-buffer commit. Cleared by the next successful bank.
+  bool _foreignBankFailing = false;
 
   /// Bank buffered foreign rows within [_foreignFlushQuiet] of the first one
   /// that is not banked yet. Armed once, not re-armed per record: at flood
@@ -6530,6 +6588,7 @@ class BleEngine {
   Future<void> _bankForeign(DrainController f, {required String reason}) async {
     if (f.bufferedTotal == 0) return;
     final n = await f.flushCounted();
+    if (identical(f, _foreignDrain)) _foreignBankFailing = n == null;
     if (n != null) {
       _foreignRecordsBanked += n;
     } else {
@@ -7071,7 +7130,7 @@ class BleEngine {
       // the whole 15-failure cycle to the backfill continuation. Terminal has
       // to mean terminal for the session.
       session.historyStuck = true;
-      session.historyStuckAt = DateTime.now();
+      session.historyStuckFor = _elapsedStopwatch();
       _log(
         '[SYNC] burst still short after '
         '${d.consecutiveValidationFailures} attempts — aborting history for '
@@ -7585,7 +7644,7 @@ class BleEngine {
         return;
       } else if (gateEnforced) {
         _burstMismatchStreak = 0;
-      } else if (shortfall != 0) {
+      } else if (shortfall > 0) {
         // gen4: advisory only — record the mismatch for observability, keep
         // ACKing exactly as the proven flow always has.
         _burstMismatchTotal++;
@@ -7655,6 +7714,9 @@ class BleEngine {
       // Snapshot: the commit below clears the buffer, and the post-commit
       // re-gate must judge the same burst.
       final gateDropArchives = d.burstGateDropArchives;
+      // The ACK write triggers the next HISTORY_START, whose rearm() resets
+      // d.burstStats in place; merge from a copy taken before any await.
+      final burstSnapshot = d.burstStats.snapshot();
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} '
@@ -7697,8 +7759,6 @@ class BleEngine {
         );
         return;
       }
-      _successfulBursts++;
-      _mergeValidatedBurst(d);
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
       // once the ACK is link-layer confirmed, so a crash before the ACK
@@ -7831,6 +7891,10 @@ class BleEngine {
         return;
       }
       _chunkFailures.recordSuccess(tokenHex);
+      // Counted only once banked AND acked: a burst whose commit or ACK fails
+      // is re-delivered and would otherwise be counted (and gap-merged) twice.
+      _successfulBursts++;
+      _mergeValidatedBurst(burstSnapshot);
       // A trimmed chunk proves the strap IS draining, so the abort→retry
       // budget is about a stall that has since cleared, not this session.
       session.historicalRetries = 0;
@@ -8259,18 +8323,18 @@ class BleEngine {
   /// window backfilled from flash. Stays in `listening` — no mode change.
   Future<void> requestHistorySync() async {
     _historyRequests++;
-    await LocalDb.upsertSyncLedgerEntry(
-      status: 'requested',
-      metaPatch: {
-        'request_reason': 'manual',
-        'request_refresh_range': true,
-        'request_sent_at': DateTime.now().millisecondsSinceEpoch,
-        'history_requests': _historyRequests,
-        'history_completions': _historyCompletions,
-        'strap_history_oldest_ts': _strapHistoryOldestTs,
-        'strap_history_newest_ts': _strapHistoryNewestTs,
-      },
-    );
+    await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
+          status: 'requested',
+          metaPatch: {
+            'request_reason': 'manual',
+            'request_refresh_range': true,
+            'request_sent_at': DateTime.now().millisecondsSinceEpoch,
+            'history_requests': _historyRequests,
+            'history_completions': _historyCompletions,
+            'strap_history_oldest_ts': _strapHistoryOldestTs,
+            'strap_history_newest_ts': _strapHistoryNewestTs,
+          },
+        ));
     await _triggerBackfill(BackfillTrigger.manual);
   }
 
@@ -9003,6 +9067,10 @@ class BleEngine {
   /// `[47, 152]` waveform pair (the only Maverick buzz byte-verified so far).
   Future<void> buzzPattern(int pattern) => _sendBuzz(pattern);
 
+  /// [buzzPattern] that reports whether the command reached the strap (see
+  /// [buzzDelivered]); a queued Tasker buzz stays queued until this is true.
+  Future<bool> buzzPatternDelivered(int pattern) => _sendBuzz(pattern);
+
   Future<bool> _sendBuzz(int pattern) {
     if (_session?.band.isGen5 ?? false) {
       return _send(
@@ -9412,6 +9480,7 @@ class BleEngine {
     final foreign = _foreignDrain;
     _foreignDrain = null;
     _foreignThresholdFlush = null;
+    _foreignBankFailing = false;
     if (foreign != null) {
       // Including another client's records the drainer has not reached yet —
       // in the batch it holds and in the queue, both dropped with the link.
@@ -9534,8 +9603,8 @@ class BleEngine {
     );
   }
 
-  void _mergeValidatedBurst(DrainController d) {
-    final burstCounts = d.burstStats.dataPacketCountsByRevision;
+  void _mergeValidatedBurst(BurstStats burst) {
+    final burstCounts = burst.dataPacketCountsByRevision;
     final mergedCounts = <int, int>{
       ..._sessionPacketCounts.dataPacketCountsByRevision,
     };
@@ -9545,27 +9614,27 @@ class BleEngine {
     _sessionPacketCounts = _SessionPacketCounts(
       dataPacketCountsByRevision: mergedCounts,
       revision16Count:
-          _sessionPacketCounts.revision16Count + d.burstStats.revision16Count,
+          _sessionPacketCounts.revision16Count + burst.revision16Count,
       consoleLogPacketCount:
           _sessionPacketCounts.consoleLogPacketCount +
-          d.burstStats.consoleCount,
+          burst.consoleCount,
       unknownRevisionCount:
-          _sessionPacketCounts.unknownRevisionCount + d.burstStats.unknownCount,
+          _sessionPacketCounts.unknownRevisionCount + burst.unknownCount,
       revision19Count:
-          _sessionPacketCounts.revision19Count + d.burstStats.revision19Count,
+          _sessionPacketCounts.revision19Count + burst.revision19Count,
       revision22Count:
-          _sessionPacketCounts.revision22Count + d.burstStats.revision22Count,
+          _sessionPacketCounts.revision22Count + burst.revision22Count,
       revision25Count:
-          _sessionPacketCounts.revision25Count + d.burstStats.revision25Count,
+          _sessionPacketCounts.revision25Count + burst.revision25Count,
       revision26Count:
-          _sessionPacketCounts.revision26Count + d.burstStats.revision26Count,
+          _sessionPacketCounts.revision26Count + burst.revision26Count,
     );
 
     var crossBurst = _sessionGapSummary.crossBurst;
-    var missing = _sessionGapSummary.missing + d.burstStats.intraBurstMissing;
+    var missing = _sessionGapSummary.missing + burst.intraBurstMissing;
     var backward =
-        _sessionGapSummary.backward + d.burstStats.intraBurstBackward;
-    for (final entry in d.burstStats.sequenceByRevision.entries) {
+        _sessionGapSummary.backward + burst.intraBurstBackward;
+    for (final entry in burst.sequenceByRevision.entries) {
       final rev = entry.key;
       final seq = entry.value;
       final last = _lastSequenceByRevision[rev];
@@ -9587,7 +9656,7 @@ class BleEngine {
     }
     _sessionGapSummary = _SessionGapSummary(
       intraBurst:
-          _sessionGapSummary.intraBurst + d.burstStats.intraBurstGapCount,
+          _sessionGapSummary.intraBurst + burst.intraBurstGapCount,
       crossBurst: crossBurst,
       missing: missing,
       backward: backward,
@@ -9922,14 +9991,16 @@ class DrainController {
         // carrying one. An archive has no decoded record, so read it off the
         // frame the same way the callee used to: inner[1]. A frame too short
         // to have one passes -1, which the callee buckets as unknown.
-        final inner = hexToBytes(a.hex);
+        // Read inner[1] straight off the hex: decoding the whole record to
+        // bytes is a throwaway buffer per archived record.
+        final hex = a.hex;
         burstStats.onHistoricalData(
           a.packetType,
           // gen4 always carries a real flash counter; only a neutral-sample
           // source (which never reaches this WHOOP-only burst path) writes
           // ArchiveRecord.counter as null.
           a.counter ?? 0,
-          inner.length < 2 ? -1 : inner[1],
+          hex.length < 4 ? -1 : int.parse(hex.substring(2, 4), radix: 16),
         );
       }
     }
@@ -10538,6 +10609,27 @@ class BurstStats {
   void onConsole() => _consoleCount++;
 
   void onUnknown() => _unknownCount++;
+
+  BurstStats snapshot() {
+    final c = BurstStats()
+      .._eventCount = _eventCount
+      .._consoleCount = _consoleCount
+      .._unknownCount = _unknownCount
+      .._revision16Count = _revision16Count
+      .._revision19Count = _revision19Count
+      .._revision22Count = _revision22Count
+      .._revision25Count = _revision25Count
+      .._revision26Count = _revision26Count;
+    c._dataPacketCountsByRevision.addAll(_dataPacketCountsByRevision);
+    _sequenceByRevision.forEach((k, v) {
+      c._sequenceByRevision[k] = SequenceState(firstSequence: v.firstSequence)
+        ..lastSequence = v.lastSequence
+        ..gapCount = v.gapCount
+        ..missingCount = v.missingCount
+        ..backwardCount = v.backwardCount;
+    });
+    return c;
+  }
 
   void reset() {
     _dataPacketCountsByRevision.clear();

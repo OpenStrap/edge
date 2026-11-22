@@ -45,6 +45,8 @@ enum HealthRouteBridge {
         }
         let from = Date(timeIntervalSince1970: Double(fromMs) / 1000)
         let to = Date(timeIntervalSince1970: Double(toMs) / 1000)
+        // Workouts whose route Dart already stored: not re-read or re-sent.
+        let skip = Set(args["skip"] as? [String] ?? [])
         let reply: ([[String: Any]]) -> Void = { payload in
           DispatchQueue.main.async { result(payload) }
         }
@@ -52,7 +54,7 @@ enum HealthRouteBridge {
         // with whatever has already been decided; an undecided route grant
         // just reads empty there instead of popping a sheet with no tap.
         guard args["prompt"] as? Bool == true else {
-          routes(from: from, to: to, completion: reply)
+          routes(from: from, to: to, skip: skip, completion: reply)
           return
         }
         // `HKSeriesType.workoutRoute()` is a SEPARATE read authorization from
@@ -69,7 +71,7 @@ enum HealthRouteBridge {
         store.requestAuthorization(
           toShare: [], read: [HKSeriesType.workoutRoute(), HKObjectType.workoutType()]
         ) { _, _ in
-          routes(from: from, to: to, completion: reply)
+          routes(from: from, to: to, skip: skip, completion: reply)
         }
 
       default:
@@ -78,21 +80,26 @@ enum HealthRouteBridge {
     }
   }
 
-  /// Every workout in the window that HAS a route, as
-  /// `[{uuid, points: [[lat, lng, alt, tsMs], …]}]`.
+  /// Every workout in the window, as `[{uuid, points: [[lat, lng, alt, tsMs], …]}]`.
   ///
-  /// Workouts without a route are omitted entirely rather than returned with an
-  /// empty list: Dart stores the workouts from the plugin regardless, and an
-  /// empty entry here would only be a second way of saying nothing.
+  /// A workout whose route query succeeded but found no usable fixes comes back
+  /// with an empty `points` list, so Dart can remember it and stop asking every
+  /// pass. A workout whose route query FAILED is omitted, so it is retried.
   private static func routes(
-    from: Date, to: Date, completion: @escaping ([[String: Any]]) -> Void
+    from: Date, to: Date, skip: Set<String>,
+    completion: @escaping ([[String: Any]]) -> Void
   ) {
     let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
     let query = HKSampleQuery(
       sampleType: HKObjectType.workoutType(), predicate: predicate,
       limit: HKObjectQueryNoLimit, sortDescriptors: nil
     ) { _, samples, error in
-      guard let workouts = samples as? [HKWorkout], error == nil, !workouts.isEmpty else {
+      guard let all = samples as? [HKWorkout], error == nil else {
+        completion([])
+        return
+      }
+      let workouts = all.filter { !skip.contains($0.uuid.uuidString) }
+      guard !workouts.isEmpty else {
         completion([])
         return
       }
@@ -106,12 +113,12 @@ enum HealthRouteBridge {
       for workout in workouts {
         group.enter()
         points(for: workout) { pts in
-          if !pts.isEmpty {
-            queue.async {
-              out.append(["uuid": workout.uuid.uuidString, "points": pts])
-              group.leave()
-            }
-          } else {
+          guard let pts = pts else {
+            group.leave()
+            return
+          }
+          queue.async {
+            out.append(["uuid": workout.uuid.uuidString, "points": pts])
             group.leave()
           }
         }
@@ -121,28 +128,35 @@ enum HealthRouteBridge {
     store.execute(query)
   }
 
-  /// The decimated coordinate list for one workout, or empty if it has none.
+  /// The decimated coordinate list for one workout, empty if it has none, nil
+  /// if the query failed.
   private static func points(
-    for workout: HKWorkout, completion: @escaping ([[Any]]) -> Void
+    for workout: HKWorkout, completion: @escaping ([[Any]]?) -> Void
   ) {
     let routeQuery = HKSampleQuery(
       sampleType: HKSeriesType.workoutRoute(),
       predicate: HKQuery.predicateForObjects(from: workout),
       limit: HKObjectQueryNoLimit, sortDescriptors: nil
     ) { _, samples, error in
-      guard let routes = samples as? [HKWorkoutRoute], error == nil, !routes.isEmpty else {
+      guard let routes = samples as? [HKWorkoutRoute], error == nil else {
+        completion(nil)
+        return
+      }
+      guard !routes.isEmpty else {
         completion([])  // No route, or the user withheld it. Both mean no line.
         return
       }
       let group = DispatchGroup()
       let queue = DispatchQueue(label: "openstrap.health.route.points")
       var all: [CLLocation] = []
+      var failed = false
       for route in routes {
         group.enter()
         // HKWorkoutRouteQuery streams in batches and calls back repeatedly
         // until `done`. Leaving the group on anything else double-counts the
         // route and the completion fires while points are still arriving.
-        let q = HKWorkoutRouteQuery(route: route) { _, locations, done, _ in
+        let q = HKWorkoutRouteQuery(route: route) { _, locations, done, err in
+          if err != nil { queue.async { failed = true } }
           if let locations = locations {
             queue.async { all.append(contentsOf: locations) }
           }
@@ -151,6 +165,11 @@ enum HealthRouteBridge {
         store.execute(q)
       }
       group.notify(queue: queue) {
+        // A failed point read must not look like "no route" (Dart remembers those).
+        if failed || all.isEmpty {
+          completion(nil)
+          return
+        }
         let sorted = all.sorted { $0.timestamp < $1.timestamp }
         var out: [[Any]] = []
         var lastKept: Date?
@@ -167,11 +186,13 @@ enum HealthRouteBridge {
           out.append([
             loc.coordinate.latitude,
             loc.coordinate.longitude,
-            loc.altitude,
+            // Negative vertical accuracy = altitude not determined, and
+            // CoreLocation reports 0 for it. Send null, not a fake sea level.
+            loc.verticalAccuracy >= 0 ? loc.altitude as Any : NSNull(),
             Int(loc.timestamp.timeIntervalSince1970 * 1000),
           ])
         }
-        completion(out)
+        completion(out.isEmpty ? nil : out)
       }
     }
     store.execute(routeQuery)

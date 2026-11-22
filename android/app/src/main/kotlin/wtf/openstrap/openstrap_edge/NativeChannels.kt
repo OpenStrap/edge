@@ -52,7 +52,27 @@ object NativeChannels {
          */
         const val EVENT_ACTION_PREFIX = "wtf.openstrap.openstrap_edge."
 
-    private var torchOn = false
+    // Real torch state per camera id, fed by a callback registered at startup
+    // (its initial state arrives async, so it must be in before the first tap).
+    private val torchStates = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private var torchCallbackRegistered = false
+
+    private fun registerTorchTracking(ctx: Context) {
+        if (torchCallbackRegistered) return
+        try {
+            val cm = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            cm.registerTorchCallback(object : CameraManager.TorchCallback() {
+                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                    torchStates[cameraId] = enabled
+                }
+                override fun onTorchModeUnavailable(cameraId: String) {
+                    torchStates[cameraId] = false
+                }
+            }, ringHandler)
+            torchCallbackRegistered = true
+        } catch (_: Exception) {
+        }
+    }
 
     // "Ring my phone" (find-my-phone). The ringtone must be retained so it can be
     // stopped — without a held reference the default TYPE_RINGTONE loops until the
@@ -64,6 +84,7 @@ object NativeChannels {
 
     fun register(engine: FlutterEngine, context: Context) {
         val app = context.applicationContext
+        registerTorchTracking(app)
 
         BackupFolderBridge.register(engine, app)
         HealthConnectSleepWriter.register(engine, app)
@@ -250,6 +271,13 @@ object NativeChannels {
                         }
                     }
                     "clear_pending_buzz" -> {
+                        // Optional identity: clear only the request Dart
+                        // delivered, so a newer one queued meanwhile survives.
+                        val only = (call.argument<Number>("requestedAtMs"))?.toLong()
+                        if (only != null && prefs.getLong(TaskerReceiver.PENDING_AT_KEY, -1L) != only) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
                         prefs.edit()
                             .remove(TaskerReceiver.PENDING_BUZZ_KEY)
                             .remove(TaskerReceiver.PENDING_PATTERN_KEY)
@@ -565,9 +593,10 @@ object NativeChannels {
             cm.getCameraCharacteristics(it)
                 .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return
-        val desired = !torchOn
+        registerTorchTracking(ctx) // no-op if already registered at startup
+        val desired = torchStates[camId] != true
         cm.setTorchMode(camId, desired)
-        torchOn = desired
+        torchStates[camId] = desired
     }
 
     @Suppress("DEPRECATION")

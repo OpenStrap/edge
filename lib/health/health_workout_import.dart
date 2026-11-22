@@ -218,6 +218,21 @@ List<MapEntry<String, List<Map<String, Object?>>>> routesToStore(
   return out;
 }
 
+/// Settled workouts the Swift side checked and found no route for (an entry
+/// with an empty `points` list). Remembered so the next pass skips them instead
+/// of re-querying HealthKit for every gym or yoga session in the window.
+@visibleForTesting
+Set<String> routelessFrom(List<Object?> payload, Set<String> settled) => {
+      for (final entry in payload)
+        if (entry is Map &&
+            entry['points'] is List &&
+            (entry['points'] as List).isEmpty &&
+            settled.contains(entry['uuid']))
+          entry['uuid'] as String,
+    };
+
+const _kRoutelessPref = 'health_routeless_workout_uuids';
+
 /// "RUNNING" → "Running". The health store's own enum name, title-cased and
 /// de-underscored.
 ///
@@ -405,8 +420,17 @@ class HealthWorkoutImporter {
           if (p.type == HealthDataType.WORKOUT) p.uuid,
       },
     );
+    // A route can still be filling in shortly after a workout ends (watch
+    // sync), so only older workouts count as final.
+    final settledBefore =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 - 6 * 3600;
     final withRoutes = await _importRoutes(start, end,
-        keep: {for (final r in alive) r.uuid}, prompt: prompt);
+        keep: {for (final r in alive) r.uuid},
+        settled: {
+          for (final r in alive)
+            if (r.endTs < settledBefore) r.uuid,
+        },
+        prompt: prompt);
     // Re-read: a workout scored or deleted while this pass was in flight, or
     // one an interrupted pass tombstoned without removing, must not stay
     // listed (or keep a route) beside the session that replaced it.
@@ -428,8 +452,31 @@ class HealthWorkoutImporter {
   /// async round trip, and 90 days of running is a lot of them to serialise
   /// across the channel one at a time.
   Future<int> _importRoutes(DateTime start, DateTime end,
-      {required Set<String> keep, bool prompt = false}) async {
+      {required Set<String> keep,
+      required Set<String> settled,
+      bool prompt = false}) async {
     if (!routesSupported) return 0;
+    // A settled workout's route is final, so one already stored is not
+    // fetched or rewritten again: the hourly auto pass would otherwise move
+    // and re-insert every point of the whole window each time.
+    final have = <String>{};
+    for (final u in settled) {
+      if (await LocalDb.sessionHasRoute(u)) have.add(u);
+    }
+    // Settled workouts already checked and found route-less. Only a
+    // user-started import (prompt) records them, since an auto pass may read
+    // with an undecided route grant and see empty for every workout. A prompt
+    // also re-checks the window and clears its entries up front, so a failed
+    // call still leaves them retryable.
+    final prefs = await SharedPreferences.getInstance();
+    var stored = prefs.getStringList(_kRoutelessPref) ?? const <String>[];
+    if (prompt && stored.any(keep.contains)) {
+      stored = stored.where((u) => !keep.contains(u)).toList();
+      await prefs.setStringList(_kRoutelessPref, stored);
+    }
+    final skip = {...have, ...settled.intersection(stored.toSet())};
+    final want = keep.difference(skip);
+    if (want.isEmpty) return have.length;
     List<Object?> payload;
     try {
       final res = await kHealthRoutesChannel.invokeMethod<List<Object?>>(
@@ -438,6 +485,7 @@ class HealthWorkoutImporter {
           'fromMs': start.millisecondsSinceEpoch,
           'toMs': end.millisecondsSinceEpoch,
           'prompt': prompt,
+          'skip': skip.toList(),
         },
       );
       payload = res ?? const [];
@@ -445,10 +493,19 @@ class HealthWorkoutImporter {
       // A missing channel (a build without the Swift file) or a refused
       // HealthKit read must not lose the workouts already stored above.
       debugPrint('[imported_workout] routes: $e');
-      return 0;
+      return have.length;
     }
-    var n = 0;
-    for (final route in routesToStore(payload, keep)) {
+    final fresh = prompt ? routelessFrom(payload, settled) : <String>{};
+    if (fresh.isNotEmpty) {
+      // Re-read: another pass may have written while the channel call ran.
+      // ponytail: capped list, not a table; an evicted uuid is just re-queried once.
+      final cur = prefs.getStringList(_kRoutelessPref) ?? const <String>[];
+      final merged = {...cur, ...fresh}.toList();
+      await prefs.setStringList(_kRoutelessPref,
+          merged.length > 2000 ? merged.sublist(merged.length - 2000) : merged);
+    }
+    var n = have.length;
+    for (final route in routesToStore(payload, want)) {
       await LocalDb.appendRoutePoints(route.key, route.value);
       n++;
     }

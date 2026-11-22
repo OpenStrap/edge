@@ -229,8 +229,9 @@ class SessionLink {
     List<(String uuid, List<int> value)> pushes = const [],
     List<(String uuid, List<int> value)> Function(String uuid, List<int> value)?
         reply,
+    Map<String, List<int>> reads = const {},
   }) async {
-    final link = ReplayBandLink();
+    final link = ReplayBandLink()..readValues.addAll(reads);
     final host = _makeHost(deviceId, nowSeconds);
     _host = host;
     var finished = false;

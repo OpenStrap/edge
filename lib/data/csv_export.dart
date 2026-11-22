@@ -449,7 +449,7 @@ Future<(Directory, int)> _newRunDir(DateTime? now) async {
   final stamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
   final dir = Directory(p.join(parent.path, '$stamp'));
   await dir.create(recursive: true);
-  await _pruneOldRuns(parent, keep: _csvRunsKept);
+  await _pruneOldRuns(parent, keep: _csvRunsKept, current: dir);
   return (dir, stamp);
 }
 
@@ -528,26 +528,31 @@ Future<String?> exportHeartRateCsv(String from, String to,
   return file.path;
 }
 
-/// Delete all but the [keep] newest run directories under [parent].
+/// Delete all but the [keep] newest run directories under [parent], always
+/// counting [current] as one of them. The stamp is wall clock, so after the
+/// clock is set back the run being written can sort below older runs; it must
+/// never be the one pruned.
 ///
 /// Run directories are named by millisecond timestamp, so a lexicographic sort
 /// over equal-length names is chronological. Anything that is not a plausible
 /// run directory is left alone rather than deleted — this runs inside the
 /// app's temp directory and must never reach beyond its own folder.
-Future<void> _pruneOldRuns(Directory parent, {required int keep}) async {
+Future<void> _pruneOldRuns(Directory parent,
+    {required int keep, required Directory current}) async {
   try {
     final runs =
         parent
             .listSync()
             .whereType<Directory>()
             .where((d) => int.tryParse(p.basename(d.path)) != null)
+            .where((d) => p.equals(d.path, current.path) == false)
             .toList()
           ..sort((a, b) {
             final ai = int.parse(p.basename(a.path));
             final bi = int.parse(p.basename(b.path));
             return bi.compareTo(ai);
           });
-    for (final old in runs.skip(keep)) {
+    for (final old in runs.skip(keep - 1)) {
       await old.delete(recursive: true);
     }
   } catch (_) {

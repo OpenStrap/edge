@@ -29,7 +29,9 @@ Future<(List<Observation>, ReplayBandLink)> _drive(
   List<(String, List<int>)> Function(String uuid, List<int> v)? reply,
   Map<String, List<int>> reads = const {},
 }) async {
-  final link = ReplayBandLink()..readValues.addAll(reads);
+  final link = ReplayBandLink()
+    ..readValues[kCurrentTimeChar] = _dt(DateTime.utc(2026, 10, 4, 8))
+    ..readValues.addAll(reads);
   final adapter = MiScaleAdapter(
     entry,
     nowSeconds: () => _nowSec,
@@ -89,6 +91,19 @@ void main() {
       expect(clock.$2,
           miScaleClockValue(DateTime.utc(2026, 10, 4, 8)), reason: e.id);
     }
+  });
+
+  test('an unread clock is left alone and the history skipped; a live '
+      'weighing still counts', () async {
+    final at = DateTime.utc(2026, 10, 4, 7, 59);
+    final (rows, link) = await _drive(kMiScale2,
+        live: [_rec(0x20, 14400, at)],
+        reads: {kCurrentTimeChar: const []});
+    expect(link.writes.where((w) => w.$1 == kCurrentTimeChar), isEmpty);
+    expect(_historyWrites(link), isEmpty);
+    // convention unknown: stamped at arrival, not the scale's own stamp
+    expect(rows.map((r) => (r.at.millisecondsSinceEpoch, r.value)),
+        [(_nowSec * 1000, 72.0)]);
   });
 
   test('mode 3 gets the user-mode command for that scale; another mode none',

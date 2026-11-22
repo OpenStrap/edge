@@ -30,10 +30,14 @@ samples must be inside the parent interval, ordered, unique by timestamp, and
 within Health Connect's valid heart-rate range.
 
 The Android writer serializes replacements with a mutex, validates the payload
-again, deletes OpenStrap's prior `HeartRateRecord` data in the exact day window,
-and inserts one `HeartRateRecord` whose `samples` list contains all minute
-averages. Health Connect therefore sees two API calls per re-export (delete and
-insert), rather than approximately 1,440 individual inserts plus deletion.
+again, reads OpenStrap's prior `HeartRateRecord` data in the exact day window,
+inserts one `HeartRateRecord` whose `samples` list contains all minute averages
+(carrying over earlier minutes that are no longer stored locally), and only then
+deletes the prior records. If the insert fails the old record stays intact; if
+the delete fails the call returns `false` and the retry reads, replaces and
+deletes both the old and the new record. Health Connect therefore sees a read,
+an insert and a delete per re-export, rather than approximately 1,440 individual
+inserts plus deletion.
 
 Before Android starts the normal oldest-to-newest bulk loop, it exports the
 newest detected sleep session once. If that priority write fails, the bulk loop
@@ -43,7 +47,7 @@ per-day loop reuses that result and does not write the same sleep session twice.
 Older sleep sessions continue through the existing per-day export path.
 
 When no valid samples exist, the operation is a successful no-op and does not
-delete existing data. A delete/insert exception or an unexpected insertion
+delete existing data. An insert/delete exception or an unexpected insertion
 result returns `false`. Cancellation is rethrown. Health Connect work runs on
 `Dispatchers.IO`, while MethodChannel results return on the main scope.
 

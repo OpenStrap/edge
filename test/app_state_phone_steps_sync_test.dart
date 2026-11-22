@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -401,5 +402,27 @@ void main() {
         reason: 'only today moved, the light pass covers it');
     expect(await rig.app.syncPhoneSteps(days: 2), 2);
     await rig.jobQueued('derive_heavy');
+  }, paired: false));
+
+  test('a re-read where no day total moved queues no derive',
+      syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') return 5;
+      return null;
+    });
+    // Pinned mid-hour: on the real clock an hour rollover between the two
+    // reads adds a window, which is a genuine change and queues a derive.
+    final r = DateTime.now();
+    final pinned = Clock.fixed(DateTime(r.year, r.month, r.day, r.hour, 30));
+    await withClock(pinned, () async {
+      expect(await rig.app.syncPhoneSteps(days: 2), 2);
+      await rig.jobQueued('derive_heavy');
+      await rig.clearJobs();
+      expect(await rig.app.syncPhoneSteps(days: 2), 2);
+      await settleMs();
+      expect(await rig.jobTypes(), isEmpty);
+    });
   }, paired: false));
 }

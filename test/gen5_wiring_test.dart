@@ -349,6 +349,34 @@ void main() {
       expect(engine.offloadSnapshot['high_freq_requested'], isFalse);
     });
 
+    test('a failed EXIT keeps the mode claimed so the next call retries',
+        () async {
+      var writesOk = true;
+      final exits = <int>[];
+      final engine = BleEngine(onRecord: (_, _) async {}, onState: (_) {});
+      engine.debugInstallFakeLink(onWrite: (frame) async {
+        final p = parseFrame(frame);
+        if (p != null && p.valid && p.inner[2] == Cmd.exitHighFreqSync) {
+          exits.add(1);
+        }
+        return writesOk;
+      });
+      await engine.applyHighFreqWakeWindow(
+        enabled: true,
+        targetWake: DateTime.now().add(const Duration(hours: 1)),
+      );
+      expect(engine.offloadSnapshot['high_freq_requested'], isTrue);
+
+      writesOk = false;
+      await engine.applyHighFreqWakeWindow(enabled: false, targetWake: null);
+      expect(engine.offloadSnapshot['high_freq_requested'], isTrue);
+
+      writesOk = true;
+      await engine.applyHighFreqWakeWindow(enabled: false, targetWake: null);
+      expect(exits, hasLength(2), reason: 'the EXIT went out again');
+      expect(engine.offloadSnapshot['high_freq_requested'], isFalse);
+    });
+
     test('INIT no longer re-sends the hello — it belongs to connect setup',
         () async {
       // The pinned order is hello FIRST, during setup, so its timestamp can

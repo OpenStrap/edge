@@ -1,5 +1,5 @@
 // Structural design checks, one per R7 rule. Actual scenes supply an independent catalogue of all 22 steps; no per-guide motion switch exists.
-import 'dart:math' as math; import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
+import 'dart:math' as math; import 'package:flutter/gestures.dart' show PointerDeviceKind; import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
 import 'package:openstrap_edge/ui2/guides/guide_dim.dart' show GuideUnitLook; import 'package:openstrap_edge/ui2/guides/guide_hand.dart';
 import 'package:openstrap_edge/ui2/guides/guide_markers.dart'; import 'package:openstrap_edge/ui2/guides/help_screen.dart';
@@ -27,6 +27,14 @@ LiveGuideOverlayState _overlay(WidgetTester t) => t.state(find.byType(LiveGuideO
       final cursor = find.descendant(of: find.byKey(LiveGuideOverlay.handKey), matching: find.byType(CustomPaint));
       final picture = t.widget<CustomPaint>(cursor).painter; final before = overlay.hand.tip; var moved = false; for (var i = 0; i < 180; i++) { await t.pump(const Duration(milliseconds: 16)); moved |= (overlay.hand.tip - before).distance > 1; }
       expect(overlay.signatureChecks, walks, reason: 'hand ticks must not walk elements');
+      // Hover hit-tests the guide layer on every move; holes and ink reuse the planned walk.
+      final mouse = await t.createGesture(kind: PointerDeviceKind.mouse); await mouse.addPointer(location: const Offset(200, 300));
+      final pageWalks = overlay.pageWalks; expect(pageWalks, lessThanOrEqualTo(1), reason: 'one walk serves every later hit test');
+      for (var i = 0; i < 30; i++) { await mouse.moveBy(const Offset(1, 2)); }
+      expect(overlay.pageWalks, pageWalks, reason: 'hover must not walk the page'); await mouse.removePointer();
+      for (var i = 0; i < 10; i++) { await t.pump(const Duration(milliseconds: 16)); } final settled = overlay.pageWalks;
+      for (var i = 0; i < 120; i++) { await t.pump(const Duration(milliseconds: 16)); }
+      expect(overlay.pageWalks, settled, reason: 'pulse repaints must not walk the page');
       expect(overlay.hand.pathBuilds, paths, reason: 'repeated passes must reuse sampled segments');
       expect(t.widget<CustomPaint>(cursor).painter, same(picture), reason: 'cursor picture stays cached');
       expect(moved, isTrue, reason: 'the hand moves during a cycle, even if it ends where it began'); expect(guideSweepMs(110), 432); expect(guideSweepMs(1000), 700);

@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 124,
+   "algo_version": 126,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -4246,8 +4246,8 @@
      }
     },
     "stress": {
-     "value": 61.0,
-     "score": 61.0,
+     "value": 72.3,
+     "score": 72.3,
      "si": 159.44,
      "level": "elevated",
      "lf_hf": 0.151,
@@ -23027,7 +23027,7 @@
      "dip_pct": 27.601235828808456,
      "trimp": 267.9104825050327,
      "odi_per_hour": null,
-     "stress": 61.03520288391907,
+     "stress": 72.31807947699996,
      "stress_si": 159.4387755102041,
      "spo2": null,
      "calories": 359.8518200286807,
@@ -25076,11 +25076,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "1bd3caf43bd58cb8ec23f7fbdc3ece0bf0c5c16d4e8ee0281da29dfb9f53d499"
+   "payload_sha256": "5ee8cf20c8a10a4fafedc8627de0ba2bd76f8c2eb486c7d313734790d312a0ef"
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 124,
+   "algo_version": 126,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -29324,8 +29324,8 @@
      }
     },
     "stress": {
-     "value": 61.0,
-     "score": 61.0,
+     "value": 72.3,
+     "score": 72.3,
      "si": 159.44,
      "level": "elevated",
      "lf_hf": 0.151,
@@ -47925,7 +47925,7 @@
      "dip_pct": 27.885325793318177,
      "trimp": 260.02355169504744,
      "odi_per_hour": null,
-     "stress": 61.03520288391907,
+     "stress": 72.31807947699996,
      "stress_si": 159.4387755102041,
      "spo2": null,
      "calories": 359.8518200286807,
@@ -49942,11 +49942,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "1a383a9942303b44cfa356dd2d7c2d50c0edfa97a1eaa2b02e53d56cbcd1b1bf"
+   "payload_sha256": "cb8e04b5df2efdf110d2f34ec15374426efd82b1fb9f56a227c6b9991f05177b"
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 124,
+   "algo_version": 126,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -54190,8 +54190,8 @@
      }
     },
     "stress": {
-     "value": 61.0,
-     "score": 61.0,
+     "value": 72.3,
+     "score": 72.3,
      "si": 159.44,
      "level": "elevated",
      "lf_hf": 0.151,
@@ -71407,7 +71407,7 @@
      "dip_pct": 29.23441483806156,
      "trimp": 256.0693413232808,
      "odi_per_hour": null,
-     "stress": 61.03520288391907,
+     "stress": 72.31807947699996,
      "stress_si": 159.4387755102041,
      "spo2": null,
      "calories": 359.8518200286807,
@@ -73230,7 +73230,7 @@
    "readiness": 61.79377627786914,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "24ce9711e808adc5712473639cba81eb6c0fe1c84a7668b00c19ea8bcafcd362"
+   "payload_sha256": "600205040a947aec5d18117618e53c81ea3a3f4e58c5205d5937e08d06056c8d"
   }
  ],
  "metric_series": [
@@ -73417,7 +73417,7 @@
   {
    "date": "2026-07-13",
    "key": "stress",
-   "value": 61.03520288391907
+   "value": 72.31807947699996
   },
   {
    "date": "2026-07-13",
@@ -73627,7 +73627,7 @@
   {
    "date": "2026-07-14",
    "key": "stress",
-   "value": 61.03520288391907
+   "value": 72.31807947699996
   },
   {
    "date": "2026-07-14",
@@ -73837,7 +73837,7 @@
   {
    "date": "2026-07-15",
    "key": "stress",
-   "value": 61.03520288391907
+   "value": 72.31807947699996
   },
   {
    "date": "2026-07-15",
@@ -73868,7 +73868,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 124,
+   "algo_version": 126,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73876,7 +73876,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 124,
+   "algo_version": 126,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73884,7 +73884,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 124,
+   "algo_version": 126,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73894,7 +73894,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 124,
+   "algo_version": 126,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -75102,7 +75102,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 124,
+   "algo_version": 126,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 239,
@@ -76310,7 +76310,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 124,
+   "algo_version": 126,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,

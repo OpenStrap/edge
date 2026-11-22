@@ -306,12 +306,13 @@ void main() {
     final oura = File('lib/ble/oura_link.dart').readAsStringSync();
     final slot = oura.indexOf('return await withSecondaryLinkSlot(() async {');
     expect(slot, greaterThanOrEqualTo(0));
-    final head = oura.substring(slot, slot + 600);
-    expect(
-        head.contains(
-            'if (_deviceId != deviceId || ResetGate.changedSince(_resetGen))'),
-        isTrue,
-        reason: 'the first thing the slot callback does');
+    // The re-reads of key/cursor/row come first (so a re-pair during them is
+    // seen), then ONE guard, and only then the connect.
+    final connect = oura.indexOf('.connect(', slot);
+    final head = oura.substring(slot, connect);
+    expect(head.contains('_deviceId != deviceId'), isTrue);
+    expect(head.contains('ResetGate.changedSince(_resetGen)'), isTrue,
+        reason: 'the reset guard sits between the slot and the connect');
   });
 
   test('the wipe runs on the sync-commit gate', () {

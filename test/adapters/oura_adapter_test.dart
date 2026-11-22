@@ -990,7 +990,7 @@ void main() {
             .whereType<BandNote>()
             .where((n) => n.key == 'oura_anchor')
             .map((n) => n.value),
-        ['5000000,$t0', null, '100,$t1']);
+        ['5000000,$t0', null, '100,$t1,10']);
   });
 
   test('a ring start with the reset bit clear but stamped below the origin '
@@ -1042,6 +1042,92 @@ void main() {
             .where((n) => n.key == 'oura_anchor')
             .map((n) => n.value),
         ['1000,$t0', null]);
+  });
+
+  test('a persisted anchor stamps readings held before a ring start',
+      () async {
+    const t0 = 1782043215;
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, t0),
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const [];
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor != 0) return [_summary(0, 0)];
+        return [
+          _event(kOuraEvtTempPeriod, 3050, _hex('6c0d')),
+          _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x02]),
+          _summary(2, 0),
+        ];
+      },
+    );
+    expect(
+        events.whereType<SampleBatch>().single.samples.map((s) => s.tsEpoch),
+        [t0 + 205],
+        reason: 'held before the start, in the persisted anchor boot');
+  });
+
+  test('a persisted anchor of a known boot does not stamp readings held before a ring start',
+      () async {
+    const t0 = 1782043215;
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, t0),
+        anchorBoot: 10,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const [];
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor != 0) return [_summary(0, 0)];
+        return [
+          _event(kOuraEvtTempPeriod, 3050, _hex('6c0d')),
+          _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x02]),
+          _summary(2, 0),
+        ];
+      },
+    );
+    expect(
+        events.whereType<SampleBatch>().single.samples.map((s) => s.tsEpoch),
+        isEmpty,
+        reason: 'older boot, anchor belongs to the one after');
+  });
+
+  test('spo2 on both sides of a ring start is stamped by its own boot',
+      () async {
+    const t0 = 1782043215;
+    const t1 = 1782050000;
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor != 0) return [_summary(0, 0)];
+      return [
+        _event(kOuraEvtTimeSync, 1000, _syncBody(t0)),
+        _event(kOuraEvtSpo2, 3000, [0, 90, 92]),
+        _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x02]),
+        _event(kOuraEvtTimeSync, 20, _syncBody(t1)),
+        _event(kOuraEvtSpo2, 120, [0, 98, 98]),
+        _summary(5, 0),
+      ];
+    });
+    final rows = [
+      for (final o in events.whereType<VendorScalars>().single.rows)
+        if (o.vendorKey == 'spo2_avg')
+          (o.at.millisecondsSinceEpoch ~/ 1000, o.value),
+    ];
+    expect(rows, unorderedEquals([(t0 + 200, 91), (t1 + 10, 98)]));
   });
 
   test('a ring start with the reset bit clear above the origin keeps it',

@@ -66,9 +66,13 @@ class ChartSpec {
     if (v is String) {
       final d = double.tryParse(v.trim());
       if (d != null) return d;
-      // tolerate "62 ms", units glued on, etc. — take the first number found.
-      final m = RegExp(r'-?\d+(\.\d+)?').firstMatch(v);
-      return m == null ? null : double.tryParse(m.group(0)!);
+      // tolerate "62 ms" / "62ms": one number, then unit text with no more
+      // digits. "12,345", "7:30", "2h 15m" and "1.2k" are not a single plain
+      // number, so they read as absent rather than as 12, 7, 2 or 1.2.
+      final m = RegExp(r'^\s*(-?\d+(?:\.\d+)?)\s*([^\d,.:]*)$').firstMatch(v);
+      if (m == null) return null;
+      if (RegExp(r'^[kKMB]$').hasMatch(m.group(2)!.trim())) return null;
+      return double.tryParse(m.group(1)!);
     }
     if (v is Map) return _asNum(v['value'] ?? v['y'] ?? v['v']); // {value:62}/{y:62}
     return null;
@@ -423,7 +427,7 @@ class CoachEngine {
     await for (final e in dir.list(followLinks: false)) {
       if (e is! File) continue;
       final name = e.uri.pathSegments.last;
-      if (!name.endsWith('.json')) continue;
+      if (!name.endsWith('.json') && !name.endsWith('.json.tmp')) continue;
       if (!name.startsWith('coach_s_') && !name.startsWith('coach_idx_')) continue;
       try {
         await e.delete();
@@ -444,8 +448,42 @@ class CoachEngine {
       list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       return list;
     } catch (_) {
-      return [];
+      // Unreadable index (e.g. truncated by a kill mid-write): rebuild it from
+      // the chat files instead of returning [] — the next save would rewrite
+      // the index with only the current chat and orphan every other one.
+      return _sessionsFromFiles();
     }
+  }
+
+  Future<List<CoachSessionMeta>> _sessionsFromFiles() async {
+    final out = <CoachSessionMeta>[];
+    try {
+      final prefix = 'coach_s_${storageKey}_';
+      final idPattern = RegExp(r'^\d+(-[0-9a-f]+)?$');
+      await for (final e in (await _dir()).list(followLinks: false)) {
+        if (e is! File) continue;
+        final name = e.uri.pathSegments.last;
+        if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
+        final id = name.substring(prefix.length, name.length - 5);
+        if (!idPattern.hasMatch(id)) continue;
+        try {
+          final j = jsonDecode(await e.readAsString()) as Map<String, dynamic>;
+          out.add(CoachSessionMeta(id, (j['title'] ?? '').toString(),
+              (j['updatedAt'] as num?)?.toInt() ?? 0, ''));
+        } catch (_) {}
+      }
+    } catch (_) {}
+    out.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return out;
+  }
+
+  /// Write to a temp file then rename, so a kill mid-write can't leave a
+  /// truncated index behind.
+  Future<void> _writeIndex(List<CoachSessionMeta> metas) async {
+    final f = await _indexFile();
+    final tmp = File('${f.path}.tmp');
+    await tmp.writeAsString(jsonEncode(metas.map((m) => m.toJson()).toList()), flush: true);
+    await tmp.rename(f.path);
   }
 
   /// On open: resume the most recent session, or start fresh if none.
@@ -537,8 +575,7 @@ class CoachEngine {
       } catch (_) {}
     }
     try {
-      final f = await _indexFile();
-      await f.writeAsString(jsonEncode(keep.map((m) => m.toJson()).toList()));
+      await _writeIndex(keep);
     } catch (_) {}
   }
 
@@ -554,8 +591,7 @@ class CoachEngine {
     } catch (_) {}
     final metas = await listSessions()..removeWhere((m) => m.id == id);
     try {
-      final f = await _indexFile();
-      await f.writeAsString(jsonEncode(metas.map((m) => m.toJson()).toList()));
+      await _writeIndex(metas);
     } catch (_) {}
     if (id == _sessionId) newSession();
   }
@@ -1065,10 +1101,20 @@ class CoachEngine {
             summary: 'Start a ${args['type'] ?? 'workout'} session now.', args: args,
           ), () async { final r = await api.startWorkout('${args['type'] ?? 'other'}'); return _enc(r); });
         case 'end_workout':
+          final workoutId = args['workout_id'];
+          if (workoutId is! String || workoutId.trim().isEmpty) {
+            return 'end_workout needs the workout_id that start_workout returned.';
+          }
           return await _action(confirm, ActionRequest(
             tool: name, title: 'End workout',
             summary: 'End the active workout.', args: args,
-          ), () async { final r = await api.endWorkout('${args['workout_id']}'); return _enc(r); });
+          ), () async {
+            final r = await api.endWorkout(workoutId);
+            if (r['ended'] == false) {
+              return 'No workout with id $workoutId; nothing was ended.';
+            }
+            return _enc(r);
+          });
         case 'log_food':
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Log food',
@@ -1350,7 +1396,7 @@ class CoachEngine {
         {
           'name': {'type': 'string'},
           'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
-          'time': {'type': 'string', 'description': 'HH:MM of the slot; default the first'},
+          'time': {'type': 'string', 'description': 'HH:MM of the scheduled slot, not when it was taken; default the first that day'},
           'state': {'type': 'string', 'enum': ['taken', 'skipped', 'not_taken']},
         }, ['name', 'state']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {

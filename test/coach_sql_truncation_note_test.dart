@@ -140,6 +140,21 @@ void main() {
     expect(full['note'], isNotNull);
   });
 
+  test('a LIMIT that does not bound the outer query still gets capped',
+      () async {
+    for (final q in <String>[
+      'SELECT date, key FROM v_metric WHERE date IN (SELECT date FROM '
+          "v_metric WHERE date = '2026-01-01' LIMIT 2)",
+      "SELECT date, key FROM v_metric WHERE date = '2026-01-01' LIMIT 100000",
+    ]) {
+      expect(CoachDb.guardAndPrepare(q), endsWith('LIMIT 200'));
+      final out = jsonDecode(await CoachDb.runCoachSql(q))
+          as Map<String, dynamic>;
+      expect(out['row_count'], 200, reason: q);
+      expect(out['note'], isNotNull, reason: q);
+    }
+  });
+
   test('the cap note survives the 16,000-character clip', () async {
     final raw = await CoachDb.runCoachSql(
       "SELECT key FROM v_metric WHERE date = '2026-01-02'",

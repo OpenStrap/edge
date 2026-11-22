@@ -61,4 +61,17 @@ void main() {
     mockPeek(null);
     expect(await TaskerBridge.peekPendingBuzz(), isNull);
   });
+
+  test('a buzz_strap call runs the pending-flag delivery, not its own buzz',
+      () async {
+    var delivered = 0;
+    TaskerBridge(deliverPending: () async => delivered++);
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+      ch.name,
+      ch.codec.encodeMethodCall(const MethodCall('buzz_strap')),
+      (_) {},
+    );
+    expect(delivered, 1);
+  });
 }

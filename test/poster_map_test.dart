@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/poster.dart';
+import 'package:openstrap_edge/ui2/activity/share.dart' show photoDecodeSize;
 import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/activity/tiles.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -21,6 +22,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('a photo decodes to cover the card, bounded in both dimensions', () {
+    // Tall portrait: width is the constraint (900), not height 1600.
+    expect(photoDecodeSize(1800, 4000), (900, 2000));
+    // Landscape: height 1600.
+    expect(photoDecodeSize(4000, 3000), (2133, 1600));
+    // Panorama: capped at 4096 on the long side.
+    expect(photoDecodeSize(20000, 2000), (4096, 410));
+    // Already small: never upscaled.
+    expect(photoDecodeSize(600, 800), (600, 800));
+  });
 
   // The consent gate, which every other test in this file has to get past.
   setUp(() async {
@@ -211,6 +223,7 @@ void main() {
       expect(splitStatUnit('1h 02m'), ('1h 02m', null));
       expect(splitStatUnit('10h 24m 18s'), ('10h 24m 18s', null));
       expect(splitStatUnit('12'), ('12', null));
+      expect(splitStatUnit('24 bpm in 60 s'), ('24 bpm in 60 s', null));
     });
   });
 
@@ -279,6 +292,46 @@ void main() {
     // map that is not on the card would be its own small lie.
     expect(find.text(kOsmAttribution), findsNothing);
   });
+
+  test('a long pace-lit route blurs once, not once per segment', () {
+    final n = 2000;
+    final canvas = _CountingCanvas();
+    PosterMap(
+      mosaic: null,
+      fallback: [for (var i = 0; i < n; i++) Offset(i / n, (i % 7) / 7)],
+      pace: [for (var i = 0; i < n; i++) (i % 10) / 10],
+      line: C.routeFast,
+      casing: C.n900,
+      start: C.routeFast,
+      end: C.routeSlow,
+      overPhoto: false,
+    ).paint(canvas, const Size(300, 300));
+    expect(canvas.blurredDraws, 0);
+    expect(canvas.blurLayers, 1);
+    expect(canvas.draws, greaterThan(n));
+  });
+}
+
+class _CountingCanvas implements Canvas {
+  // Blurred per-segment lines; the pins' own soft shadow is not counted.
+  int draws = 0, blurredDraws = 0, blurLayers = 0;
+  @override
+  dynamic noSuchMethod(Invocation i) {
+    final name = i.memberName.toString();
+    if (name.contains('draw')) {
+      draws++;
+      if (i.memberName == #drawLine &&
+          (i.positionalArguments[2] as Paint).maskFilter != null) {
+        blurredDraws++;
+      }
+    }
+    if (i.memberName == #saveLayer &&
+        (i.positionalArguments[1] as Paint).imageFilter != null) {
+      blurLayers++;
+    }
+    if (name.contains('getSaveCount')) return 1;
+    return null;
+  }
 }
 
 final _run = ActivityResult(

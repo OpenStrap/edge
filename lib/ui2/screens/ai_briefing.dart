@@ -20,6 +20,8 @@ import 'package:provider/provider.dart';
 import '../../ai/briefing.dart';
 import '../../ai/briefing_engine.dart';
 import '../../coach/coach_config.dart';
+import '../../state/app_state.dart';
+import '../../data/day_label.dart';
 import '../../coach/coach_engine.dart' show CoachException;
 import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
@@ -36,16 +38,53 @@ class AiBriefingScreen extends StatefulWidget {
 
 class _AiBriefingScreenState extends State<AiBriefingScreen> {
   Briefing? _b;
+  // The moment this screen is about: null (now) for the morning briefing,
+  // last night for an evening sweep opened before the evening window.
+  DateTime? _at;
   bool _busy = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _b = BriefingStore.read(widget.period);
+    _at = _sweepAt();
+    final at = _at;
+    _b = BriefingStore.read(widget.period,
+        day: at == null ? null : todayLabel(at));
+    if (widget.period == BriefingPeriod.evening) _resolveSlot();
   }
 
+  // Refine with the user's real (possibly pre-17:00) slot once it is known.
+  Future<void> _resolveSlot() async {
+    final at = await _sweepAtResolved();
+    if (!mounted || at == null) return;
+    setState(() {
+      _at = at;
+      _b = BriefingStore.read(widget.period, day: todayLabel(at));
+    });
+  }
+
+  Future<DateTime?> _sweepAtResolved() async {
+    if (widget.period != BriefingPeriod.evening) return null;
+    int? slot;
+    try {
+      slot = await context.read<AppState>().eveningSlotMin();
+    } catch (_) {}
+    return eveningSweepMoment(DateTime.now(),
+        todayCached: BriefingStore.read(BriefingPeriod.evening) != null,
+        eveningMin: slot ?? 17 * 60);
+  }
+
+  // Re-resolved on every generate, so a screen left open past the evening
+  // slot does not write yesterday's sweep over today's.
+  DateTime? _sweepAt() => widget.period == BriefingPeriod.evening
+      ? eveningSweepMoment(DateTime.now(),
+          todayCached: BriefingStore.read(BriefingPeriod.evening) != null)
+      : null;
+
   Future<void> _generate() async {
+    _at = await _sweepAtResolved();
+    if (!mounted) return;
     final repo = repoOf(context);
     if (repo == null) return;
     setState(() {
@@ -56,7 +95,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
       final b = await BriefingEngine(
         config: context.read<CoachConfig>(),
         repo: repo,
-      ).generate(widget.period);
+      ).generate(widget.period, now: _at, wallNow: DateTime.now());
       if (mounted) setState(() => _b = b);
     } catch (e) {
       if (mounted) {

@@ -17,6 +17,7 @@
 // is not printed, so it cannot be shared.
 
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
@@ -57,6 +58,20 @@ class ShareSheet extends StatefulWidget {
   State<ShareSheet> createState() => _ShareSheetState();
 }
 
+/// Pixels to decode a photo at: enough to cover the largest card (900 x 1600
+/// at export), never more, and never past 4096 on a side so a panorama cannot
+/// decode to a huge bitmap. For extreme aspect ratios the cap wins over cover,
+/// so a panorama is upscaled a little in the export; that trades sharpness for
+/// memory on purpose.
+@visibleForTesting
+(int, int) photoDecodeSize(int w, int h) {
+  if (w <= 0 || h <= 0) return (1, 1);
+  var s = math.max(900 / w, 1600 / h);
+  s = math.min(s, 4096 / math.max(w, h));
+  if (s > 1) s = 1;
+  return ((w * s).round().clamp(1, 1 << 20), (h * s).round().clamp(1, 1 << 20));
+}
+
 class _ShareSheetState extends State<ShareSheet> {
   /// The card, as pixels. Sharing a picture of it means capturing the thing on
   /// screen rather than re-drawing a second, slightly different one.
@@ -66,6 +81,7 @@ class _ShareSheetState extends State<ShareSheet> {
   /// The user's own picture, and only ever the user's. Nothing here fetches
   /// or generates one.
   File? _photo;
+  ImageProvider? _photoImage;
 
   /// Where the card is going. The one thing besides the photo that changes it.
   PosterFormat _format = PosterFormat.post;
@@ -81,6 +97,10 @@ class _ShareSheetState extends State<ShareSheet> {
   /// tiles could not be fetched" for the whole duration of a fetch that was
   /// still running, because `_mapTried` is set before the first await.
   final _mapLoading = <PosterFormat>{};
+
+  /// Bumped when the map is switched off, so a fetch that started before it
+  /// cannot store its mosaic or clear a newer fetch's loading marker.
+  int _mapGen = 0;
 
   /// Whether the tile fetch is allowed at all. Persisted, default off — see
   /// [mapTilesAllowed].
@@ -139,7 +159,21 @@ class _ShareSheetState extends State<ShareSheet> {
       final picked = await FilePicker.platform
           .pickFiles(type: FileType.image, allowMultiple: false);
       final path = picked?.files.single.path;
-      if (path != null && mounted) setState(() => _photo = File(path));
+      if (path == null || !mounted) return;
+      final file = File(path);
+      // Decode at card size, sized from the photo's own aspect ratio.
+      final buf = await ui.ImmutableBuffer.fromUint8List(await file.readAsBytes());
+      final d = await ui.ImageDescriptor.encoded(buf);
+      final (w, h) = photoDecodeSize(d.width, d.height);
+      d.dispose();
+      buf.dispose();
+      if (mounted) {
+        setState(() {
+          _photo = file;
+          _photoImage = ResizeImage(FileImage(file),
+              width: w, height: h, policy: ResizeImagePolicy.fit);
+        });
+      }
     } catch (e) {
       debugPrint('photo pick failed: \$e');
     }
@@ -161,6 +195,8 @@ class _ShareSheetState extends State<ShareSheet> {
         }
         _mosaics.clear();
         _mapTried.clear();
+        _mapLoading.clear();
+        _mapGen++;
       }
     });
     if (on) _ensureMap();
@@ -175,6 +211,7 @@ class _ShareSheetState extends State<ShareSheet> {
   /// coordinates needs one, and it is fetched once per format and held.
   Future<void> _ensureMap() async {
     final f = _format;
+    final gen = _mapGen;
     if (!_mapConsent || _mapTried.contains(f) || !_hasRoute) return;
     _mapTried.add(f);
     setState(() => _mapLoading.add(f));
@@ -194,13 +231,15 @@ class _ShareSheetState extends State<ShareSheet> {
       bg: C.mapFloor,
       ink: C.mapCeil,
     );
-    if (!mounted) {
-      m?.dispose();
-      return;
-    }
+    // The switch may have gone off while this was in flight, and off then on
+    // starts a second fetch for the same format: either way this one is not
+    // the map to keep.
+    final keep = mounted && _mapConsent && gen == _mapGen && m != null;
+    if (!keep) m?.dispose();
+    if (!mounted || gen != _mapGen) return;
     setState(() {
       _mapLoading.remove(f);
-      if (m != null) _mosaics[f] = m;
+      if (keep) _mosaics[f] = m;
     });
   }
 
@@ -254,7 +293,10 @@ class _ShareSheetState extends State<ShareSheet> {
                         key: _card,
                         child: PosterCard(
                           r,
-                          photo: _photo == null ? null : FileImage(_photo!),
+                          // Decoded at about export size (a 9:16 card is
+                          // ~1600 px tall at 3x), never the camera's full
+                          // 12-200 MP bitmap.
+                          photo: _photo == null ? null : _photoImage,
                           mosaic: _mosaic,
                           format: _format,
                         ),
@@ -299,7 +341,10 @@ class _ShareSheetState extends State<ShareSheet> {
                         SetRow(LucideIcons.trash2, C.red,
                             l?.activityShareRemovePhoto ?? 'Remove the photo',
                             chevron: false,
-                            onTap: () => setState(() => _photo = null)),
+                            onTap: () => setState(() {
+                              _photo = null;
+                              _photoImage = null;
+                            })),
                       ],
                     ]),
                   ),

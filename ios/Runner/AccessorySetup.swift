@@ -69,7 +69,10 @@ enum AccessorySetup {
 
       case "provisionedIds":
         if #available(iOS 18.0, *) {
-          Impl.shared.provisionedIds { result($0) }      // [String], possibly empty
+          Impl.shared.provisionedIds { ids in
+            // nil = activation timed out: unknown, not "nothing provisioned".
+            if let ids = ids { result(ids) } else { result(Impl.notReady) }
+          }
         } else {
           result([String]())
         }
@@ -80,7 +83,9 @@ enum AccessorySetup {
       // you get a MissingPluginException on a path nobody tests.
       case "provisionedId":
         if #available(iOS 18.0, *) {
-          Impl.shared.provisionedIds { result($0.first) }
+          Impl.shared.provisionedIds { ids in
+            if let ids = ids { result(ids.first) } else { result(Impl.notReady) }
+          }
         } else {
           result(nil)
         }
@@ -110,21 +115,21 @@ enum AccessorySetup {
 
       case "removeBand":
         if #available(iOS 18.0, *), let id = call.arguments as? String {
-          Impl.shared.removeBand(id: id) { result(nil) }
+          Impl.shared.removeBand(id: id) { result($0 ? nil : Impl.notReady) }
         } else {
           result(nil)
         }
 
       case "removeAll":
         if #available(iOS 18.0, *) {
-          Impl.shared.removeAll { result(nil) }
+          Impl.shared.removeAll { result($0 ? nil : Impl.notReady) }
         } else {
           result(nil)
         }
 
       case "removeSensor":
         if #available(iOS 18.0, *), let id = call.arguments as? String {
-          Impl.shared.removeSensor(id: id) { result(nil) }
+          Impl.shared.removeSensor(id: id) { result($0 ? nil : Impl.notReady) }
         } else {
           result(nil)
         }
@@ -143,6 +148,12 @@ private final class Impl {
 
   private let session = ASAccessorySession()
   private var activated = false
+  // Set once the session reports `.activated`; until then `session.accessories` can still
+  // be empty on a cold launch. `readyWaiters` run when it arrives.
+  private var ready = false
+  private var readyWaiters: [(Int, () -> Void)] = []
+  private var timeoutHandlers: [Int: () -> Void] = [:]
+  private var nextWaiterId = 0
   private let queue = DispatchQueue.main
   // Set while a showPicker is in flight; resolved by the completion handler.
   private var pickerResult: ((Result<String, PickerError>) -> Void)?
@@ -172,6 +183,8 @@ private final class Impl {
   private var awaitingAddedId: String?
 
   struct PickerError: Error { let message: String }
+  static let notReady = FlutterError(code: "ask_not_ready",
+                                     message: "Accessory setup is not ready yet.", details: nil)
 
   private func ensureActivated() {
     guard !activated else { return }
@@ -181,11 +194,40 @@ private final class Impl {
     }
   }
 
+  /// Runs [f] once `session.accessories` is populated (after `.activated`). If the event
+  /// has not come within 2 s, [timedOut] runs instead (never [f]), so a caller is never
+  /// stranded and never reads the accessory list before activation.
+  private func whenActivated(_ f: @escaping () -> Void, timedOut: @escaping () -> Void) {
+    ensureActivated()
+    if ready { f(); return }
+    // Each waiter gets its own 2 s timeout, so an earlier waiter's timer cannot drain a
+    // later one before its own window has passed.
+    let id = nextWaiterId
+    nextWaiterId += 1
+    readyWaiters.append((id, f))
+    timeoutHandlers[id] = timedOut
+    queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+      guard let self = self, let i = self.readyWaiters.firstIndex(where: { $0.0 == id }) else { return }
+      self.readyWaiters.remove(at: i)
+      self.timeoutHandlers.removeValue(forKey: id)?()
+    }
+  }
+
+  private func runReadyWaiters() {
+    let waiters = readyWaiters
+    readyWaiters = []
+    timeoutHandlers = [:]
+    waiters.forEach { $0.1() }
+  }
+
   private func onEvent(_ event: ASAccessoryEvent) {
     // We mostly drive ASK request/response style; the event stream is here so the
     // session stays live and so a picker-dismiss without a selection can resolve a
     // pending showPicker as "cancelled".
     switch event.eventType {
+    case .activated:
+      ready = true
+      runReadyWaiters()
     case .accessoryAdded:
       // The pick, but the sheet is still up — hold it for `.pickerDidDismiss`.
       guard awaitingAdded else { return }
@@ -258,22 +300,32 @@ private final class Impl {
     }
   }
 
-  /// Returns the uppercased UUIDs of the already-provisioned accessories (possibly empty).
-  func provisionedIds(_ completion: @escaping ([String]) -> Void) {
-    ensureActivated()
-    // `accessories` is reliable only after activation has reported .activated; give the
-    // session a brief beat to populate on a cold start, then read it.
-    queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-      guard let self = self else { completion([]); return }
+  /// Returns the uppercased UUIDs of the already-provisioned accessories (possibly empty),
+  /// or nil if activation did not arrive in time (unknown, not empty).
+  func provisionedIds(_ completion: @escaping ([String]?) -> Void) {
+    // `accessories` is reliable only after activation has reported .activated; a fixed
+    // short sleep could still read [] on a slow cold launch.
+    whenActivated({ [weak self] in
+      guard let self = self else { completion(nil); return }
       completion(self.provisionedIdList)
-    }
+    }, timedOut: { completion(nil) })
   }
 
   /// - Parameter addAnother: show the picker even though an accessory is already
   ///   provisioned, i.e. provision a SECOND band. See the ordering warning below.
   func showPicker(addAnother: Bool = false,
                   _ completion: @escaping (Result<String, PickerError>) -> Void) {
-    ensureActivated()
+    // Read `known` only after .activated, or a paired band looks unprovisioned and the
+    // early return below is skipped.
+    whenActivated({ [weak self] in
+      self?.showPickerActivated(addAnother: addAnother, completion)
+    }, timedOut: {
+      completion(.failure(PickerError(message: "Accessory setup is not ready yet. Try again.")))
+    })
+  }
+
+  private func showPickerActivated(addAnother: Bool,
+                                   _ completion: @escaping (Result<String, PickerError>) -> Void) {
     let known = provisionedIdList
     let knownAll = allIdList
     // Already provisioned and not explicitly adding another? Don't re-show the picker —
@@ -373,7 +425,16 @@ private final class Impl {
   /// is refused here rather than handed to ASK, whose descriptor validation traps.
   func showSensorPicker(services: [String],
                         _ completion: @escaping (Result<String, PickerError>) -> Void) {
-    ensureActivated()
+    // Same as showPicker: the already-approved check needs the activated accessory list.
+    whenActivated({ [weak self] in
+      self?.showSensorPickerActivated(services: services, completion)
+    }, timedOut: {
+      completion(.failure(PickerError(message: "Accessory setup is not ready yet. Try again.")))
+    })
+  }
+
+  private func showSensorPickerActivated(services: [String],
+                                         _ completion: @escaping (Result<String, PickerError>) -> Void) {
     let wanted = Set(services.map { $0.uppercased() })
     guard !wanted.isEmpty, wanted.isSubset(of: sensorServices) else {
       completion(.failure(PickerError(
@@ -470,13 +531,13 @@ private final class Impl {
 
   /// Deprovisions every BAND. Sensors are kept: the WHOOP's unpair must not take the
   /// ring's ASK approval with it, or the ring's row stays and its sync can never reach it.
-  func removeAll(_ completion: @escaping () -> Void) {
+  func removeAll(_ completion: @escaping (Bool) -> Void) {
     let sensors = sensorServices
     remove({ a in !(self.service(of: a).map(sensors.contains) ?? false) }, completion)
   }
 
   /// Retire exactly the former main band; keep the replacement and all sensors.
-  func removeBand(id: String, _ completion: @escaping () -> Void) {
+  func removeBand(id: String, _ completion: @escaping (Bool) -> Void) {
     let sensors = sensorServices
     let wanted = id.uppercased()
     remove({ a in
@@ -488,7 +549,7 @@ private final class Impl {
   /// Deprovisions the SENSOR with CoreBluetooth id [id] (called when it is forgotten), so
   /// the next `showSensorPicker` opens a sheet instead of handing back the forgotten one.
   /// Never removes a band.
-  func removeSensor(id: String, _ completion: @escaping () -> Void) {
+  func removeSensor(id: String, _ completion: @escaping (Bool) -> Void) {
     let sensors = sensorServices
     let wanted = id.uppercased()
     remove({ a in
@@ -497,17 +558,21 @@ private final class Impl {
     }, completion)
   }
 
-  private func remove(_ match: (ASAccessory) -> Bool,
-                      _ completion: @escaping () -> Void) {
-    ensureActivated()
-    let accessories = session.accessories.filter(match)
-    guard !accessories.isEmpty else { completion(); return }
-    let group = DispatchGroup()
-    for acc in accessories {
-      group.enter()
-      session.removeAccessory(acc) { _ in group.leave() }
-    }
-    group.notify(queue: queue) { completion() }
+  private func remove(_ match: @escaping (ASAccessory) -> Bool,
+                      _ completion: @escaping (Bool) -> Void) {
+    // A cold-launch unpair can be the first ASK call; reading `accessories` before
+    // `.activated` sees an empty list and "removes" nothing.
+    whenActivated({ [weak self] in
+      guard let self = self else { completion(false); return }
+      let accessories = self.session.accessories.filter(match)
+      guard !accessories.isEmpty else { completion(true); return }
+      let group = DispatchGroup()
+      for acc in accessories {
+        group.enter()
+        self.session.removeAccessory(acc) { _ in group.leave() }
+      }
+      group.notify(queue: self.queue) { completion(true) }
+    }, timedOut: { completion(false) })
   }
 }
 #endif

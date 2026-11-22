@@ -55,9 +55,9 @@ for pkg in openstrap_protocol openstrap_analytics; do
     continue
   fi
 
-  locked=$(printf '%s' "$block" | grep -E '^\s+resolved-ref:' | head -1 | awk '{print $2}' | tr -d '"')
+  locked=$(printf '%s' "$block" | grep -E '^\s+resolved-ref:' | head -1 | awk '{print $2}' | tr -d '"' || true)
   pinned=$(awk -v p="  $pkg:" '$0==p{f=1;next} /^  [a-z_]+:/{f=0} f' pubspec.yaml \
-    | grep -E '^\s+ref:' | head -1 | awk '{print $2}' | tr -d '"')
+    | grep -E '^\s+ref:' | head -1 | awk '{print $2}' | tr -d '"' || true)
 
   if [ -z "$locked" ] || [ -z "$pinned" ]; then
     echo "::error::could not read a commit pin for $pkg (lock='$locked' pubspec='$pinned')."

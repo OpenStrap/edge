@@ -161,7 +161,15 @@ class _JournalComposeState extends State<JournalCompose> {
         return;
       }
       if (!mounted) return;
-      await _load();
+      // Refresh the field list only. A full _load() replaced the unsaved
+      // ratings, tags and note with what was on disk.
+      List<JournalFieldSpec> specs;
+      try {
+        specs = await repo.getJournalFields();
+      } catch (_) {
+        specs = [..._specs, spec];
+      }
+      if (mounted) setState(() => _specs = specs);
     } finally {
       // Every exit, or one failed save disables the button for the session.
       if (mounted) setState(() => _addingField = false);
@@ -1169,7 +1177,11 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
       final turn = await _engine.send(text);
       if (!mounted) return;
       setState(() {
-        _turns.add((fromUser: false, text: turn.reply));
+        if (turn.reply.isEmpty) {
+          _error = 'the assistant sent no reply';
+        } else {
+          _turns.add((fromUser: false, text: turn.reply));
+        }
         _last = turn;
         _busy = false;
       });
