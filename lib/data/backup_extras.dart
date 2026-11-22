@@ -68,6 +68,10 @@ const Map<String, String> kSecretsNotBackedUp = {
       'pair the band again on this phone',
   'lib/ble/oura_link.dart': 'Oura pairing key is a credential; '
       'pair the ring again on this phone',
+  'lib/ble/adapters/helio_strap.dart': 'Helio strap auth key is a credential '
+      'read from secure storage; enter the key again on this phone',
+  'lib/ble/helio_strap_link.dart': 'Helio strap auth key is a credential; '
+      'pair the strap again on this phone',
 };
 
 /// The app root reloads presentation controllers after AppState adopts prefs.
