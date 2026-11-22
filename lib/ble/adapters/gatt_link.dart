@@ -324,15 +324,16 @@ class GattBandLink implements BandLink {
         // allowLongWrite covers the one frame that exceeds the 20-byte ATT
         // limit of a default MTU (the rich SET_ALARM_TIME), and is a no-op
         // below it; it needs a with-response write.
+        // The timeout goes INTO the call, as in [read]: an outer
+        // `Future.timeout` reports the write failed while flutter_blue_plus
+        // keeps it queued, so it could still land after the caller moved on
+        // or after close().
         final noResponse = writeWithoutResponseFor(c.properties);
-        await c
-            .write(value,
-                withoutResponse: noResponse, allowLongWrite: !noResponse)
-            .timeout(_writeTimeout);
+        await c.write(value,
+            withoutResponse: noResponse,
+            allowLongWrite: !noResponse,
+            timeout: _writeTimeout.inSeconds);
         return true;
-      } on TimeoutException {
-        log('write timeout: no GATT response in ${_writeTimeout.inSeconds}s.');
-        return false;
       } catch (e) {
         log('write error: $e');
         return false;

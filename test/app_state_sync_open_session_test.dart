@@ -236,6 +236,8 @@ void main() {
       expect(BandOwnership.foregroundIntent, isFalse);
       expect(BandOwnership.owner, isNull);
       expect(rig.app.busy, isFalse);
+      // let queued db work finish before the rig closes the database
+      await rig.quiesce();
     }));
 
     test('the drain throws: logged, no derive request, the link and the '
