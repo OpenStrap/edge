@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/coach/coach_apple.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
@@ -28,6 +29,8 @@ void main() {
   });
 
   test('choosing Apple needs no key and counts as on-device', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     SharedPreferences.setMockInitialValues({});
     final cfg = CoachConfig();
     await cfg.load();
@@ -42,5 +45,13 @@ void main() {
     final again = CoachConfig();
     await again.load();
     expect(again.usesApple, isTrue);
+  });
+
+  test('a saved Apple choice is ignored off iPhone', () async {
+    SharedPreferences.setMockInitialValues({});
+    final cfg = CoachConfig();
+    await cfg.load();
+    await cfg.save(useApple: true);
+    expect(cfg.usesApple, isFalse);
   });
 }

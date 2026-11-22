@@ -4022,5 +4022,14 @@
   "notifLookbackTemp": "erhöhte Hauttemperatur ×{count}",
   "notifLookbackRhrHigherBody": "Dein Ruhepuls lag gegen Ende der Woche etwa {bpm} bpm höher als am Anfang.",
   "notifLookbackRhrLowerBody": "Dein Ruhepuls lag gegen Ende der Woche etwa {bpm} bpm niedriger als am Anfang.",
-  "notifSyncStaleBody": "Seit etwa {hours} Stunden keine neuen Daten. Öffne OpenStrap, um neu zu verbinden – die Hintergrundsynchronisierung ist vielleicht hängen geblieben."
+  "notifSyncStaleBody": "Seit etwa {hours} Stunden keine neuen Daten. Öffne OpenStrap, um neu zu verbinden – die Hintergrundsynchronisierung ist vielleicht hängen geblieben.",
+  "coachAppleTitle": "Apple Intelligence auf diesem iPhone",
+  "coachAppleSub": "Kostenlos, offline, privat. Kein Schlüssel nötig.",
+  "coachAppleChecking": "Apple Intelligence wird geprüft …",
+  "coachAppleOnNote": "Coach, Briefings und Tagebuch nutzen jetzt Apples kleines Modell auf dem Gerät. Es antwortet anhand deiner letzten zwei Wochen und kann nichts für dich eintragen; schalte es aus, um ein größeres Modell zu nutzen.",
+  "coachAppleReady": "Bereit. Läuft auf diesem iPhone; nichts verlässt es.",
+  "coachAppleNotEnabled": "Schalte Apple Intelligence in den Einstellungen ein, um das Modell auf dem Gerät zu nutzen.",
+  "coachAppleNotReady": "Apples Modell auf dem Gerät wird noch geladen. Versuche es später erneut.",
+  "coachAppleNotEligible": "Dieses iPhone kann Apples Modell auf dem Gerät nicht ausführen.",
+  "coachAppleUnsupported": "Benötigt ein iPhone mit Apple Intelligence ab iOS 26."
 }

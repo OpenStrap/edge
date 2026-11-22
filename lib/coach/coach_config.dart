@@ -198,7 +198,10 @@ class CoachConfig extends ChangeNotifier {
   /// Apple's on-device model (Foundation Models, iOS 26+): no key, no network,
   /// nothing leaves the phone. Takes precedence over every other route.
   bool _useApple = false;
-  bool get usesApple => _useApple;
+  /// Apple's on-device model exists only on iPhone; a setting restored from
+  /// an iOS backup onto another platform must not route there.
+  bool get usesApple =>
+      _useApple && defaultTargetPlatform == TargetPlatform.iOS;
 
   String _baseUrl = defaultBaseUrl;
   CoachApi _api = CoachApi.defaultFor(defaultBaseUrl);

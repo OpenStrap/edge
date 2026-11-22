@@ -9158,5 +9158,14 @@
   },
   "devicesTimeUnknown": "Время неизвестно",
   "devicesClockNotSetSub": "Браслет записал данные, но его часы не установлены",
-  "homeSyncedTimeUnknown": "Данные с браслета, часы не установлены"
+  "homeSyncedTimeUnknown": "Данные с браслета, часы не установлены",
+  "coachAppleTitle": "Apple Intelligence на этом iPhone",
+  "coachAppleSub": "Бесплатно, офлайн, приватно. Ключ не нужен.",
+  "coachAppleChecking": "Проверяем Apple Intelligence…",
+  "coachAppleOnNote": "Коуч, сводки и дневник теперь используют небольшую модель Apple на устройстве. Она отвечает по данным за последние две недели и не может ничего записывать за вас; выключите её, чтобы использовать более крупную модель.",
+  "coachAppleReady": "Готово. Работает на этом iPhone; ничего не покидает его.",
+  "coachAppleNotEnabled": "Включите Apple Intelligence в Настройках, чтобы использовать модель на устройстве.",
+  "coachAppleNotReady": "Модель Apple на устройстве ещё загружается. Попробуйте позже.",
+  "coachAppleNotEligible": "Этот iPhone не может запускать модель Apple на устройстве.",
+  "coachAppleUnsupported": "Нужен iPhone с Apple Intelligence на iOS 26 или новее."
 }

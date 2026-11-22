@@ -21,6 +21,7 @@ import 'coach_text.dart';
 
 import '../../data/db.dart';
 import '../../l10n/display_text.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import '../../coach/coach_apple.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
@@ -1475,8 +1476,11 @@ class _CoachSetupState extends State<CoachSetup> {
               child: ListView(
                 padding: pad,
                 children: [
-                  _appleCard(c, p),
-                  const SizedBox(height: S.x4),
+                  // Apple's on-device model exists only on iPhone (iOS 26+).
+                  if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                    _appleCard(c, p),
+                    const SizedBox(height: S.x4),
+                  ],
                   if (!_apple) Section(
                     l?.coachWhereModelRuns ?? 'Where the model runs',
                     Column(

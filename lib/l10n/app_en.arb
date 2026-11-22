@@ -18301,5 +18301,41 @@
         "type": "int"
       }
     }
+  },
+  "coachAppleTitle": "Apple Intelligence on this iPhone",
+  "@coachAppleTitle": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleSub": "Free, offline, private. No key needed.",
+  "@coachAppleSub": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleChecking": "Checking Apple Intelligence…",
+  "@coachAppleChecking": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleOnNote": "The coach, briefings and journal now use Apple’s small on-device model. It answers from your last two weeks and can’t log things for you; switch it off to use a bigger model instead.",
+  "@coachAppleOnNote": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleReady": "Ready. Runs on this iPhone; nothing leaves it.",
+  "@coachAppleReady": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNotEnabled": "Turn on Apple Intelligence in Settings to use the on-device model.",
+  "@coachAppleNotEnabled": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNotReady": "Apple’s on-device model is still downloading. Try again later.",
+  "@coachAppleNotReady": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleNotEligible": "This iPhone can’t run Apple’s on-device model.",
+  "@coachAppleNotEligible": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
+  },
+  "coachAppleUnsupported": "Needs an iPhone with Apple Intelligence on iOS 26 or later.",
+  "@coachAppleUnsupported": {
+    "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
   }
 }

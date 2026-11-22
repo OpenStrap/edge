@@ -4022,5 +4022,14 @@
   "notifSyncStaleBody": "已约 {hours} 小时没有新数据。打开 OpenStrap 重新连接，后台同步可能已停止。",
   "devicesTimeUnknown": "时间未知",
   "devicesClockNotSetSub": "腕带已记录数据，但时钟未设置",
-  "homeSyncedTimeUnknown": "腕带数据，时钟未设置"
+  "homeSyncedTimeUnknown": "腕带数据，时钟未设置",
+  "coachAppleTitle": "此 iPhone 上的 Apple 智能",
+  "coachAppleSub": "免费、离线、私密。无需密钥。",
+  "coachAppleChecking": "正在检查 Apple 智能…",
+  "coachAppleOnNote": "教练、简报和日记现在使用 Apple 的小型设备端模型。它根据你最近两周的数据回答，不能替你记录；关闭后可使用更大的模型。",
+  "coachAppleReady": "已就绪。在此 iPhone 上运行，数据不会离开设备。",
+  "coachAppleNotEnabled": "在“设置”中打开 Apple 智能即可使用设备端模型。",
+  "coachAppleNotReady": "Apple 设备端模型仍在下载，请稍后再试。",
+  "coachAppleNotEligible": "此 iPhone 无法运行 Apple 设备端模型。",
+  "coachAppleUnsupported": "需要搭载 iOS 26 或更高版本并支持 Apple 智能的 iPhone。"
 }
