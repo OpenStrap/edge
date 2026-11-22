@@ -29,6 +29,7 @@ const List<String> _families = [
   'colmi',
   'oura',
   'helio_strap',
+  'zeppos_l66',
 ];
 
 void main() {

@@ -33,6 +33,11 @@ const String kGarminFamily = 'garmin';
 /// served by the declaration-built [sparseColumn].
 const String kHelioFamily = 'helio_strap';
 
+/// Xiaomi / Mi Smart Band 7 (codename L66), on the Helio engine. Served by
+/// [sparseColumn] the same way; its HRV is never decoded, so it is not a
+/// device-RMSSD family.
+const String kMiBand7Family = 'zeppos_l66';
+
 /// The widest gap, in seconds, between two readings still taken as one 1 Hz
 /// run (a strap's seconds laid over a wearable's day): a dropped second or
 /// two. A reading further off is a wearable's own and stands for its minutes.
@@ -48,6 +53,7 @@ const int kOneHzRunGapSec = 3;
 const Map<String, int> kHrCadenceSec = {
   kGarminFamily: 60,
   kHelioFamily: 60,
+  kMiBand7Family: 60,
   kPebbleFamily: 60,
   kMiBandFamily: 60,
   kUltrahumanFamily: 300,
@@ -65,6 +71,7 @@ const Map<String, String> kMethodFamily = {
   'gen5': 'hr_1hz',
   kGarminFamily: 'hr_1min',
   kHelioFamily: 'hr_1min',
+  kMiBand7Family: 'hr_1min',
   kPebbleFamily: 'hr_1min',
   kMiBandFamily: 'hr_1min',
   kUltrahumanFamily: 'hr_5min',

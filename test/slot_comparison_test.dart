@@ -88,11 +88,13 @@ void main() {
   });
 
   group('wearables fill every day (the active wearable)', () {
-    test('the seven columned entries are found (control for the loops below)',
+    test('the eight columned entries are found (control for the loops below)',
         () {
-      // helio_strap's column is the declaration-built one (sparseColumn).
+      // helio_strap's and zeppos_l66's columns are the declaration-built one
+      // (sparseColumn).
       expect({for (final e in _columnEntries()) e.id}, {'garmin', 'pebble',
-          'miband234', 'ultrahuman', 'colmi', 'oura', 'helio_strap'});
+          'miband234', 'ultrahuman', 'colmi', 'oura', 'helio_strap',
+          'zeppos_l66'});
     });
 
     test('Oura: the rows read off kOuraColumn, with their captions', () {
