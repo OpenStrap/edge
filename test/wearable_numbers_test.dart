@@ -505,7 +505,8 @@ void main() {
       final caps = capabilities(kMiBandColumn);
       expect(caps['resting_hr'], MetricClass.ours);
       expect(caps['sleep_stages'], MetricClass.device);
-      expect(caps['steps'], MetricClass.device);
+      // Its own count is the day's steps (owner decision 2026-11-22).
+      expect(caps['steps'], MetricClass.ours);
       expect(caps['readiness'], MetricClass.estimated, reason: 'C partial');
       expect(caps['movement'], MetricClass.estimated);
       expect(caps['hrv'], MetricClass.unavailable);

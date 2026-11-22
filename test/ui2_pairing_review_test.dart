@@ -115,8 +115,10 @@ void main() {
     expect(find.descendant(of: sleep, matching: find.text(
         'Every day: From the device’s own sleep stages')), findsOneWidget);
     final steps = find.byKey(const ValueKey('slot-row-steps'));
+    // The watch's own count is the day's steps now (owner decision
+    // 2026-11-22): served, so no "device's own reading" caption.
     expect(find.descendant(of: steps, matching: find.text(
-        'Every day: The device’s own reading')), findsOneWidget);
+        'Every day: The device’s own reading')), findsNothing);
   });
 
   testWidgets('strap lead excludes daily strain precisely', (t) async {
