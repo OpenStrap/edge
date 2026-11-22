@@ -1290,7 +1290,6 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     pick: pairMiBand234,
   ),
   (
-  (
     entry: kHelioStrap,
     blurb: 'An Amazfit Helio Strap. First pairing still has to go through '
         'the real Zepp app — that is where the strap\'s key comes from, and '
@@ -1303,6 +1302,7 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     // field (wired via `onPickedWithKey` in the pairing screens) applies.
     pick: null,
   ),
+  (
     entry: kPebble,
     blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
         'Classic, which this app cannot reach. Syncs the watch\'s health log: '
@@ -2146,8 +2146,8 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'miband234' => () => _syncMiband(c),
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
-        'thermometer' || 'miscale_bc' || 'miscale2' =>
         'helio_strap' => () => _syncSensor(c, HelioStrapLink.instance.sync),
+        'thermometer' || 'miscale_bc' || 'miscale2' =>
           () => _syncSensor(c, SessionLink.forId(s.family)!.sync),
         _ => null,
       },
