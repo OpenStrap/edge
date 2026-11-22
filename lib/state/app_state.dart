@@ -61,6 +61,7 @@ import '../compute/inputs/canonical.dart'
     show
         activeWearable,
         flagOnOrPrimary,
+        wearableLastTs,
         onWearableDaysChanged,
         refreshSessionSensorSources,
         substrateDays;
@@ -2565,7 +2566,11 @@ class AppState extends ChangeNotifier {
       if (!recoveryNightSettled(
         dayId: dayId,
         payload: payload,
-        dataEdgeSec: await LocalDb.lastDecodedRecTs() ?? 0,
+        // The band's edge, or the active wearable's on an install whose
+        // night came off it: with only the band's (0 there) a wearable night
+        // settled only through the 12 h give-up.
+        dataEdgeSec: math.max(await LocalDb.lastDecodedRecTs() ?? 0,
+            await wearableLastTs() ?? 0),
         nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       )) {
         return;
