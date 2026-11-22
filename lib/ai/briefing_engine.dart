@@ -36,7 +36,9 @@ String? briefingEndpointOf(CoachConfig config) {
   if (config.usesApple) return kAppleOnDeviceBase;
   final u = Uri.tryParse(config.apiBase.trim());
   if (u == null || u.host.isEmpty) return null;
-  return '${u.scheme}://${u.host}${u.hasPort ? ':${u.port}' : ''}';
+  // Built with Uri so an IPv6 host keeps its brackets (http://[::1]:11434).
+  return Uri(scheme: u.scheme, host: u.host, port: u.hasPort ? u.port : null)
+      .toString();
 }
 
 /// Injectable one-shot completion (tests pass a fake; production defaults to

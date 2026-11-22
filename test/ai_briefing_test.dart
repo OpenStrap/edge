@@ -441,6 +441,20 @@ void main() {
       expect(cached?.model, 'm1');
     });
 
+    test('a local IPv6 endpoint is recorded so it still reads as local',
+        () async {
+      final cfg = CoachConfig();
+      await cfg.save(baseUrl: 'http://[::1]:11434/v1', model: 'm1');
+      final b = await BriefingEngine(
+        config: cfg,
+        repo: _FakeRepo(today: _sampleToday()),
+        complete: ({required system, required user}) async =>
+            'Recovered and ready.\n---\n- Readiness 74',
+      ).generate(BriefingPeriod.morning);
+      expect(b.endpoint, 'http://[::1]:11434');
+      expect(SentPayload.isLocal(b.endpoint!), isTrue);
+    });
+
     test('a provider switched mid-request does not relabel the briefing',
         () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
