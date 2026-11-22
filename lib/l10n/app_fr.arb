@@ -4022,5 +4022,7 @@
   "notifSyncStaleBody": "Aucune nouvelle donnée depuis environ {hours} heures. Ouvre OpenStrap pour te reconnecter : la synchronisation en arrière-plan s’est peut-être bloquée.",
   "devicesTimeUnknown": "Heure inconnue",
   "devicesClockNotSetSub": "Le bracelet a enregistré des données mais son horloge n’est pas réglée",
-  "homeSyncedTimeUnknown": "Données du bracelet, horloge non réglée"
+  "homeSyncedTimeUnknown": "Données du bracelet, horloge non réglée",
+  "alarmAllDays": "Tous les jours",
+  "alarmCopiedToAllDays": "Heure de réveil copiée sur tous les jours"
 }

@@ -4022,5 +4022,7 @@
   "notifLookbackTemp": "erhöhte Hauttemperatur ×{count}",
   "notifLookbackRhrHigherBody": "Dein Ruhepuls lag gegen Ende der Woche etwa {bpm} bpm höher als am Anfang.",
   "notifLookbackRhrLowerBody": "Dein Ruhepuls lag gegen Ende der Woche etwa {bpm} bpm niedriger als am Anfang.",
-  "notifSyncStaleBody": "Seit etwa {hours} Stunden keine neuen Daten. Öffne OpenStrap, um neu zu verbinden – die Hintergrundsynchronisierung ist vielleicht hängen geblieben."
+  "notifSyncStaleBody": "Seit etwa {hours} Stunden keine neuen Daten. Öffne OpenStrap, um neu zu verbinden – die Hintergrundsynchronisierung ist vielleicht hängen geblieben.",
+  "alarmAllDays": "Alle Tage",
+  "alarmCopiedToAllDays": "Weckzeit auf alle Tage übertragen"
 }

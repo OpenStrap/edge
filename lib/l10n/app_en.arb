@@ -18301,5 +18301,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "alarmAllDays": "All days",
+  "@alarmAllDays": {"description": "Snackbar action: copy the wake time just set to every weekday."},
+  "alarmCopiedToAllDays": "Wake time copied to every day",
+  "@alarmCopiedToAllDays": {"description": "Snackbar: wake time copied to every weekday."}
 }

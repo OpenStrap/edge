@@ -4022,5 +4022,7 @@
   "notifSyncStaleBody": "已约 {hours} 小时没有新数据。打开 OpenStrap 重新连接，后台同步可能已停止。",
   "devicesTimeUnknown": "时间未知",
   "devicesClockNotSetSub": "腕带已记录数据，但时钟未设置",
-  "homeSyncedTimeUnknown": "腕带数据，时钟未设置"
+  "homeSyncedTimeUnknown": "腕带数据，时钟未设置",
+  "alarmAllDays": "每天",
+  "alarmCopiedToAllDays": "起床时间已复制到每一天"
 }

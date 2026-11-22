@@ -4022,5 +4022,7 @@
   "notifSyncStaleBody": "लगभग {hours} घंटे से कोई नया डेटा नहीं आया। दोबारा कनेक्ट करने के लिए OpenStrap खोलें — हो सकता है बैकग्राउंड सिंक रुक गया हो।",
   "devicesTimeUnknown": "समय अज्ञात",
   "devicesClockNotSetSub": "स्ट्रैप ने डेटा रिकॉर्ड किया, लेकिन उसकी घड़ी सेट नहीं है",
-  "homeSyncedTimeUnknown": "बैंड का डेटा, घड़ी सेट नहीं है"
+  "homeSyncedTimeUnknown": "बैंड का डेटा, घड़ी सेट नहीं है",
+  "alarmAllDays": "सभी दिन",
+  "alarmCopiedToAllDays": "जागने का समय सभी दिनों में कॉपी किया गया"
 }

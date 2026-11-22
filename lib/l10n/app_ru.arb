@@ -9158,5 +9158,7 @@
   },
   "devicesTimeUnknown": "Время неизвестно",
   "devicesClockNotSetSub": "Браслет записал данные, но его часы не установлены",
-  "homeSyncedTimeUnknown": "Данные с браслета, часы не установлены"
+  "homeSyncedTimeUnknown": "Данные с браслета, часы не установлены",
+  "alarmAllDays": "Все дни",
+  "alarmCopiedToAllDays": "Время подъёма скопировано на все дни"
 }

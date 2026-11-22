@@ -17332,5 +17332,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "alarmAllDays": "ทุกวัน",
+  "alarmCopiedToAllDays": "คัดลอกเวลาตื่นไปทุกวันแล้ว"
 }

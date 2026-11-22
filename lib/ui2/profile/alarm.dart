@@ -409,11 +409,11 @@ class AlarmScreenView extends StatelessWidget {
         action: onApplyTimeToAllDays == null
             ? null
             : SnackBarAction(
-                label: uiText(c, 'All days'),
+                label: l?.alarmAllDays ?? 'All days',
                 onPressed: () => _run(
                     c,
                     () => onApplyTimeToAllDays!(picked.hour, picked.minute),
-                    uiText(c, 'Wake time copied to every day'))));
+                    l?.alarmCopiedToAllDays ?? 'Wake time copied to every day')));
   }
 
   /// Off, or how many minutes before [day]'s wake time the band may buzz

@@ -4022,5 +4022,7 @@
   "notifLookbackTemp": "temperatura de la piel elevada ×{count}",
   "notifLookbackRhrHigherBody": "Tu frecuencia cardíaca en reposo fue unos {bpm} lpm más alta al final de la semana que al principio.",
   "notifLookbackRhrLowerBody": "Tu frecuencia cardíaca en reposo fue unos {bpm} lpm más baja al final de la semana que al principio.",
-  "notifSyncStaleBody": "No hay datos nuevos desde hace unas {hours} horas. Abre OpenStrap para reconectar: puede que la sincronización en segundo plano se haya detenido."
+  "notifSyncStaleBody": "No hay datos nuevos desde hace unas {hours} horas. Abre OpenStrap para reconectar: puede que la sincronización en segundo plano se haya detenido.",
+  "alarmAllDays": "Todos los días",
+  "alarmCopiedToAllDays": "Hora de despertar copiada a todos los días"
 }
