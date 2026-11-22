@@ -5566,6 +5566,37 @@ class AppState extends ChangeNotifier {
     return _armNextAlarmOccurrence();
   }
 
+  /// Apply one wake [hour]:[minute] to every weekday, writing all seven rows in
+  /// one pass and re-arming the band ONCE at the end. A naive loop over
+  /// [setScheduleDay] would re-arm per day — seven SET_ALARM writes to the
+  /// strap for a single user action. Each day's enabled state and smart-wake
+  /// window are left untouched (a weekdays-only schedule stays weekdays-only).
+  /// Mirrors [setScheduleDay]'s return: true when the band holds the result,
+  /// false when offline or the re-arm write failed.
+  Future<bool> setWakeTimeAllDays(
+      {required int hour, required int minute}) async {
+    for (var d = _disableInFlight; d != null; d = _disableInFlight) {
+      await d;
+    }
+    for (final e in applyWakeTimeToAllDays(_schedule, hour, minute)) {
+      await LocalDb.setAlarmScheduleDay(
+        weekday: e.weekday,
+        hour: e.hour,
+        minute: e.minute,
+        enabled: e.enabled,
+        smartWindowMinutes: e.smartWindowMinutes,
+      );
+    }
+    // The user chose a slot: the schedule is no longer "cancelled".
+    await (await SharedPreferences.getInstance())
+        .remove('alarm_schedule_cleared');
+    await _loadAlarmSchedule();
+    notifyListeners();
+    unawaited(_ensureRemindersScheduled());
+    if (!isConnected) return false;
+    return _armNextAlarmOccurrence();
+  }
+
   /// Compute + arm the next scheduled occurrence, skipping the write when it
   /// already matches what's armed (don't hammer the strap on every sync).
   /// Called after every successful connect and after each sync completes —

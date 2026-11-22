@@ -326,6 +326,41 @@ void main() {
     });
   });
 
+  group('applyWakeTimeToAllDays', () {
+    test('sets every day to the one time, preserving order and length', () {
+      final out = applyWakeTimeToAllDays(
+          fillDefaultAlarmSchedule(const []), 6, 30);
+      expect(out.length, 7);
+      for (var w = 0; w < 7; w++) {
+        expect(out[w].weekday, w);
+        expect(out[w].hour, 6);
+        expect(out[w].minute, 30);
+      }
+    });
+
+    test("leaves each day's enabled state and smart window untouched", () {
+      // Mon–Fri on (one with a 15-min smart window), Sat/Sun off — a
+      // weekdays-only schedule must stay weekdays-only after a bulk time set.
+      final schedule = fillDefaultAlarmSchedule([
+        for (var w = 0; w < 5; w++)
+          AlarmScheduleEntry(
+              weekday: w,
+              hour: 7,
+              minute: 0,
+              enabled: true,
+              smartWindowMinutes: w == 0 ? 15 : 0),
+      ]);
+      final out = applyWakeTimeToAllDays(schedule, 6, 45);
+      for (var w = 0; w < 7; w++) {
+        expect(out[w].hour, 6);
+        expect(out[w].minute, 45);
+        expect(out[w].enabled, w < 5, reason: 'enabled flipped on day $w');
+        expect(out[w].smartWindowMinutes, w == 0 ? 15 : 0,
+            reason: 'smart window changed on day $w');
+      }
+    });
+  });
+
   group('seedEntryFromLegacyEpoch', () {
     test('maps a legacy epoch onto its local weekday/hour/minute, enabled', () {
       // 2026-08-19 06:30 LOCAL is a Wednesday → DateTime.weekday 3 → column 2.

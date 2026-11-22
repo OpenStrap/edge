@@ -199,6 +199,19 @@ List<AlarmScheduleEntry> fillDefaultAlarmSchedule(
   ];
 }
 
+/// Every weekday's row with [hour]:[minute] as its wake time, leaving each
+/// day's enabled state and smart-wake window exactly as they were (so a
+/// weekdays-only schedule stays weekdays-only). Backs the "copy this time to
+/// every day" shortcut (AppState.setWakeTimeAllDays): most people wake at one
+/// time, and the weekly UI otherwise makes them set it a day at a time.
+/// Order and length (always 7) are preserved.
+List<AlarmScheduleEntry> applyWakeTimeToAllDays(
+  List<AlarmScheduleEntry> schedule,
+  int hour,
+  int minute,
+) =>
+    [for (final e in schedule) e.copyWith(hour: hour, minute: minute)];
+
 /// The next enabled occurrence strictly after [now], or null when every
 /// weekday is disabled (or [schedule] is empty). Wraps to next week when this
 /// week's occurrence for a weekday has already passed.
