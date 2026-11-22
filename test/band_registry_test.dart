@@ -22,6 +22,7 @@ void main() {
           'coros',
           'ultrahuman',
           'miband234',
+          'huami_cinco',
           'helio_strap',
           'zeppos_l66',
           'zeppos_verona',

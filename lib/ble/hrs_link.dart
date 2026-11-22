@@ -973,8 +973,9 @@ class HrsLink {
       await UltrahumanLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kMiBand234.id) {
-      await MiBand234Link.forgetBand(id);
+    final miBand = MiBand234Link.forId(row?['adapter_id']);
+    if (miBand != null) {
+      await miBand.forget(id);
       return;
     }
     if (row?['adapter_id'] == kPebble.id) {

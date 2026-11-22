@@ -27,7 +27,8 @@ void main() {
         if (e.role == DeviceRole.band) e.id,
     };
     expect(bands, {
-      'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'helio_strap',
+      'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'huami_cinco',
+      'helio_strap',
       'zeppos_l66', 'zeppos_verona', 'zeppos_madrid', 'zeppos_zurich',
       'pebble', 'colmi', 'garmin',
     });

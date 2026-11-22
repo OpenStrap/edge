@@ -2660,7 +2660,7 @@
   "pairSensorStoredOnSync": "同步时存储记录",
   "pairSensorStoredOnReading": "测量时存储读数",
   "pairSensorPairingMiband234": "配对中…如果手环振动，请轻点手环确认。",
-  "devicePickerBlurbMiband234": "Mi Band 2 或 3。请先在 Mi Fit 或 Zepp 中解除配对（或恢复出厂设置）：它只有在没有密钥时才接受新密钥。同步手环保存的心率、步数和睡眠。配对时如果手环振动，请轻点手环确认。Mi Band 4 需要厂商配对，不受支持。",
+  "devicePickerBlurbMiband234": "Mi Band 2 或 3。请先在 Mi Fit 或 Zepp 中解除配对（或恢复出厂设置）：它只有在没有密钥时才接受新密钥。同步手环保存的心率、步数和睡眠。配对时如果手环振动，请轻点手环确认。",
   "devicePickerBlurbUltrahuman": "直接读取戒指——无需账户，无需交换密钥。",
   "devicePickerBlurbPebble": "仅限 Pebble 2 或 Pebble 2 SE。同步步数和睡眠，在 Pebble 2 上还同步心率（SE 没有心率传感器）。",
   "pairSensorKeyReplacesTitle": "配对会替换 Oura 应用的密钥",

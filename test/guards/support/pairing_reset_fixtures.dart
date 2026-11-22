@@ -14,6 +14,7 @@ const Map<String, String> kPinnedOfficialHost = <String, String>{
   'ultrahuman': 'www.ultrahuman.com',
   'coros': 'support.coros.com',
   'miband234': 'www.mi.com',
+  'huami_cinco': 'www.mi.com', // Mi Smart Band 4, same reviewed host as the other Xiaomi rows
   'helio_strap': 'support.amazfit.com',
   'zeppos_l66': 'www.mi.com', // Xiaomi / Mi Smart Band 7, same reviewed host as the other Xiaomi rows
   'zeppos_verona': 'support.amazfit.com', // Amazfit GTR 3, same reviewed host as the Helio row
@@ -73,6 +74,7 @@ const Set<String> kPairingFollowUp = <String>{
   'coros',
   'ultrahuman',
   'miband234',
+  'huami_cinco',
   'helio_strap',
   'zeppos_l66',
   'zeppos_verona',

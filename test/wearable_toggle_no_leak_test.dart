@@ -26,6 +26,7 @@ const List<String> _families = [
   'garmin',
   'pebble',
   'miband234',
+  'huami_cinco',
   'colmi',
   'oura',
   'helio_strap',

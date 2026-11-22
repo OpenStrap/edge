@@ -24,6 +24,17 @@ import 'pebble_inputs.dart' show rhrOnlyReadiness;
 /// The adapter id the host stamps on this band's `decoded_onehz` rows.
 const String kMiBandFamily = 'miband234';
 
+/// Mi Band 4: the same protocol and the same records as Mi Band 2/3 (HR in
+/// its minute record, its own per-minute sleep kind, daily steps), so the
+/// same column serves it.
+const String kMiBand4Family = 'huami_cinco';
+
+/// Every family [kMiBandColumn] serves.
+const Set<String> kMiBandFamilies = {kMiBandFamily, kMiBand4Family};
+
+/// Whether [family] is one of [kMiBandFamilies].
+bool isMiBandFamily(Object? family) => kMiBandFamilies.contains(family);
+
 /// Mi Band 2/3's column of the metric x device table (PLAN §3b), as served.
 final Map<String, Cell> kMiBandColumn = {
   // Ours is the HR-led window off its one-a-minute HR (in bed); the band's

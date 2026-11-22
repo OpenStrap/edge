@@ -118,8 +118,22 @@ enum MiBand234SyncFailure {
 /// fetches history from the cursor, collects the optional channels inside a
 /// bounded window, and disconnects.
 class MiBand234Link {
-  MiBand234Link._();
-  static final MiBand234Link instance = MiBand234Link._();
+  MiBand234Link._(this.entry);
+  static final MiBand234Link instance = MiBand234Link._(kMiBand234);
+
+  /// Mi Band 4 on the same link: its own `device` row, key and cursor, and
+  /// the crypt-flagged handshake its adapter runs for [kMiBand4].
+  static final MiBand234Link miBand4 = MiBand234Link._(kMiBand4);
+
+  /// The family this link drives.
+  final BandEntry entry;
+
+  /// The link for [adapterId], or null when it is not a Mi Band.
+  static MiBand234Link? forId(Object? adapterId) => adapterId == kMiBand234.id
+      ? instance
+      : adapterId == kMiBand4.id
+          ? miBand4
+          : null;
 
   /// The `device` row for the paired band, or null.
   static Future<Map<String, Object?>?> pairedRow() =>
@@ -198,7 +212,10 @@ class MiBand234Link {
   /// crash between the two here would rather leave a `device` row whose key is
   /// already gone (which just fails the next connect visibly) than a key
   /// outliving the row that was its only reason to exist.
-  static Future<bool> forgetBand(String id) async {
+  static Future<bool> forgetBand(String id) => instance.forget(id);
+
+  /// [forgetBand] for this link's own family.
+  Future<bool> forget(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[miband234] refusing to forget the primary band from here.');
       return false;
@@ -206,8 +223,8 @@ class MiBand234Link {
     // Before the first await: a sync still reading this band's row or key
     // has no `_deviceId` yet for the check below to match, so it learns of
     // the forget from this instead.
-    instance._forgets++;
-    if (instance._deviceId == id) await instance.stop();
+    _forgets++;
+    if (_deviceId == id) await stop();
     await _dropKey(id);
     await LocalDb.deleteDevice(id);
     // Nothing resumes from a forgotten id's cursor: a re-pair of the same
@@ -259,7 +276,7 @@ class MiBand234Link {
     final resetGen = ResetGate.generation;
     final forgets = _forgets;
     lastSyncFailure = null;
-    final row = await pairedRow();
+    final row = await pairedRowOf(entry.id);
     if (row == null) return false;
     final deviceId = row['id'] as String?;
     final remoteId = row['remote_id'] as String?;
@@ -295,15 +312,15 @@ class MiBand234Link {
           await device.connect(timeout: const Duration(seconds: 20));
           final services = await device.discoverServices();
           final link = GattBandLink(
-            entry: kMiBand234,
+            entry: entry,
             services: services,
             onLog: (m) => debugPrint('[miband234] $m'),
           );
           _link = link;
           final missing =
-              link.missingCharacteristics(kMiBand234.requiredCharacteristics);
+              link.missingCharacteristics(entry.requiredCharacteristics);
           if (missing.isNotEmpty) {
-            debugPrint('[miband234] ${kMiBand234.label}: missing required '
+            debugPrint('[miband234] ${entry.label}: missing required '
                 'characteristic(s) '
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
@@ -313,6 +330,7 @@ class MiBand234Link {
               deviceId,
               resetGeneration: resetGen,
               MiBand234Adapter(
+                entry: entry,
                 key: key,
                 sinceSec: await LocalDb.getCursorInt(_sinceItem(deviceId)),
                 nowSeconds: _now,
@@ -457,6 +475,7 @@ class MiBand234Link {
     final host = _makeHost(
       deviceId,
       MiBand234Adapter(
+        entry: entry,
         key: key,
         needsKeyWrite: needsKeyWrite,
         replyTimeout: const Duration(milliseconds: 50),
@@ -514,10 +533,11 @@ class MiBand234Link {
 /// A different band gets a fresh id, and its pairing forgets the old row only
 /// once it succeeds.
 String? miBandReusableDeviceId(
-    Iterable<Map<String, Object?>> rows, String remoteId) {
+    Iterable<Map<String, Object?>> rows, String remoteId, {String? adapterId}) {
+  final family = adapterId ?? kMiBand234.id;
   for (final r in rows) {
     final id = r['id'];
-    if (r['adapter_id'] == kMiBand234.id &&
+    if (r['adapter_id'] == family &&
         id is String &&
         id != LocalDb.kPrimaryDeviceId &&
         r['remote_id'] == remoteId) {
@@ -816,4 +836,82 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
       }
     }
   }
+}
+
+/// Pair [device] as this phone's Mi Band 4 with a 16-byte key the user
+/// already has (the band only answers to the key its vendor pairing issued;
+/// it never takes one from this app). Null on success, or a sentence the
+/// user can act on.
+///
+/// READ-ONLY ON THE BAND: only the crypt-flagged handshake runs
+/// ([MiBand234Adapter.authenticateOnly]), so a wrong key costs a refusal and
+/// nothing else. The key is stored only after the band accepted it; a
+/// failure leaves the keychain as it was. A re-pair of the same band keeps
+/// its row ([miBandReusableDeviceId]).
+///
+/// STILL HARDWARE-UNVERIFIED (R6).
+Future<String?> pairMiBand4WithTypedKey(BluetoothDevice device, String raw) async {
+  final hex = raw.trim().replaceFirst(RegExp('^0x', caseSensitive: false), '');
+  if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(hex)) {
+    return 'That is not a valid key: it must be exactly 32 hex characters.';
+  }
+  final key = _unhex(hex);
+  if (key == null) {
+    return 'That is not a valid key: it must be exactly 32 hex characters.';
+  }
+  final rnd = Random.secure();
+  final deviceId = miBandReusableDeviceId(
+          await LocalDb.deviceRows(), device.remoteId.str,
+          adapterId: kMiBand4.id) ??
+      '${kMiBand4.id}-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+  return withSecondaryLinkSlot<String?>(
+    timeout: const Duration(seconds: 30),
+    onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
+        'now. Try pairing again in a moment.',
+    () async {
+      GattBandLink? link;
+      try {
+        await device.connect(timeout: const Duration(seconds: 20));
+        final services = await device.discoverServices();
+        link = GattBandLink(
+          entry: kMiBand4,
+          services: services,
+          onLog: (m) => debugPrint('[${kMiBand4.id} pair] $m'),
+        );
+        if (link.missingCharacteristics(kMiBand4.requiredCharacteristics)
+            .isNotEmpty) {
+          return 'That device does not expose the service this app speaks '
+              'for a Mi Band 4.';
+        }
+        final refusal =
+            await MiBand234Adapter(entry: kMiBand4, key: key).authenticateOnly(link);
+        if (refusal != null) {
+          return refusal.status == null
+              ? 'The band didn’t answer. Make sure it’s close by and try again.'
+              : 'The band rejected this key. Double-check it and try again.';
+        }
+        try {
+          await _secure.write(
+              key: _keyItem(deviceId), value: hex.toLowerCase(),
+              iOptions: _kApple, mOptions: _kMacos);
+        } catch (e) {
+          return 'The phone’s keychain is locked. Unlock the phone and try again.';
+        }
+        await LocalDb.upsertDevice(
+          id: deviceId,
+          adapterId: kMiBand4.id,
+          remoteId: device.remoteId.str,
+          label: cleanDeviceLabel(device.platformName) ?? kMiBand4.label,
+        );
+        return null;
+      } catch (e) {
+        return 'Could not connect: $e';
+      } finally {
+        await link?.close();
+        try {
+          await device.disconnect();
+        } catch (_) {/* already gone */}
+      }
+    },
+  );
 }

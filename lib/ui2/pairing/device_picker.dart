@@ -49,6 +49,7 @@ import '../../ble/ble_state.dart'
 import '../../ble/hrs_link.dart';
 import '../../ble/helio_strap_link.dart'
     show zeppOsTypedKeyPairFor;
+import '../../ble/miband_link.dart' show pairMiBand4WithTypedKey;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -432,6 +433,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
           final id when id == kOura.id => pairOuraRingWithTypedKey,
           final id when zeppOsTypedKeyPairFor(id) != null =>
             zeppOsTypedKeyPairFor(id),
+          final id when id == kMiBand4.id => pairMiBand4WithTypedKey,
           _ => null,
         },
         ),
@@ -939,8 +941,7 @@ String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
           'Reads the ring directly — no account, no key exchange.',
       'miband234' => l?.devicePickerBlurbMiband234 ??
           'Mi Band 2 or 3: heart rate, steps and sleep. Unpair it from Mi '
-              'Fit or Zepp first, or reset it. Tap the band if it buzzes. Mi '
-              'Band 4 isn’t supported.',
+              'Fit or Zepp first, or reset it. Tap the band if it buzzes.',
       'pebble' => l?.devicePickerBlurbPebble ??
           'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
               'rate on a Pebble 2 (the SE has no heart-rate sensor).',

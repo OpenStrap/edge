@@ -40,6 +40,8 @@ void main() {
       'garmin': const GarminAdapter().signals,
       'ultrahuman': UltrahumanAdapter().signals,
       'miband234': MiBand234Adapter(key: const [0]).signals,
+      'huami_cinco':
+          MiBand234Adapter(key: const [0], entry: kMiBand4).signals,
       'pebble': kPebbleAdapter.signals,
       'colmi': kColmiAdapter.signals,
       'helio_strap': kHelioStrapAdapter.signals,
