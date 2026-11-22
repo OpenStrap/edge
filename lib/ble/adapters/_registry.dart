@@ -1020,6 +1020,35 @@ const BandEntry kMiBand234 = BandEntry.notify(
   scanByName: true,
 );
 
+/// Mi Smart Band 4 (codename Cinco). The same legacy Huami protocol as
+/// [kMiBand234] (auth on its char `0009`, the same paged minute history),
+/// with two differences the adapter keys off this entry: the auth runs with
+/// crypt flag `0x80`, and the band never accepts a key from this app, so
+/// the user types the one its vendor pairing issued (like the Helio Strap).
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one
+/// (ASSUMPTIONS R6). Not in [kAskPickerSensors]: one more FEE1-sharing
+/// device in the iOS picker is the owner's call, not made for this one yet.
+const BandEntry kMiBand4 = BandEntry.notify(
+  id: 'huami_cinco',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Mi Smart Band 4',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand4,
+  scanByName: true,
+);
+
+/// The names Mi Band 4 advertises: its retail name and its codename.
+bool _looksLikeMiBand4(String lowercaseName) =>
+    const {'mi smart band 4', 'cinco'}.contains(lowercaseName);
+
 /// The names Mi Band 2 and Mi Band 3 advertise.
 bool _looksLikeMiBand23(String lowercaseName) => const {
       'mi band 2',
@@ -1390,6 +1419,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kCoros,
   kUltrahuman,
   kMiBand234,
+  kMiBand4,
   kHelioStrap,
   kMiBand7,
   kAmazfitGtr3,
@@ -1609,6 +1639,12 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceSpo2: Duration(days: 1),
   },
   'miband234': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  // Mi Band 4: the same adapter and the same records as Mi Band 2/3.
+  'huami_cinco': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(days: 1),
     InputSignal.deviceStages: Duration(minutes: 1),

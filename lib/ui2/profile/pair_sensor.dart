@@ -65,6 +65,7 @@ import '../../ble/hrs_link.dart';
 import '../../ble/ios_ble_restore.dart';
 import '../../ble/helio_strap_link.dart'
     show zeppOsTypedKeyPairFor;
+import '../../ble/miband_link.dart' show pairMiBand4WithTypedKey;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -483,6 +484,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
             final id when id == kOura.id => pairOuraRingWithTypedKey,
             final id when zeppOsTypedKeyPairFor(id) != null =>
               zeppOsTypedKeyPairFor(id),
+            final id when id == kMiBand4.id => pairMiBand4WithTypedKey,
             _ => null,
           },
         ),

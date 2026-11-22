@@ -52,6 +52,7 @@ void main() {
       'coros': DeviceCategory.workoutSensor,
       'ultrahuman': DeviceCategory.wearable,
       'miband234': DeviceCategory.wearable,
+      'huami_cinco': DeviceCategory.wearable,
       'pebble': DeviceCategory.wearable,
       'colmi': DeviceCategory.wearable,
       'helio_strap': DeviceCategory.wearable,

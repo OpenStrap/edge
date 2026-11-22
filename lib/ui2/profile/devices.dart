@@ -57,6 +57,7 @@ import '../../ble/adapters/_registry.dart'
         kAmazfitGtr3Pro,
         kAmazfitGts3,
         kMiBand234,
+        kMiBand4,
         kMiScale2,
         kMiScaleComposition,
         kOura,
@@ -950,7 +951,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'ultrahuman' => LucideIcons.circle,
       'thermometer' => LucideIcons.thermometer,
       'miscale_bc' || 'miscale2' => LucideIcons.scale,
-      'garmin' || 'miband234' || 'pebble' => LucideIcons.watch,
+      'garmin' || 'miband234' || 'huami_cinco' || 'pebble' =>
+        LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -1297,9 +1299,18 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'still bound to Mi Fit or Zepp will refuse to pair. Unpair it from '
         'that app first, or use a factory-reset unit. If the band buzzes '
         'while pairing, tap it to confirm. Syncs its stored heart '
-        'rate, steps and sleep. (Mi Band 4 needs the vendor pairing and is '
-        'not supported.)',
+        'rate, steps and sleep. (Mi Band 4 has its own entry below.)',
     pick: pairMiBand234,
+  ),
+  (
+    entry: kMiBand4,
+    blurb: 'A Mi Smart Band 4. First pairing still has to go through Zepp '
+        'Life or Mi Fit, which is where the band\'s key comes from; this '
+        'app can\'t install one on it. Paste that key below to pair it here '
+        'instead. Syncs its stored heart rate, steps and sleep. '
+        'Experimental.',
+    // Null: typed key only, like the Helio Strap.
+    pick: null,
   ),
   (
     entry: kHelioStrap,
@@ -1400,7 +1411,10 @@ bool sensorCapReached(Iterable<Map<String, Object?>> deviceRows,
           ((r['remote_id'] as String?) ?? '').isNotEmpty)
       .toList();
   final sameAdapterRewrites = adapterId != null &&
-      (anyOfAdapter || adapterId == kOura.id || adapterId == kMiBand234.id);
+      (anyOfAdapter ||
+          adapterId == kOura.id ||
+          adapterId == kMiBand234.id ||
+          adapterId == kMiBand4.id);
   for (final r in secondary) {
     if (repairingId != null && r['id'] == repairingId) return false;
     if (sameAdapterRewrites && r['adapter_id'] == adapterId) return false;
@@ -2181,6 +2195,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'garmin' => () => _syncGarminWatch(c),
         'ultrahuman' => () => _syncUltrahumanRing(c),
         'miband234' => () => _syncMiband(c),
+        'huami_cinco' => () => _syncMiband(c, MiBand234Link.miBand4),
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
         final f when HelioStrapLink.forId(f) != null =>
@@ -2319,17 +2334,18 @@ Future<void> _syncUltrahumanRing(BuildContext c) async {
 /// [_syncRing]: a bounded-window snapshot (no cursor, see
 /// `MiBand234Link`'s own header), so "synced" here means "connected and
 /// collected what the window allowed", not "drained everything".
-Future<void> _syncMiband(BuildContext c) async {
+Future<void> _syncMiband(BuildContext c,
+    [MiBand234Link? band]) async {
+  final link = band ?? MiBand234Link.instance;
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(
       SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
-  final ok = await MiBand234Link.instance.sync();
+  final ok = await link.sync();
   if (!c.mounted) return;
   // A rejected key needs a re-pair, which no amount of moving closer fixes.
   final keyRejected = !ok &&
-      MiBand234Link.instance.lastSyncFailure ==
-          MiBand234SyncFailure.keyRejected;
+      link.lastSyncFailure == MiBand234SyncFailure.keyRejected;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')

@@ -1137,7 +1137,7 @@
   "@devicePickerBlurbCoros": {
     "description": "Category row subtitle for a Coros sports watch."
   },
-  "devicePickerBlurbMiband234": "Mi Band 2 หรือ 3: อัตราการเต้นหัวใจ ก้าว และการนอน ยกเลิกการจับคู่จาก Mi Fit หรือ Zepp ก่อน หรือรีเซ็ตอุปกรณ์ แตะสายรัดหากสั่น ยังไม่รองรับ Mi Band 4",
+  "devicePickerBlurbMiband234": "Mi Band 2 หรือ 3: อัตราการเต้นหัวใจ ก้าว และการนอน ยกเลิกการจับคู่จาก Mi Fit หรือ Zepp ก่อน หรือรีเซ็ตอุปกรณ์ แตะสายรัดหากสั่น",
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
   },

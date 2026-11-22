@@ -296,18 +296,27 @@ void main() {
   });
 
   test('a forget during the key read stops a keyed sync from connecting', () {
-    for (final (f, forget) in [
-      ('miband', 'static Future<bool> forgetBand(String id) async {'),
-      ('oura', 'static Future<bool> forgetRing(String id) async {'),
-      ('colmi', 'static Future<bool> forgetRing(String id) async {'),
-      ('coros', 'static Future<bool> forget(String id) async {'),
-      ('garmin', 'static Future<bool> forget(String id) async {'),
-      ('pebble', 'static Future<bool> forgetPebble(String id) async {'),
-      ('ultrahuman', 'static Future<bool> forgetRing(String id) async {'),
+    // Mi Band's forget is per link (Mi Band 2/3 and Mi Band 4 each have one),
+    // so it bumps its own count rather than the singleton's.
+    for (final (f, forget, bumpText) in [
+      ('miband', '  Future<bool> forget(String id) async {', '    _forgets++;'),
+      ('oura', 'static Future<bool> forgetRing(String id) async {',
+          'instance._forgets++;'),
+      ('colmi', 'static Future<bool> forgetRing(String id) async {',
+          'instance._forgets++;'),
+      ('coros', 'static Future<bool> forget(String id) async {',
+          'instance._forgets++;'),
+      ('garmin', 'static Future<bool> forget(String id) async {',
+          'instance._forgets++;'),
+      ('pebble', 'static Future<bool> forgetPebble(String id) async {',
+          'instance._forgets++;'),
+      ('ultrahuman', 'static Future<bool> forgetRing(String id) async {',
+          'instance._forgets++;'),
     ]) {
       final src = _read('lib/ble/${f}_link.dart');
       final fg = src.indexOf(forget);
-      final bump = src.indexOf('instance._forgets++;', fg);
+      expect(fg, greaterThanOrEqualTo(0), reason: '$f: no forget found');
+      final bump = src.indexOf(bumpText, fg);
       expect(bump, greaterThan(fg), reason: f);
       expect(bump, lessThan(src.indexOf('await ', fg)),
           reason: '$f bumps the count after an await');

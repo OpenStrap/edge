@@ -464,6 +464,11 @@ Future<void> syncPairedSensors() async {
   } catch (e) {
     debugPrint('[bgsync] miband234 sync skipped: $e');
   }
+  try {
+    await MiBand234Link.miBand4.sync();
+  } catch (e) {
+    debugPrint('[bgsync] huami_cinco sync skipped: $e');
+  }
   // Same piggyback, same reasoning: a bounded connect-drain window that
   // no-ops when nothing is paired and must never mark the WHOOP cycle
   // errored on its own failure.

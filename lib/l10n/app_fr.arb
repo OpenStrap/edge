@@ -2660,7 +2660,7 @@
   "pairSensorStoredOnSync": "Données stockées à chaque synchronisation",
   "pairSensorStoredOnReading": "Mesures stockées au fil des relevés",
   "pairSensorPairingMiband234": "Jumelage… Si le bracelet vibre, touchez-le pour confirmer.",
-  "devicePickerBlurbMiband234": "Un Mi Band 2 ou 3. Dissociez-le d'abord de Mi Fit ou Zepp (ou réinitialisez-le) : il n'accepte une nouvelle clé que s'il n'en a aucune. Synchronise la fréquence cardiaque, les pas et le sommeil qu'il a enregistrés. Si le bracelet vibre pendant le jumelage, touchez-le pour confirmer. Le Mi Band 4 nécessite le jumelage du fabricant et n'est pas pris en charge.",
+  "devicePickerBlurbMiband234": "Un Mi Band 2 ou 3. Dissociez-le d'abord de Mi Fit ou Zepp (ou réinitialisez-le) : il n'accepte une nouvelle clé que s'il n'en a aucune. Synchronise la fréquence cardiaque, les pas et le sommeil qu'il a enregistrés. Si le bracelet vibre pendant le jumelage, touchez-le pour confirmer.",
   "devicePickerBlurbUltrahuman": "Lit la bague directement : ni compte, ni échange de clés.",
   "devicePickerBlurbPebble": "Pebble 2 ou Pebble 2 SE uniquement. Synchronise les pas et le sommeil, et la fréquence cardiaque sur une Pebble 2 (la SE n'a pas de capteur de fréquence cardiaque).",
   "pairSensorKeyReplacesTitle": "L'appairage remplace la clé de l'app Oura",
