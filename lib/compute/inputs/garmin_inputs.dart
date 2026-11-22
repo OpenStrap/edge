@@ -38,6 +38,12 @@ const String kHelioFamily = 'helio_strap';
 /// device-RMSSD family.
 const String kMiBand7Family = 'zeppos_l66';
 
+/// The Zepp OS watches on the same engine (GTR 3, GTR 3 Pro, GTS 3), served
+/// the same way and for the same reason not device-RMSSD families.
+const String kGtr3Family = 'zeppos_verona';
+const String kGtr3ProFamily = 'zeppos_madrid';
+const String kGts3Family = 'zeppos_zurich';
+
 /// The widest gap, in seconds, between two readings still taken as one 1 Hz
 /// run (a strap's seconds laid over a wearable's day): a dropped second or
 /// two. A reading further off is a wearable's own and stands for its minutes.
@@ -54,6 +60,9 @@ const Map<String, int> kHrCadenceSec = {
   kGarminFamily: 60,
   kHelioFamily: 60,
   kMiBand7Family: 60,
+  kGtr3Family: 60,
+  kGtr3ProFamily: 60,
+  kGts3Family: 60,
   kPebbleFamily: 60,
   kMiBandFamily: 60,
   kUltrahumanFamily: 300,
@@ -72,6 +81,9 @@ const Map<String, String> kMethodFamily = {
   kGarminFamily: 'hr_1min',
   kHelioFamily: 'hr_1min',
   kMiBand7Family: 'hr_1min',
+  kGtr3Family: 'hr_1min',
+  kGtr3ProFamily: 'hr_1min',
+  kGts3Family: 'hr_1min',
   kPebbleFamily: 'hr_1min',
   kMiBandFamily: 'hr_1min',
   kUltrahumanFamily: 'hr_5min',

@@ -985,12 +985,9 @@ class HrsLink {
       await ColmiLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kHelioStrap.id) {
-      await HelioStrapLink.forgetStrap(id);
-      return;
-    }
-    if (row?['adapter_id'] == kMiBand7.id) {
-      await HelioStrapLink.miBand7.forget(id);
+    final zeppOs = HelioStrapLink.forId(row?['adapter_id']);
+    if (zeppOs != null) {
+      await zeppOs.forget(id);
       return;
     }
     final session = SessionLink.forId(row?['adapter_id'] as String?);

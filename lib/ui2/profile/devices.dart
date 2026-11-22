@@ -53,6 +53,9 @@ import '../../ble/adapters/_registry.dart'
         kGarmin,
         kHelioStrap,
         kMiBand7,
+        kAmazfitGtr3,
+        kAmazfitGtr3Pro,
+        kAmazfitGts3,
         kMiBand234,
         kMiScale2,
         kMiScaleComposition,
@@ -1194,6 +1197,14 @@ class MyDevices extends StatelessWidget {
   }
 }
 
+/// The pairing blurb every Zepp OS watch shares; [what] names the model.
+String _zeppOsWatchBlurb(String what) =>
+    '$what. First pairing still has to go through the Zepp app, which is '
+    'where the watch\'s key comes from. Paste that key below to pair it here '
+    'instead. Syncs heart rate, steps, sleep and workouts; the watch\'s own '
+    'stress and SpO2 figures are labelled as Amazfit\'s. HRV is not read '
+    'yet. Experimental.';
+
 /// Every sensor that can be paired from this screen — a second device
 /// alongside the band, never a replacement for it.
 ///
@@ -1311,6 +1322,21 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'steps, sleep and workouts; the band\'s own stress and SpO2 figures '
         'are labelled as Xiaomi\'s. HRV is not read yet. Experimental.',
     // Null for the same reason as the Helio Strap: typed key only.
+    pick: null,
+  ),
+  (
+    entry: kAmazfitGtr3,
+    blurb: _zeppOsWatchBlurb('An Amazfit GTR 3 or GTR 3e'),
+    pick: null,
+  ),
+  (
+    entry: kAmazfitGtr3Pro,
+    blurb: _zeppOsWatchBlurb('An Amazfit GTR 3 Pro'),
+    pick: null,
+  ),
+  (
+    entry: kAmazfitGts3,
+    blurb: _zeppOsWatchBlurb('An Amazfit GTS 3 or GTS 3e'),
     pick: null,
   ),
   (
@@ -2157,8 +2183,8 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'miband234' => () => _syncMiband(c),
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
-        'helio_strap' => () => _syncSensor(c, HelioStrapLink.instance.sync),
-        'zeppos_l66' => () => _syncSensor(c, HelioStrapLink.miBand7.sync),
+        final f when HelioStrapLink.forId(f) != null =>
+          () => _syncSensor(c, HelioStrapLink.forId(f)!.sync),
         'thermometer' || 'miscale_bc' || 'miscale2' =>
           () => _syncSensor(c, SessionLink.forId(s.family)!.sync),
         _ => null,

@@ -28,7 +28,8 @@ void main() {
     };
     expect(bands, {
       'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'helio_strap',
-      'zeppos_l66', 'pebble', 'colmi', 'garmin',
+      'zeppos_l66', 'zeppos_verona', 'zeppos_madrid', 'zeppos_zurich',
+      'pebble', 'colmi', 'garmin',
     });
   });
 

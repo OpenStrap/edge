@@ -16,6 +16,9 @@ const Map<String, String> kPinnedOfficialHost = <String, String>{
   'miband234': 'www.mi.com',
   'helio_strap': 'support.amazfit.com',
   'zeppos_l66': 'www.mi.com', // Xiaomi / Mi Smart Band 7, same reviewed host as the other Xiaomi rows
+  'zeppos_verona': 'support.amazfit.com', // Amazfit GTR 3, same reviewed host as the Helio row
+  'zeppos_madrid': 'support.amazfit.com', // Amazfit GTR 3 Pro
+  'zeppos_zurich': 'support.amazfit.com', // Amazfit GTS 3
   'pebble': 'help.repebble.com',
   'colmi': 'www.colmi.com',
   'garmin': 'support.garmin.com',
@@ -72,6 +75,9 @@ const Set<String> kPairingFollowUp = <String>{
   'miband234',
   'helio_strap',
   'zeppos_l66',
+  'zeppos_verona',
+  'zeppos_madrid',
+  'zeppos_zurich',
   'pebble',
   'colmi',
   'garmin',

@@ -48,7 +48,7 @@ import '../../ble/ble_state.dart'
         kMaxConcurrentSecondaryLinks;
 import '../../ble/hrs_link.dart';
 import '../../ble/helio_strap_link.dart'
-    show pairHelioStrapWithTypedKey, pairMiBand7WithTypedKey;
+    show zeppOsTypedKeyPairFor;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -430,8 +430,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
         // its typed-key function is the only way it pairs.
         onPickedWithKey: switch (sensor.entry.id) {
           final id when id == kOura.id => pairOuraRingWithTypedKey,
-          final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
-          final id when id == kMiBand7.id => pairMiBand7WithTypedKey,
+          final id when zeppOsTypedKeyPairFor(id) != null =>
+            zeppOsTypedKeyPairFor(id),
           _ => null,
         },
         ),
