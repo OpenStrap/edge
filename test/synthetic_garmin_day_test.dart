@@ -82,7 +82,7 @@ void main() {
     // and the cross-day rollup only see each other on the second.
     for (var i = 0; i < 2; i++) {
       expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+          await DerivationEngine().runDays(_profile, _dayIds, force: true), i == 0 ? 5 : 4);
     }
     final cells = (await dayCells(_dayId))!;
     // ignore: avoid_print

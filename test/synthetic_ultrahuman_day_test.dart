@@ -95,7 +95,7 @@ void main() {
     // and the cross-day rollup only see each other on the second.
     for (var i = 0; i < 2; i++) {
       expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+          await DerivationEngine().runDays(_profile, _dayIds, force: true), i == 0 ? 5 : 4);
     }
     final cells = (await dayCells(_dayId))!;
     // ignore: avoid_print
@@ -388,6 +388,18 @@ void main() {
     // past the rescan window here).
     await LocalDb.setCursor('baseline_sig', 'stale');
     expect(await DerivationEngine().rescanRecent(_profile), 5);
+    // A day that fails leaves the signature stale, so the next tick
+    // retries it instead of logging 'baseline unchanged'.
+    await LocalDb.setCursor('baseline_sig', 'stale');
+    DerivationEngine.debugFailRescanDays = {'2026-10-01'};
+    try {
+      await DerivationEngine().rescanRecent(_profile);
+    } finally {
+      DerivationEngine.debugFailRescanDays = {};
+    }
+    expect(await LocalDb.getCursor('baseline_sig'), 'stale');
+    expect(await DerivationEngine().rescanRecent(_profile), 5);
+    expect(await LocalDb.getCursor('baseline_sig'), isNot('stale'));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('the 5-minute stager reads a record against the night\'s levels', () {
@@ -434,8 +446,9 @@ void main() {
   });
 
   test('daytime rest counts only runs that end in the day, 20 min to 3 h', () {
+    var ts = 0;
     UltrahumanRecord rec(int hr, {int steps = 0}) => UltrahumanRecord(
-          tsA: 0,
+          tsA: ts += 300,
           hr: hr,
           hrv: 40,
           spo2: 97,
@@ -469,6 +482,10 @@ void main() {
     // HR above the night's median + 5 is not rest.
     expect(ringNapMin([...awake(5), ...[for (var i = 0; i < 9; i++) rec(60)],
         ...awake(5)], 54), 0);
+    // Two 10-minute rests either side of 3 h with the ring off are not a nap.
+    final before = [...awake(5), ...rest(2)];
+    ts += 3 * 3600;
+    expect(ringNapMin([...before, ...rest(3), ...awake(5)], 54), 0);
   });
 
   test("a strap worn at rest overnight on the ring's day: its HRV is ours "

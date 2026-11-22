@@ -1905,7 +1905,15 @@ import 'vendor_sleep.dart';
 // stress_backfill.dart rescales stored history in place from each day's own
 // `stress.si` so the trend has no step at the bump. User-visible: every stress score moves
 // up once (e.g. SI 160 reads ~72, was ~61); nights that read 0 now read low.
-const int kAlgoVersion = 126;
+// 126 → 127 (edge-side derive fixes, no sibling repin): the daytime-HRV and
+// resting-resp stillness gate now reads the gravity-removed vector (a minus
+// its trailing mean), not ||a|-1 g| which only measured a posture's calibration
+// offset, so resp_day and daytime HRV windows move; active_min skips tonight's
+// sleep when it began before midnight; vendor (device-reported) sleep ownership
+// counts covered TIME not rows, so sparse substrates are not called unclaimed;
+// ring naps no longer bridge ring-off holes; the quiet-level repass counts
+// wearable-only days as substrate; calories absence names resting_hr.
+const int kAlgoVersion = 127;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -6136,7 +6144,8 @@ class DerivationEngine {
   Future<bool> _quietRepassOwed(String date, Map<String, dynamic> bundle) async {
     if (!quietBlocked(bundle)) return false;
     final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
-    final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys;
+    // Band AND active-wearable days: a wearable-only day is substrate too.
+    final rawDays = await substrateDays();
     if (rawDays.any((d) => d.compareTo(date) < 0 && !finalized.contains(d))) {
       return true;
     }
@@ -6168,7 +6177,7 @@ class DerivationEngine {
         .length;
     if (valid >= ana.quietHrrMinDays) return false;
     final pending = [
-      for (final d in (await LocalDb.decodedRecTsMaxByDay()).keys)
+      for (final d in await substrateDays())
         if (d.compareTo(date) < 0 && !derived.contains(d)) d,
     ].length;
     return valid + pending < ana.quietHrrMinDays;
@@ -6240,7 +6249,7 @@ class DerivationEngine {
       }
       final prunedBeforeSec = await LocalDb.getCursorInt(_prunedBeforeCursor);
       final withRaw = {
-        for (final d in rawDays ?? (await LocalDb.decodedRecTsMaxByDay()).keys)
+        for (final d in rawDays ?? await substrateDays())
           if (!windowTruncatedByPrune(d, prunedBeforeSec)) d,
       };
       for (final d in owed.difference(withRaw)) {
@@ -6388,15 +6397,29 @@ class DerivationEngine {
       final orderedDays = rescanDays.reversed.toList();
       var done = 0;
       var completed = 0;
+      var failed = 0;
 
       Future<void> processDay(String dayId) async {
         try {
+          if (debugFailRescanDays.contains(dayId)) {
+            throw StateError('debugFailRescanDays');
+          }
           final prepared = await _prepareTargetDay(dayId);
           if (prepared != null) {
-            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            final ok = await _derivePreparedDay(
+                prepared, profile, dataNowSec, history);
             done++;
+            // false also covers declines and a tonight hold, which are not
+            // failures; a partial row is (its second half did not run).
+            if (!ok &&
+                ((await LocalDb.dayResult(dayId))?['partial'] as num?)
+                        ?.toInt() ==
+                    1) {
+              failed++;
+            }
           }
         } catch (e) {
+          failed++;
           _log('rescan day $dayId FAILED/skipped: $e');
           // Do NOT mark-skipped here — a finalized day already has a good row;
           // overwriting it with a skip marker would DISCARD real structure.
@@ -6413,10 +6436,21 @@ class DerivationEngine {
         await _runCrossDay(profile);
         await _runNotifications();
       }
-      // Store the new signature so the next tick is a cheap no-op until it moves.
-      // Quiet snapshot before the signature, for the reason given above.
-      await _storeQuietEntries();
-      await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      // A failed or partial day keeps scalars priced on the old baseline, and
+      // a finalized day has no other path back. Leave the signature (and the
+      // quiet snapshot) stale so the next tick rescans the same days, a few
+      // times at most so a day that always fails can't rescan every tick.
+      final retries = await LocalDb.getCursorInt(_rescanRetriesCursor) ?? 0;
+      if (failed > 0 && retries < _rescanMaxRetries) {
+        await LocalDb.setCursor(_rescanRetriesCursor, '${retries + 1}');
+        _log('rescan: $failed day(s) failed — signature left stale to retry');
+      } else {
+        await LocalDb.setCursor(_rescanRetriesCursor, '0');
+        // Store the new signature so the next tick is a cheap no-op until it
+        // moves. Quiet snapshot before the signature, for the reason above.
+        await _storeQuietEntries();
+        await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      }
       await LocalDb.refreshComputeFreshness();
       return done;
     } catch (e, st) {
@@ -6628,6 +6662,12 @@ class DerivationEngine {
   /// racing two workers. Empty in production.
   @visibleForTesting
   static Set<String> debugHoldTonight = {};
+
+  /// Test seam: days [rescanRecent] fails as if their derive threw.
+  @visibleForTesting
+  static Set<String> debugFailRescanDays = {};
+  static const _rescanRetriesCursor = 'baseline_sig_retries';
+  static const _rescanMaxRetries = 3;
 
   /// [runWithConcurrency] over [days], tracking which are still unfinished so
   /// a day can tell its next day is mid-derive ([_prepareTargetDay]).
@@ -7597,8 +7637,11 @@ class DerivationEngine {
       // must not mark the day partial.
       if (!forceFinalize) {
         try {
-          final since = (await SharedPreferences.getInstance())
-              .getInt(Prefs.napAutoLogSinceSec);
+          // reload(): a headless isolate caches its instance (see
+          // _hmmStagesOn), so a switch flipped in the app would go unseen.
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.reload();
+          final since = prefs.getInt(Prefs.napAutoLogSinceSec);
           _autoLoggedNaps += await activityStore.autoLogNaps(
             // 0 is the switch turned back off.
             sinceSec: (since ?? 0) > 0 ? since : null,
@@ -10209,7 +10252,8 @@ class DerivationEngine {
     int tonightSleepOnsetSec = 0,
     List<double> quietHrrHistory = const [],
   }) {
-    final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
+    final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec,
+        tonightSleepOnsetSec: tonightSleepOnsetSec);
     final wear = _wearBlock(
       daySub,
       dayStartSec: dayStartSec,
@@ -10310,6 +10354,9 @@ class DerivationEngine {
         ? needInputNote('weight_kg')
         : sex == null
         ? needInputNote('sex')
+        // The %HRR flex gate needs a resting end too (nocturnal or entered).
+        : rhrForTrimp == null
+        ? needInputNote('resting_hr')
         : hrMax == null
         ? ceilingAbsent
         // Keytel does not read height; `dailyEnergy`'s ACTIVE
@@ -10497,8 +10544,16 @@ class DerivationEngine {
   /// R10-historical one) decodes 1 Hz records with no usable accel, so every
   /// second is skipped below and the loop falls out with `active == 0` — which
   /// published "0 active minutes" as a measurement for a fully-worn band.
+  @visibleForTesting
+  static int? debugActiveMinutes(
+          Substrate s, int sleepOnsetSec, int sleepOffsetSec,
+          {int tonightSleepOnsetSec = 0}) =>
+      _activeMinutes(s, sleepOnsetSec, sleepOffsetSec,
+          tonightSleepOnsetSec: tonightSleepOnsetSec);
+
   static int? _activeMinutes(
-      Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
+      Substrate s, int sleepOnsetSec, int sleepOffsetSec,
+      {int tonightSleepOnsetSec = 0}) {
     final n = s.length;
     if (n < 60) return null;
     final ang = List<double>.filled(n, 0);
@@ -10515,9 +10570,11 @@ class DerivationEngine {
       // stillness and the fraction below would be diluted by missing data.
       if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final t = s.tsSec[i];
-      if (sleepOffsetSec > sleepOnsetSec &&
-          t >= sleepOnsetSec &&
-          t < sleepOffsetSec) {
+      if ((sleepOffsetSec > sleepOnsetSec &&
+              t >= sleepOnsetSec &&
+              t < sleepOffsetSec) ||
+          // Tonight's sleep, begun before midnight: asleep, not waking.
+          (tonightSleepOnsetSec > 0 && t >= tonightSleepOnsetSec)) {
         continue;
       }
       final m = t ~/ 60;
@@ -10842,15 +10899,10 @@ class DerivationEngine {
     if (cut == null) return const [];
     // Running count of still seconds, over substrate index. Prefix-summed so a
     // window's stillness is two array reads instead of a rescan.
+    final still = _stillSeconds(s, cut);
     final quietPrefix = List<int>.filled(s.length + 1, 0);
     for (var i = 0; i < s.length; i++) {
-      var q = 0;
-      if (s.accelPresentAt(i)) {
-        final mag =
-            math.sqrt(s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
-        if ((mag - 1.0).abs() <= cut) q = 1;
-      }
-      quietPrefix[i + 1] = quietPrefix[i] + q;
+      quietPrefix[i + 1] = quietPrefix[i] + (still[i] ? 1 : 0);
     }
 
     final ts = <double>[], rr = <double>[];
@@ -10974,6 +11026,40 @@ class DerivationEngine {
     'gen5': 0.02,
   };
 
+  /// Per substrate index: is the wrist still that second. The 1 Hz accel is a
+  /// near-constant-norm gravity vector (|a| sits around 1.03 g on gen4 whether
+  /// sitting or walking), so `||a| - 1 g|` reads the posture's calibration
+  /// offset, not movement. Stillness is the gravity-removed vector instead:
+  /// `a - trailingMean(a)` over the analytics high-pass window, the same
+  /// construction as `dynAmp`, so a per-axis offset cancels. Absent seconds
+  /// are never still and never enter the mean.
+  static List<bool> _stillSeconds(Substrate s, double cut) {
+    final out = List<bool>.filled(s.length, false);
+    final idx = <int>[
+      for (var i = 0; i < s.length; i++)
+        if (s.accelPresentAt(i)) i,
+    ];
+    var lo = 0;
+    var sx = 0.0, sy = 0.0, sz = 0.0;
+    for (var k = 0; k < idx.length; k++) {
+      final i = idx[k];
+      sx += s.ax[i];
+      sy += s.ay[i];
+      sz += s.az[i];
+      while (lo < k &&
+          s.tsSec[i] - s.tsSec[idx[lo]] >= ana.defaultGravityWindowS) {
+        final j = idx[lo++];
+        sx -= s.ax[j];
+        sy -= s.ay[j];
+        sz -= s.az[j];
+      }
+      final n = k - lo + 1;
+      final dx = s.ax[i] - sx / n, dy = s.ay[i] - sy / n, dz = s.az[i] - sz / n;
+      out[i] = math.sqrt(dx * dx + dy * dy + dz * dz) <= cut;
+    }
+    return out;
+  }
+
   @visibleForTesting
   static Map<String, dynamic> daytimeHrv(
           Substrate s, int onsetSec, int offsetSec) =>
@@ -11031,13 +11117,11 @@ class DerivationEngine {
     // The seconds we can call still. Built once over the day substrate; a
     // second with no gravity vector never lands here, so it can only break a
     // pair, never join one.
-    final quiet = <int>{};
-    for (var i = 0; i < s.length; i++) {
-      if (!s.accelPresentAt(i)) continue;
-      final mag = math.sqrt(
-          s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
-      if ((mag - 1.0).abs() <= cut) quiet.add(s.tsSec[i]);
-    }
+    final still = _stillSeconds(s, cut);
+    final quiet = <int>{
+      for (var i = 0; i < s.length; i++)
+        if (still[i]) s.tsSec[i],
+    };
     final bins = <int, List<double>>{};
     double? prev;
     for (var k = 0; k < s.rrMs.length; k++) {

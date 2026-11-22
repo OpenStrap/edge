@@ -190,6 +190,7 @@ Substrate _rrSub({
   Set<int> absent = const {},
   String? family = 'gen4',
   int hrBpm = 60,
+  double stillAz = 1.005,
 }) {
   final ts = <int>[], hr = <int>[];
   final ax = <double>[], ay = <double>[], az = <double>[];
@@ -209,7 +210,7 @@ Substrate _rrSub({
     } else {
       ax.add(0.0);
       ay.add(0.0);
-      az.add(1.005); // 0.005 g — still
+      az.add(stillAz); // still
     }
     // One beat per second, gently modulated so the estimator has something to
     // chew on. The gate runs BEFORE the estimator, so its result is irrelevant.
@@ -251,6 +252,19 @@ void _respGroups() {
       // it is where the perf win is banked.
       expect(DerivationEngine.debugRespAttempts, 0);
       expect(DerivationEngine.debugRespGateRejects, greaterThan(0));
+    });
+
+    test('a still wrist reading 1.03 g is still, not moving', () {
+      // |a| sits near 1.03 g on a real band; the gate must read movement,
+      // not the posture's offset from 1 g.
+      DerivationEngine.debugRespGateRejects = 0;
+      DerivationEngine.debugRespAttempts = 0;
+      final sub = _rrSub(n: 1800, stillAz: 1.03);
+      DerivationEngine.dayRespCurve(sub);
+      expect(DerivationEngine.debugRespAttempts, greaterThan(0));
+      expect(DerivationEngine.debugRespGateRejects, 0);
+      expect(DerivationEngine.daytimeHrv(sub, 0, 0)['n_buckets'],
+          greaterThan(0));
     });
 
     test('absent accel is not stillness — it rejects like motion does', () {
