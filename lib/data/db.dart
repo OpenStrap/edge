@@ -160,8 +160,9 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
 
 /// The rows a read INSIDE one session window keeps, out of [rows]: every row
 /// of the window (`source`, `rec_ts`, `hr`), in any order. With no flagged-on
-/// workout sensor ([LocalDb.sessionSensorSources]) in the window, exactly the
-/// [derivableSourceSql] rows. With one, the session override as the derive
+/// workout sensor ([LocalDb.sessionSensorSources]) in the window, the
+/// [derivableSourceSql] rows, or (no band row either) the active wearable's
+/// ([LocalDb.sessionWearableSource]). With one, the session override as the derive
 /// lays it over a wearable's day (`withStrapSessions`): the sensor that
 /// recorded most of the window (one, never two blended) from its first worn
 /// row to its last, and outside that span the active wearable's rows
@@ -199,7 +200,17 @@ List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
       n[s] = (n[s] ?? 0) + 1;
     }
   }
-  if (n.isEmpty) return plain();
+  // No band row and no workout sensor in the window: the active wearable's
+  // own rows score it, as they score the day it sits in (the wearable's
+  // substrate). Before this a wearable-only session read nothing at all.
+  if (n.isEmpty) {
+    return [
+      for (final r in rows)
+        if (derivable(r['source']) ||
+            (wearable != null && r['source'] == wearable))
+          r,
+    ];
+  }
   final owner = n.entries
       .reduce((a, b) => b.value > a.value ||
               (b.value == a.value && '${b.key}'.compareTo('${a.key}') < 0)
@@ -3770,6 +3781,23 @@ class LocalDb {
   ///
   /// Ordered by `attribution, name` so the same day renders in the same order
   /// on every build.
+  /// [deviceId]'s own step count for [date] (`observation` key 'steps'), or
+  /// null. The one observation a derive reads: a wearable's pedometer total,
+  /// served as the day's steps by owner decision 2026-11-22
+  /// (ADDING_A_DEVICE.md §4.2). Never a baseline input.
+  static Future<int?> deviceDaySteps(String deviceId, String date) async {
+    final rows = await (await instance).query(
+      'observation',
+      columns: ['value'],
+      where: "device_id = ? AND date = ? AND key = 'steps' AND value > 0",
+      whereArgs: [deviceId, date],
+      orderBy: 'ts_ms DESC',
+      limit: 1,
+    );
+    final v = rows.isEmpty ? null : rows.first['value'];
+    return v is num ? v.round() : null;
+  }
+
   static Future<List<Map<String, Object?>>> observationsForDay(
     String date,
   ) async {
@@ -16140,7 +16168,7 @@ class LocalDb {
     int toTs,
   ) async {
     final db = await instance;
-    if (sessionSensorSources.isEmpty) {
+    if (sessionSensorSources.isEmpty && sessionWearableSource == null) {
       return db.query(
         'decoded_onehz',
         columns: ['rec_ts', 'hr'],
@@ -16180,7 +16208,9 @@ class LocalDb {
   /// window once and construct its stats and samples together in a worker.
   static Future<SessionHrReads> sessionHrReads(int from, int to,
       {int maxHrCeiling = 0, int minHrFloor = 0}) async {
-    if (sessionSensorSources.isEmpty) {
+    // The band-only SQL joins, unless a sensor or the active wearable may
+    // own a window ([sessionWindowRows]).
+    if (sessionSensorSources.isEmpty && sessionWearableSource == null) {
       return (stats: await _sessionHrStatsSql(from, to, maxHrCeiling, minHrFloor),
           samples: await _sessionHrSamplesSql(from, to));
     }
@@ -16272,7 +16302,7 @@ class LocalDb {
     int maxHrCeiling = 0,
     int minHrFloor = 0,
   }) async {
-    if (sessionSensorSources.isNotEmpty) {
+    if (sessionSensorSources.isNotEmpty || sessionWearableSource != null) {
       return (await sessionHrReads(fromTs, toTs,
           maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor)).stats;
     }
@@ -16321,7 +16351,7 @@ class LocalDb {
     int fromTs,
     int toTs,
   ) async {
-    if (sessionSensorSources.isNotEmpty) {
+    if (sessionSensorSources.isNotEmpty || sessionWearableSource != null) {
       return (await sessionHrReads(fromTs, toTs)).samples;
     }
     return _sessionHrSamplesSql(fromTs, toTs);

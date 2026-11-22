@@ -32,7 +32,7 @@ import 'dart:convert';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-import 'hr_max.dart' show smoothedMaxHr;
+import 'hr_max.dart' show kHrSmoothWindow, smoothedMaxHr;
 import 'profile.dart';
 
 /// Shortest window we accept. Below a minute the 1 Hz substrate cannot say
@@ -220,23 +220,51 @@ List<double> hrPerMinute(List<int> hrTs, List<int> hrBpm) {
 /// resolves to the SAME %HRmax bands (`zonesFromMaxHr`) the inline loop here
 /// used to hard-code. 0 means "no ceiling": no age, or a strap we have no
 /// calibrated ceiling for, so no split.
+///
+/// [hrTs] (parallel to [hrBpm]) weights each sample by the seconds it stands
+/// for: the gap to the next, capped at the stream's median gap (the last
+/// sample takes the median). A 1 Hz stream's median gap is 1 s, so every
+/// sample is one second exactly as without it; a wearable storing one HR a
+/// minute gets 60 s a sample instead of 1 (counted as seconds, its zone
+/// minutes read 60x short). A gap longer than the median is unobserved time,
+/// never zone time. Null: one second a sample.
 List<double> zoneMinutesFor(
   List<int> hrBpm,
   double zoneMaxHr, {
   ana.HeartRateZoneSet? zoneSet,
+  List<int>? hrTs,
 }) {
   final set = zoneSet ??
       (zoneMaxHr > 0 ? ana.HeartRateZones.zonesFromMaxHr(zoneMaxHr) : null);
   if (hrBpm.isEmpty || set == null) return const [];
+  final span = hrTs != null && hrTs.length == hrBpm.length
+      ? sampleSpansSec(hrTs)
+      : null;
   final secs = List<int>.filled(5, 0);
-  for (final v in hrBpm) {
+  for (var i = 0; i < hrBpm.length; i++) {
+    final v = hrBpm[i];
     if (v <= 0) continue;
     final z = set.zoneNumber(v.toDouble());
-    if (z >= 1) secs[z - 1]++;
+    if (z >= 1) secs[z - 1] += span?[i] ?? 1;
   }
   return [
     for (var z = 0; z < 5; z++)
       double.parse((secs[z] / 60.0).toStringAsFixed(2)),
+  ];
+}
+
+/// Seconds each sample of ascending [ts] stands for: the gap to the next,
+/// capped at the median gap; the last takes the median. 1 everywhere on a
+/// gapless 1 Hz stream.
+List<int> sampleSpansSec(List<int> ts) {
+  if (ts.length < 2) return List<int>.filled(ts.length, 1);
+  final gaps = [for (var i = 1; i < ts.length; i++) ts[i] - ts[i - 1]]..sort();
+  final median = gaps[gaps.length ~/ 2] < 1 ? 1 : gaps[gaps.length ~/ 2];
+  return [
+    for (var i = 0; i < ts.length; i++)
+      i + 1 < ts.length
+          ? (ts[i + 1] - ts[i]).clamp(1, median)
+          : median,
   ];
 }
 
@@ -356,7 +384,13 @@ ManualSessionStats computeManualSessionStats({
   // window is pruned there is nothing left to correct it from. Smoothing here
   // means the stored value is the same quantity the re-score and the Heart page
   // report, rather than three producers agreeing by convention.
-  final peak = smoothedMaxHr(worn, age: age?.round()) ??
+  // The smoothing window is SAMPLES: 5 of them is 5 s at 1 Hz but 5 minutes
+  // on a wearable storing one (already averaged) HR a minute, which would
+  // report a five-minute median as the peak. A stream sampled at least as
+  // coarsely as the window takes no further smoothing.
+  final step = sampleSpansSec(wornTs).fold<int>(0, (a, b) => b > a ? b : a);
+  final peak = smoothedMaxHr(worn,
+          age: age?.round(), window: step >= kHrSmoothWindow ? 1 : kHrSmoothWindow) ??
       worn.reduce((a, b) => a > b ? a : b);
   final weightKg = profile.weightKg;
   final heightCm = profile.heightCm;
@@ -400,7 +434,7 @@ ManualSessionStats computeManualSessionStats({
     strain: strain,
     calories: calories,
     // 0 is `zoneMinutesFor`'s own "no ceiling" input → an empty split.
-    zoneMinutes: zoneMinutesFor(worn, hrMax ?? 0, zoneSet: zoneSet),
+    zoneMinutes: zoneMinutesFor(worn, hrMax ?? 0, zoneSet: zoneSet, hrTs: wornTs),
     hrSampleCount: worn.length,
   );
 }

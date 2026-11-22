@@ -1928,7 +1928,12 @@ import 'vendor_sleep.dart';
 // input against that device family's own nights (`ln_rmssd_dev`; readiness_z
 // is per device family there too). Served as ours, method
 // composite_device_hrv. Band days and every other wearable unchanged.
-const int kAlgoVersion = 129;
+// 129 → 130 (no analytics change): a wearable's own daily step count
+// (owner decision 2026-11-22) joins the steps ladder as a whole-day answer
+// beside the gen5 chip counter: the day's steps are the larger of it and the
+// windowed band/phone sum, never their total. Wearable days only; a band day
+// has no active-wearable count.
+const int kAlgoVersion = 130;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -7492,6 +7497,7 @@ class DerivationEngine {
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
         liveStepsReal: liveSteps.total,
         liveStepsFromStrap: liveSteps.strap,
+        wearableSteps: await wearableDaySteps(daySub, day.date),
         counterProfile: counterProfile,
         counterWearing: counterWearing,
         // The same resolution's credited spans, so the walking-cadence term
@@ -9551,6 +9557,7 @@ class DerivationEngine {
     double? dynFloorG,
     int liveStepsReal = 0,
     int liveStepsFromStrap = 0,
+    int? wearableSteps,
     int dynHistoryDays = 0,
     List<List<int>> stepSpans = const [],
     /// This day's `sessions` rows (`LocalDb.sessionsInRange`), for the
@@ -9648,6 +9655,7 @@ class DerivationEngine {
       dynHistoryDays,
       counterProfile: counterProfile,
       counterWearing: counterWearing,
+      wearableSteps: wearableSteps,
     );
     // `_stepsAndEnergy` just wrote `steps` — REAL pedometer counts from
     // `live_coverage`, band 100 Hz or phone, never an estimate. `wake` was
@@ -9968,6 +9976,7 @@ class DerivationEngine {
     Map<String, dynamic>? scMap,
     int liveStepsReal, {
     int liveStepsFromStrap = 0,
+    int? wearableSteps,
     CounterDeltas? counter,
     StepCalibrationProfile? profile,
     int wearing = Wearing.wrist,
@@ -10004,8 +10013,23 @@ class DerivationEngine {
     final useBand = calibratedBand != null &&
         calibratedBand > 0 &&
         calibratedBand > liveStepsReal;
-    final steps = useBand ? calibratedBand : liveStepsReal;
-    final calibrated = useBand && profile != null && profile.isCalibrated;
+    // Rung 2b, the active wearable's OWN pedometer total for the day (a
+    // count it measured, served as the day's steps by owner decision
+    // 2026-11-22): a whole-day answer like the chip counter, so it joins the
+    // same max rather than the windowed sum (adding it would count every walk
+    // the phone also counted twice).
+    final wearable = wearableSteps != null && wearableSteps > 0
+        ? wearableSteps
+        : null;
+    final useWearable = wearable != null &&
+        wearable > (useBand ? calibratedBand : liveStepsReal);
+    final steps = useWearable
+        ? wearable
+        : useBand
+            ? calibratedBand
+            : liveStepsReal;
+    final calibrated =
+        useBand && !useWearable && profile != null && profile.isCalibrated;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
       scMap?['steps'] = steps.toDouble();
@@ -10019,6 +10043,8 @@ class DerivationEngine {
       // won. Null (never 0) when this generation has no counter at all. Raw
       // ticks; `counter_calibration` carries the factor applied to `value`.
       'band_measured': rawBand,
+      // The active wearable's own daily count, and whether it won.
+      'wearable_measured': ?wearable,
       if (counter != null && wearing != 0)
         'counter_wearing': wearingName(wearing),
       if (calibrated)
@@ -10045,7 +10071,9 @@ class DerivationEngine {
           ? <String, int>{
               // What the chip counted, not the scaled value: the factor is
               // in `counter_calibration`.
-              if (useBand)
+              if (useWearable)
+                'wearable': wearable
+              else if (useBand)
                 'strap_counter': rawBand!
               else ...{
                 if (strap > 0) 'strap': strap,
@@ -10055,13 +10083,15 @@ class DerivationEngine {
           : const <String, int>{},
       'source': !haveRealSteps
           ? null
-          : useBand
+          : useWearable
+              ? 'wearable'
+              : useBand
               ? 'strap_counter'
               : (strap > 0 && phone > 0)
                   ? 'mixed'
                   : (strap > 0 ? 'strap' : 'phone'),
       'confidence': haveRealSteps
-          ? (useBand ? stepCounterConfidence(profile) : 0.9)
+          ? (useBand && !useWearable ? stepCounterConfidence(profile) : 0.9)
           : 0.0,
       // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
       // ways: this code path never estimates anything (that is the whole point
@@ -10150,6 +10180,7 @@ class DerivationEngine {
     int dynHistoryDays, {
     StepCalibrationProfile? counterProfile,
     int counterWearing = Wearing.wrist,
+    int? wearableSteps,
   }) {
     try {
       // STEPS FIRST — they depend on NOTHING from the band substrate.
@@ -10174,6 +10205,7 @@ class DerivationEngine {
         scMap,
         liveStepsReal,
         liveStepsFromStrap: liveStepsFromStrap,
+        wearableSteps: wearableSteps,
         counter: counter,
         profile: counterProfile,
         wearing: counterWearing,
@@ -11885,6 +11917,7 @@ class DerivationEngine {
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
       liveStepsFromStrap: inp.liveStepsFromStrap,
+      wearableSteps: inp.wearableSteps,
       counterProfile: inp.counterProfile,
       counterWearing: inp.counterWearing,
       dynHistoryDays: inp.dynHistoryDays,
@@ -12674,6 +12707,11 @@ class _DayBlocksInput {
   /// isolate, which has no handle.
   final int liveStepsFromStrap;
 
+  /// The active wearable's own step count for the day (its pedometer), or
+  /// null: a whole-day alternative to the windowed sum, like the gen5 chip
+  /// counter (`_writeSteps`). Read before the isolate, which has no handle.
+  final int? wearableSteps;
+
   /// The SAME resolution's credited spans, as `[startSec, endSec, steps]` —
   /// the walking-cadence energy term prices wake minutes off these (see
   /// `cadenceSpmForMinutes`). Credited, never raw rows, so a step the ladder
@@ -12748,6 +12786,7 @@ class _DayBlocksInput {
     this.counterProfile,
     this.counterWearing = Wearing.wrist,
     this.liveStepsFromStrap = 0,
+    this.wearableSteps,
     this.stepSpans = const [],
     required this.dynFloorG,
     required this.dynHistoryDays,

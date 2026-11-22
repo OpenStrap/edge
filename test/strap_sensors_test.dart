@@ -217,6 +217,32 @@ void main() {
     expect(sub.length, 611);
   });
 
+  // No band row and no workout sensor in the window: the active wearable's
+  // own minute HR scores it, as it scores the day. It used to read nothing,
+  // so every session on a wearable-only install was unscored.
+  test("a session with no band and no strap reads the active wearable's rows",
+      () async {
+    LocalDb.sessionWearableSource = kGarmin.id;
+    await _bank(kGarmin, [
+      for (var t = _t0; t <= _t0 + 1200; t += 60) _s(t, hr: 120),
+    ]);
+    await LocalDb.putSession({
+      'id': 'wrist',
+      'start_ts': _t0,
+      'end_ts': _t0 + 1200,
+      'type': 'run',
+      'status': 'done',
+      'created_at': _t0 + 1200,
+    });
+    final rows = await LocalDb.hrSamplesInRange(_t0, _t0 + 1200);
+    expect(rows, hasLength(21));
+    final stats = (await LocalDb.sessionHrStats(_t0 - 1, _t0 + 1))['wrist']!;
+    expect(stats['n'], 21);
+    // No active wearable (none chosen, or its flag off): nothing, as before.
+    LocalDb.sessionWearableSource = null;
+    expect(await LocalDb.hrSamplesInRange(_t0, _t0 + 1200), isEmpty);
+  });
+
   test("a strap's scored session serves no score once its flag is off",
       () async {
     LocalDb.sessionSensorSources = {kBleHrs.id};

@@ -118,7 +118,7 @@ void main() {
       'skin_temp': 'ours',
       'readiness': 'estimated',
       'irregular_rhythm': 'unavailable',
-      'steps': 'device',
+      'steps': 'ours',
       'strain': 'estimated',
       'calories': 'estimated',
       'movement': 'estimated',

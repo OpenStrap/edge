@@ -152,10 +152,9 @@ Map<String, Cell> _sparseColumn(
       'irregular_rhythm_flag',
       reason: Why.needsBeats,
     ),
-    'steps': Cell(
-      device: has.contains(InputSignal.steps) ? 'steps' : null,
-      reason: Why.noDeviceSteps,
-    ),
+    'steps': has.contains(InputSignal.steps)
+        ? wearableStepsCell
+        : const Cell(reason: Why.noDeviceSteps),
     'strain': load('strain', Why.noWakeHr),
     'calories': load('calories', Why.noWakeHrOrProfile),
     // Minutes in an HR zone stand in for movement (no accelerometer): a

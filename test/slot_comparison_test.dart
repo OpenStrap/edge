@@ -160,7 +160,9 @@ void main() {
       // Pebble 2 only caption must not drop that.
       expect(d[C.recovery]?.reasonKey, 'capReasonPebble2OnlyEstimated');
       expect(d[C.sleep]?.reasonKey, kReasonOwnStages);
-      expect(d[C.steps]?.kind, K.vendorReported);
+      // The watch's own step count is the day's steps (owner decision
+      // 2026-11-22), so steps are served, not only reported.
+      expect(d[C.steps]?.kind, K.native);
       expect(cmp.workoutsOnly.sends, isEmpty);
     });
 

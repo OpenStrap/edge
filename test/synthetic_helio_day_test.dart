@@ -13,9 +13,12 @@ import 'package:openstrap_edge/ble/adapters/_registry.dart' show TimeAnchor;
 import 'package:openstrap_edge/ble/adapters/adapter.dart' show NeutralSample;
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/inputs/canonical.dart';
+import 'package:openstrap_edge/compute/manual_session.dart'
+    show computeManualSessionStats;
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/compute/vendor_sleep.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/observation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -114,9 +117,46 @@ void main() {
       expect(cls(r), 'unavailable', reason: '$r: no beats, no device value');
       expect(cells[r]!['reason'], isNotEmpty);
     }
+    // A workout window on the strap's day reads its minute HR (no band, no
+    // chest strap), and scores off it with each sample a minute long.
+    await refreshSessionSensorSources();
+    final run0 = SyntheticDay.sec(_truth.runStart);
+    final hr = await LocalDb.hrSamplesInRange(run0, run0 + 40 * 60);
+    expect(hr.length, inInclusiveRange(39, 41));
+    final stats = computeManualSessionStats(
+      hrTs: [for (final r in hr) (r['rec_ts'] as num).toInt()],
+      hrBpm: [for (final r in hr) (r['hr'] as num).toInt()],
+      profile: _profile,
+      hrMax: 186,
+    );
+    expect(stats.zoneMinutes.fold<double>(0, (a, b) => a + b),
+        inInclusiveRange(38, 41), reason: 'minutes, not seconds');
+
     final stored = _payload((await LocalDb.dayResult(_dayId))!);
     expect(stored['device_family'], 'helio_strap');
     expect(stored['sleep_source'], 'vendor_staged');
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
+  // Owner decision 2026-11-22: the wearable's own daily count is the day's
+  // steps, served as ours (a whole-day answer, never added to the phone's).
+  test("the strap's own step count is the day's steps", () async {
+    await LocalDb.putObservations([
+      Observation(
+        at: DateTime(2026, 10, 4),
+        sourceKind: ObservationSource.vendor,
+        key: 'steps',
+        value: 8123,
+        unit: 'steps',
+        attribution: 'Amazfit',
+      ),
+    ], deviceId: _id);
+    await DerivationEngine().runDays(_profile, {_dayId}, force: true);
+    final stored = _payload((await LocalDb.dayResult(_dayId))!);
+    expect((stored['scalars'] as Map)['steps'], 8123);
+    expect((stored['steps'] as Map)['source'], 'wearable');
+    final cells = (await dayCells(_dayId))!;
+    expect(cells['steps']!['class'], 'ours');
+    expect(cells['steps']!['value'], 8123);
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('re-deriving with nothing new moves no stored number', () async {

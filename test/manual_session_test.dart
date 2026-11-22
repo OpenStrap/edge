@@ -683,4 +683,39 @@ void main() {
       expect(ids, ['s4']);
     });
   });
+
+  // A wearable storing one HR a minute: each sample stands for 60 s. Counted
+  // as one second each, its zone minutes read 60x short, and a 5-sample peak
+  // median is a five-minute median.
+  group('minute-cadence HR', () {
+    final ts = [for (var i = 0; i < 20; i++) 1000 + i * 60];
+    final bpm = [for (var i = 0; i < 20; i++) i == 10 ? 175 : 150];
+
+    test('zone minutes count each sample as its own minute', () {
+      final z = zoneMinutesFor(bpm, 190, hrTs: ts);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(20, 1e-9));
+    });
+
+    test('a 1 Hz stream counts exactly as before', () {
+      final ts1 = [for (var i = 0; i < 300; i++) 5000 + i];
+      final b1 = [for (var i = 0; i < 300; i++) 140 + i % 30];
+      expect(zoneMinutesFor(b1, 190, hrTs: ts1), zoneMinutesFor(b1, 190));
+    });
+
+    test('a gap longer than the cadence is not zone time', () {
+      final gapped = [...ts.sublist(0, 10), for (final t in ts.sublist(10)) t + 3600];
+      final z = zoneMinutesFor(bpm, 190, hrTs: gapped);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(20, 1e-9));
+    });
+
+    test("the peak is the hardest minute, not a five-minute median", () {
+      final s = computeManualSessionStats(
+        hrTs: ts,
+        hrBpm: bpm,
+        profile: const Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm'),
+        hrMax: 190,
+      );
+      expect(s.maxHr, 175);
+    });
+  });
 }

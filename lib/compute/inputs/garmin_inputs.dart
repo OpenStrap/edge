@@ -248,7 +248,7 @@ final Map<String, Cell> kGarminColumn = {
     'irregular_rhythm_flag',
     reason: Why.needsBeats,
   ),
-  'steps': Cell(device: 'steps', reason: Why.noDeviceSteps),
+  'steps': wearableStepsCell,
   'strain': Cell(
     ours: (d, _) => scalar(d, 'strain'),
     reason: Why.noWakeHr,

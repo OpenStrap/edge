@@ -669,6 +669,25 @@ Future<int?> enabledVendorSleepEndTs() async {
   return last;
 }
 
+/// The active wearable's own step count for [date] when [daySub] is that
+/// wearable's day and it declares a step counter ([InputSignal.steps]); null
+/// on a band's day, with no active wearable (none chosen, flag off: rule R6)
+/// or no count stored. The day's steps take it as a whole-day answer
+/// (`DerivationEngine._writeSteps`).
+/// ponytail: the newest stored row of the day; a device that banks several
+/// partial counts a day would need them summed.
+Future<int?> wearableDaySteps(Substrate daySub, String date) async {
+  final family = daySub.deviceFamily;
+  if (!isWearableFamily(family) ||
+      daySub.deviceIds.length != 1 ||
+      !declaredSignals(family).contains(InputSignal.steps)) {
+    return null;
+  }
+  final active = await activeWearable();
+  if (active == null || active.$1 != daySub.deviceIds.single) return null;
+  return LocalDb.deviceDaySteps(active.$1, date);
+}
+
 /// Whether paired device [deviceId]'s adapter has its flag on (rule R6).
 Future<bool> deviceFlagOn(String? deviceId) async {
   if (deviceId == null) return false;
@@ -963,6 +982,18 @@ Cell strapBeatCell(String key, {String? device, required Why reason}) => Cell(
   device: device,
   best: device == null ? MetricClass.unavailable : MetricClass.device,
   reason: reason,
+);
+
+/// Steps on a wearable that counts them: the day's steps (`scalars.steps`,
+/// the larger of the phone's count and the wearable's own whole-day total,
+/// `DerivationEngine._writeSteps`), with the wearable's own count beside it.
+/// Owner decision 2026-11-22: a step count is a measurement, served as the
+/// day's steps, not only as the device's display value.
+final Cell wearableStepsCell = Cell(
+  ours: (d, _) => scalar(d, 'steps'),
+  ourMethod: 'steps',
+  device: 'steps',
+  reason: Why.noDeviceSteps,
 );
 
 /// HRV: ours off a strap's beats on a night it was worn at rest.
