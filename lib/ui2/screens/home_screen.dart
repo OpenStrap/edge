@@ -64,6 +64,7 @@ import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
+import '../../sync/background_sync.dart' show syncPairedSensors;
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/alarm.dart'
@@ -128,13 +129,14 @@ UnitsController? unitsOf(BuildContext c) {
   return i < 0 ? (s, '') : (s.substring(0, i), s.substring(i + 1));
 }
 
-/// The band-sync trigger, or null when there is no AppState above us. Every
+/// The sync trigger, or null when there is no AppState above us. Every
 /// "Sync the band" CTA in this folder goes through here — a call to action
-/// with no action behind it is worse than no call to action.
+/// with no action behind it is worse than no call to action. With no band
+/// paired it syncs the paired wearables instead ([syncPairedSensors]).
 VoidCallback? syncOf(BuildContext c) {
   try {
     final app = c.read<AppState>();
-    return app.syncNow;
+    return app.isPaired ? app.syncNow : () => unawaited(syncPairedSensors());
   } catch (_) {
     return null;
   }
@@ -147,7 +149,8 @@ VoidCallback? syncOf(BuildContext c) {
 /// nothing on Home pointed at pairing.
 Widget? noBandCard(BuildContext c, AppLocalizations? l) {
   try {
-    if (c.read<AppState>().isPaired) return null;
+    // Any source, not only the band: a wearable-only install measures.
+    if (c.read<AppState>().hasSource) return null;
   } catch (_) {
     return null;
   }
@@ -2781,12 +2784,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // No AppState above us (goldens): nothing to sync.
     }
     final isToday = _day == null || _day == todayLabel();
-    if (app != null && app.isPaired && isToday && widget.data == null) {
+    if (app != null && app.hasSource && isToday && widget.data == null) {
       _tapSync(() {});
       // ponytail: the spinner lets go after 90 s; a long backlog keeps going
       // in the background and the syncing card stays up until it ends.
       try {
-        await app.syncNow().timeout(const Duration(seconds: 90));
+        await (app.isPaired ? app.syncNow() : syncPairedSensors())
+            .timeout(const Duration(seconds: 90));
       } catch (_) {
         // A timeout or a failed sync still re-reads what did land.
       }

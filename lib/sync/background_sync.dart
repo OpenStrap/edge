@@ -409,13 +409,16 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     BandOwnership.release(ownedLease);
     // Not during "delete everything": a secondary sync started now would
     // bank a device the reset is removing into the store it just emptied.
-    if (!ResetGate.changedSince(runGen)) await _syncPairedSensors();
+    if (!ResetGate.changedSince(runGen)) await syncPairedSensors();
   }
 }
 
 /// The paired sensors' piggyback on a headless wake. Runs after the band work
 /// is fully done so it can never delay or interfere with WHOOP's own timing.
-Future<void> _syncPairedSensors() async {
+/// Also Home's sync on an install whose only source is a wearable: every link
+/// here no-ops when its device is not paired, so it is the one generic "sync
+/// what is paired" there is.
+Future<void> syncPairedSensors() async {
   // Piggyback paired sensors on the same OS wake window, after the band
   // work is fully done so neither can ever delay or interfere with WHOOP's
   // own timing. Both `sync()` calls already no-op when nothing is paired

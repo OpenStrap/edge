@@ -59,6 +59,7 @@ import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
 import '../compute/inputs/canonical.dart'
     show
+        activeWearable,
         flagOnOrPrimary,
         onWearableDaysChanged,
         refreshSessionSensorSources,
@@ -505,6 +506,26 @@ class AppState extends ChangeNotifier {
 
   bool get isPaired => paired != null;
 
+  /// A flag-on active wearable is chosen (`activeWearable`), cached for the
+  /// sync getters below; refreshed on boot, on device-row changes and on every
+  /// wearable flag or choice change ([refreshWearableSource]).
+  bool _wearableSource = false;
+
+  /// Whether ANYTHING measures: the band, or the active wearable with its flag
+  /// on. The gates that mean "this install has data coming" (onboarding, the
+  /// cadence checks and reminders, Home's no-device card, pull-to-sync) read
+  /// this; the ones that mean "the band" (its session, alarm, battery, find)
+  /// keep [isPaired]. A flag-off wearable is not a source (rule R6).
+  bool get hasSource => isPaired || _wearableSource;
+
+  /// Re-reads [hasSource]'s wearable half; notifies only on a change.
+  Future<void> refreshWearableSource() async {
+    final on = await activeWearable() != null;
+    if (on == _wearableSource) return;
+    _wearableSource = on;
+    if (!_disposed) notifyListeners();
+  }
+
   /// Sensors paired ALONGSIDE the primary band — a chest strap, a ring.
   ///
   /// Raw `device` rows, minus the primary. Not `PairedDevice`: that type is the
@@ -548,6 +569,7 @@ class AppState extends ChangeNotifier {
     // only when the user changes it.
     _hrPriority =
         (await LocalDb.signalPriorities())[InputSignal.hr1Hz.name] ?? const [];
+    await refreshWearableSource();
     notifyListeners();
   }
 
@@ -1872,8 +1894,8 @@ class AppState extends ChangeNotifier {
     // First run, fresh install: offer "existing v2 user vs new user" before we
     // ask anyone to pair. A returning (already-paired) user skips it even if the
     // choice flag predates this build.
-    if (_onboardChoice == null && !isPaired) return AppRoute.welcome;
-    if (!isPaired) return AppRoute.pairing;
+    if (_onboardChoice == null && !hasSource) return AppRoute.welcome;
+    if (!hasSource) return AppRoute.pairing;
     if (!profileComplete) return AppRoute.profile;
     return AppRoute.shell;
   }
@@ -2602,7 +2624,7 @@ class AppState extends ChangeNotifier {
   /// any prefs change), then run the data-driven foreground nudges.
   Future<void> runCadenceChecks() async {
     try {
-      if (!isPaired) return;
+      if (!hasSource) return;
       await _ensureRemindersScheduled();
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
@@ -2887,6 +2909,10 @@ class AppState extends ChangeNotifier {
   /// False when the pass threw or any day failed (logged), so a caller that
   /// owes the user more than a log line can tell.
   Future<bool> rederiveDays(Set<String> days) async {
+    // A wearable's flag or the choice of wearable moved (the only caller of
+    // this through `onWearableDaysChanged`): whether anything measures may
+    // have too.
+    await refreshWearableSource();
     if (days.isEmpty) return true;
     while (_derive.running) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -3426,7 +3452,7 @@ class AppState extends ChangeNotifier {
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
-    if (isPaired) unawaited(_ensureRemindersScheduled());
+    if (hasSource) unawaited(_ensureRemindersScheduled());
     // SECOND FRAMED BAND (iOS 18+): the ASK picker must run with NO
     // CBCentralManager alive in the process. This is the only such moment —
     // `main()`'s two flutter_blue_plus calls (setOptions/setLogLevel) return
