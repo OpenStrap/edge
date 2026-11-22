@@ -1079,6 +1079,44 @@ const BandEntry kHelioStrap = BandEntry.notify(
 bool _looksLikeHelioStrap(String lowercaseName) =>
     lowercaseName.contains('helio strap');
 
+/// Xiaomi / Mi Smart Band 7 (codename L66). Same Huami2021/ZeppOS protocol as
+/// [kHelioStrap] (same auth endpoint and handshake, same chunk and fetch
+/// channels), so [HelioStrapAdapter] drives it with this entry. Keyed by
+/// codename, not brand: one id covers every regional SKU sold under it.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). Its HRV
+/// records are banked raw, never decoded into numbers, until a real band
+/// shows their unit (see the adapter's HRV gate).
+const BandEntry kMiBand7 = BandEntry.notify(
+  id: 'zeppos_l66',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Xiaomi Smart Band 7',
+  service: kHuami234Service,
+  characteristics: <String>[
+    kHuami2021ChunkWriteChar,
+    kHuami2021ChunkNotifyChar,
+    kHuami2021FetchControlChar,
+    kHuami2021FetchDataChar,
+  ],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand7,
+  scanByName: true,
+);
+
+/// The names the band advertises: the retail names, the bare codename, or
+/// the retail name plus a 4-character suffix. "Xiaomi Smart Band 7 Pro" is a
+/// different device and must not match (its suffix is 3 characters).
+bool _looksLikeMiBand7(String lowercaseName) =>
+    lowercaseName == 'l66' ||
+    lowercaseName == 'mi smart band 7' ||
+    RegExp(r'^xiaomi smart band 7( [0-9a-z]{4})?$').hasMatch(lowercaseName);
+
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
 /// PPoGATT carries the inner protocol, whose health data logging the adapter
 /// decodes (HR, steps, the watch's sleep periods). `pebble_link.dart`'s
@@ -1290,6 +1328,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kUltrahuman,
   kMiBand234,
   kHelioStrap,
+  kMiBand7,
   kPebble,
   kColmi,
   kGarmin,
@@ -1346,6 +1385,10 @@ final List<BandEntry> kFramedBands =
 /// advertisement can be read for a `bluetoothCompanyIdentifier` or
 /// manufacturer-data blob that differs from Mi Band's.
 ///
+/// [kMiBand7] is listed under the same owner-accepted risk (owner decision
+/// 2026-11-23): a third FEE1 device, told apart from the other two only by
+/// the name it advertises.
+///
 /// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
 /// [kMiScale2] are listed although they break the rule above: the band is
 /// not known to advertise FEE1, the Colmi ring is not known to advertise its
@@ -1363,6 +1406,7 @@ const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kColmi,
   kUltrahuman,
   kMiBand234,
+  kMiBand7,
   kHelioStrap,
   kPebble,
   kGarmin,
@@ -1517,6 +1561,15 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceHrv: Duration(minutes: 2),
     InputSignal.deviceResp: Duration(minutes: 30),
     InputSignal.deviceSpo2: Duration(minutes: 5),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  // Mirrors `kMiBand7Signals` in `helio_strap.dart`. Only what this band is
+  // known to carry: no skin-temperature sensor, and its HRV records are
+  // banked raw, not decoded (unit unconfirmed without hardware).
+  'zeppos_l66': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
     InputSignal.deviceStages: Duration.zero,
     InputSignal.vendorScalars: Duration.zero,
   },

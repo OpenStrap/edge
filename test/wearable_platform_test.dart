@@ -55,6 +55,7 @@ void main() {
       'pebble': DeviceCategory.wearable,
       'colmi': DeviceCategory.wearable,
       'helio_strap': DeviceCategory.wearable,
+      'zeppos_l66': DeviceCategory.wearable,
       'garmin': DeviceCategory.wearable,
       'thermometer': DeviceCategory.healthMeasurement,
       'miscale_bc': DeviceCategory.healthMeasurement,

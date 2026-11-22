@@ -487,6 +487,11 @@ Future<void> syncPairedSensors() async {
   } catch (e) {
     debugPrint('[bgsync] helio_strap sync skipped: $e');
   }
+  try {
+    await HelioStrapLink.miBand7.sync();
+  } catch (e) {
+    debugPrint('[bgsync] zeppos_l66 sync skipped: $e');
+  }
   // Thermometer and scales: same piggyback; each no-ops when unpaired and
   // only reaches a device that happens to be awake and nearby.
   for (final link in SessionLink.all) {

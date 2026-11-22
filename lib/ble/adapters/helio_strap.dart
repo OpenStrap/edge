@@ -100,6 +100,17 @@ const Duration kHelioFetchWindow = Duration(days: 2);
 /// writes to — shared so the two can never drift onto different items.
 const String kHelioStrapSecureStorageKey = 'helio_strap_auth_key';
 
+/// The secure-storage slot holding [entry]'s auth key. One slot per device
+/// family, so pairing one never overwrites another's key. The Helio Strap
+/// keeps its original slot name, so a key already stored there still reads.
+String zeppOsKeySlot(BandEntry entry) => entry.id == kHelioStrap.id
+    ? kHelioStrapSecureStorageKey
+    : '${entry.id}_auth_key';
+
+/// Who the device's own figures are attributed to: the brand on the box.
+String zeppOsAttribution(BandEntry entry) =>
+    entry.id == kMiBand7.id ? 'Xiaomi' : kHelioStrapAttribution;
+
 /// FIRST-UNLOCK, not the plugin's default WHEN-UNLOCKED — same choice as
 /// `oura_link.dart`'s `_kApple`, for the identical reason: this app is
 /// relaunched in the background while the phone is LOCKED (BGProcessingTask,
@@ -121,11 +132,11 @@ const FlutterSecureStorage _secure = FlutterSecureStorage();
 /// keychain is unavailable, or the stored value is malformed. Never throws —
 /// a session with no readable key is `kHelioNoKeyNote`, the same as a
 /// session with no key at all, not an uncaught crash.
-Future<Uint8List?> _defaultAuthKeyReader() async {
+Future<Uint8List?> _defaultAuthKeyReader(BandEntry entry) async {
   String? hex;
   try {
     hex = await _secure.read(
-      key: kHelioStrapSecureStorageKey,
+      key: zeppOsKeySlot(entry),
       iOptions: kHelioStrapIosKeyOptions,
       mOptions: kHelioStrapMacosKeyOptions,
     );
@@ -277,6 +288,7 @@ class HelioStrapAdapter extends BandAdapter {
   final Duration quietTimeout;
 
   HelioStrapAdapter({
+    this.entry = kHelioStrap,
     int Function()? nowSeconds,
     Future<Uint8List?> Function()? authKeyReader,
     this.authTimeout = const Duration(seconds: 8),
@@ -284,13 +296,26 @@ class HelioStrapAdapter extends BandAdapter {
     this.quietTimeout = const Duration(milliseconds: 800),
   })  : nowSeconds = nowSeconds ??
             (() => DateTime.now().millisecondsSinceEpoch ~/ 1000),
-        authKeyReader = authKeyReader ?? _defaultAuthKeyReader;
+        authKeyReader =
+            authKeyReader ?? (() => _defaultAuthKeyReader(entry));
+
+  /// The device this session drives: [kHelioStrap] or [kMiBand7]. Same
+  /// protocol; the entry decides the key slot, attribution, signals and
+  /// which record types are decoded.
+  @override
+  final BandEntry entry;
 
   @override
-  BandEntry get entry => kHelioStrap;
+  Map<InputSignal, Duration> get signals =>
+      entry.id == kMiBand7.id ? kMiBand7Signals : kHelioStrapSignals;
 
-  @override
-  Map<InputSignal, Duration> get signals => kHelioStrapSignals;
+  String get _attribution => zeppOsAttribution(entry);
+
+  /// HRV records (types 0x49, 0x4E) are decoded only for the Helio Strap.
+  /// For any other device their unit is unconfirmed without hardware, so
+  /// their bytes are banked raw for a later re-decode and never stored as a
+  /// number labelled "ms".
+  bool get _decodesHrv => entry.id == kHelioStrap.id;
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
@@ -336,6 +361,11 @@ class HelioStrapAdapter extends BandAdapter {
       // attempt, a stale frame): archived anyway, never decoded.
       final strayRaw = <Uint8List>[];
       var incomplete = false;
+      final attribution = _attribution;
+      Observation obs(DateTime day, num value,
+              {String? unit, String? key, String? vendorKey}) =>
+          _obs(day, value,
+              unit: unit, key: key, vendorKey: vendorKey, attribution: attribution);
 
       Future<_FetchRound?> fetch(int type) => _fetchOneRound(
           link, controlInbox, dataInbox, type, since, utcOffsetMinutes,
@@ -397,7 +427,9 @@ class HelioStrapAdapter extends BandAdapter {
       final hrvFetch = await fetch(kHuami2021TypeHrv);
       if (hrvFetch != null) {
         raw.addAll(hrvFetch.raw);
-        for (final s in parseHuami2021Hrv(hrvFetch.bytes)) {
+        for (final s in _decodesHrv
+            ? parseHuami2021Hrv(hrvFetch.bytes)
+            : const <Huami2021Sample>[]) {
           night['hrv_avg']!.add((s.ms, s.value));
           // The raw reading too, at its own second (PE-1): our readiness
           // takes the night's samples, not the strap's mean of them.
@@ -411,7 +443,9 @@ class HelioStrapAdapter extends BandAdapter {
       final sdnnFetch = await fetch(kHuami2021TypeHrvSdnn);
       if (sdnnFetch != null) {
         raw.addAll(sdnnFetch.raw);
-        for (final s in parseHuami2021HrvSdnn(sdnnFetch.bytes)) {
+        for (final s in _decodesHrv
+            ? parseHuami2021HrvSdnn(sdnnFetch.bytes)
+            : const <Huami2021Sample>[]) {
           (hrvSdnn[dayOf(s.ms)] ??= []).add(s.value);
         }
       }
@@ -458,11 +492,11 @@ class HelioStrapAdapter extends BandAdapter {
       // just the one instance of it that's already been hardened.
       final earlyRows = <Observation>[
         for (final MapEntry(:key, :value) in steps.entries)
-          _obs(key, value, unit: 'steps', key: 'steps'),
+          obs(key, value, unit: 'steps', key: 'steps'),
         for (final MapEntry(:key, :value) in stress.entries)
-          _obs(key, _mean(value), vendorKey: 'stress_avg'),
+          obs(key, _mean(value), vendorKey: 'stress_avg'),
         for (final MapEntry(:key, :value) in hrvSdnn.entries)
-          _obs(key, _mean(value), unit: 'ms', vendorKey: 'hrv_sdnn_avg'),
+          obs(key, _mean(value), unit: 'ms', vendorKey: 'hrv_sdnn_avg'),
       ];
       if (earlyRows.isNotEmpty) yield VendorScalars(earlyRows);
 
@@ -472,8 +506,8 @@ class HelioStrapAdapter extends BandAdapter {
         final paiRows = <Observation>[];
         for (final p in parseHuami2021Pai(paiFetch.bytes)) {
           final d = dayOf(p.ms);
-          paiRows.add(_obs(d, p.daily, vendorKey: 'pai_daily'));
-          paiRows.add(_obs(d, p.total, vendorKey: 'pai_total'));
+          paiRows.add(obs(d, p.daily, vendorKey: 'pai_daily'));
+          paiRows.add(obs(d, p.total, vendorKey: 'pai_total'));
         }
         if (paiRows.isNotEmpty) yield VendorScalars(paiRows);
         if (paiFetch.raw.isNotEmpty) yield SampleBatch(const [], raw: paiFetch.raw);
@@ -485,12 +519,12 @@ class HelioStrapAdapter extends BandAdapter {
         final odiRows = <Observation>[];
         for (final o in parseHuami2021OdiSummary(odiFetch.bytes)) {
           final d = dayOf(o.belongTimeMs);
-          odiRows.add(_obs(d, o.validTimeSec, unit: 's', vendorKey: 'odi_valid_time'));
+          odiRows.add(obs(d, o.validTimeSec, unit: 's', vendorKey: 'odi_valid_time'));
           if (o.odiRefined != null) {
-            odiRows.add(_obs(d, o.odiRefined!, vendorKey: 'odi_refined'));
+            odiRows.add(obs(d, o.odiRefined!, vendorKey: 'odi_refined'));
           }
           if (o.score != null) {
-            odiRows.add(_obs(d, o.score!, vendorKey: 'odi_score'));
+            odiRows.add(obs(d, o.score!, vendorKey: 'odi_score'));
           }
         }
         if (odiRows.isNotEmpty) yield VendorScalars(odiRows);
@@ -509,7 +543,7 @@ class HelioStrapAdapter extends BandAdapter {
             sourceKind: ObservationSource.vendor,
             vendorKey: 'workout_sport_type',
             value: w.sportType,
-            attribution: kHelioStrapAttribution,
+            attribution: attribution,
           ));
           workoutRows.add(Observation(
             at: start,
@@ -517,7 +551,7 @@ class HelioStrapAdapter extends BandAdapter {
             vendorKey: 'workout_duration_sec',
             value: w.durationSec,
             unit: 's',
-            attribution: kHelioStrapAttribution,
+            attribution: attribution,
           ));
           workoutRows.add(Observation(
             at: start,
@@ -525,7 +559,7 @@ class HelioStrapAdapter extends BandAdapter {
             vendorKey: 'workout_calories',
             value: w.calories,
             unit: 'kcal',
-            attribution: kHelioStrapAttribution,
+            attribution: attribution,
           ));
           workoutRows.add(Observation(
             at: start,
@@ -533,7 +567,7 @@ class HelioStrapAdapter extends BandAdapter {
             vendorKey: 'workout_avg_hr',
             value: w.avgHr,
             unit: 'bpm',
-            attribution: kHelioStrapAttribution,
+            attribution: attribution,
           ));
           workoutRows.add(Observation(
             at: start,
@@ -541,7 +575,7 @@ class HelioStrapAdapter extends BandAdapter {
             vendorKey: 'workout_max_hr',
             value: w.maxHr,
             unit: 'bpm',
-            attribution: kHelioStrapAttribution,
+            attribution: attribution,
           ));
           workoutRows.add(Observation(
             at: start,
@@ -549,7 +583,7 @@ class HelioStrapAdapter extends BandAdapter {
             vendorKey: 'workout_min_hr',
             value: w.minHr,
             unit: 'bpm',
-            attribution: kHelioStrapAttribution,
+            attribution: attribution,
           ));
         }
         if (workoutRows.isNotEmpty) yield VendorScalars(workoutRows);
@@ -569,11 +603,11 @@ class HelioStrapAdapter extends BandAdapter {
         final sessions = wholeSessions(parseHuami2021Sleep(sleepFetch.bytes),
             since.millisecondsSinceEpoch);
         for (final session in sessions) {
-          _emitSleepSession(session, epochs, stageRows);
+          _emitSleepSession(session, epochs, stageRows, attribution);
         }
-        stageRows.addAll(nightMeans(sessions, night));
+        stageRows.addAll(nightMeans(sessions, night, attribution: attribution));
         if (epochs.isNotEmpty) {
-          yield VendorHypnogram('helio_strap', epochs, wholeNights: true);
+          yield VendorHypnogram(entry.id, epochs, wholeNights: true);
         }
         if (stageRows.isNotEmpty) yield VendorScalars(stageRows);
         if (sleepFetch.raw.isNotEmpty) {
@@ -592,6 +626,7 @@ class HelioStrapAdapter extends BandAdapter {
     Huami2021SleepSession session,
     List<VendorEpoch> epochs,
     List<Observation> rows,
+    String attribution,
   ) {
     if (session.isNap) {
       final asleep = session.stages
@@ -604,7 +639,7 @@ class HelioStrapAdapter extends BandAdapter {
           vendorKey: 'nap_min',
           value: asleep,
           unit: 'min',
-          attribution: kHelioStrapAttribution,
+          attribution: attribution,
         ));
       }
       return;
@@ -630,7 +665,7 @@ class HelioStrapAdapter extends BandAdapter {
         vendorKey: 'sleep_${entry.key}_min',
         value: entry.value,
         unit: 'min',
-        attribution: kHelioStrapAttribution,
+        attribution: attribution,
       ));
     }
   }
@@ -653,8 +688,9 @@ class HelioStrapAdapter extends BandAdapter {
   @visibleForTesting
   static List<Observation> nightMeans(
     List<Huami2021SleepSession> sessions,
-    Map<String, List<(int, num)>> samples,
-  ) {
+    Map<String, List<(int, num)>> samples, {
+    String attribution = kHelioStrapAttribution,
+  }) {
     final rows = <Observation>[];
     for (final session in sessions) {
       if (session.isNap) continue;
@@ -668,7 +704,7 @@ class HelioStrapAdapter extends BandAdapter {
         ];
         if (inNight.isEmpty) continue;
         rows.add(_obs(_wakeDate(end), _mean(inNight),
-            unit: _nightUnit[key], vendorKey: key));
+            unit: _nightUnit[key], vendorKey: key, attribution: attribution));
       }
     }
     return rows;
@@ -708,7 +744,10 @@ class HelioStrapAdapter extends BandAdapter {
       v.fold<double>(0, (s, x) => s + x) / v.length;
 
   static Observation _obs(DateTime day, num value,
-          {String? unit, String? key, String? vendorKey}) =>
+          {String? unit,
+          String? key,
+          String? vendorKey,
+          String attribution = kHelioStrapAttribution}) =>
       Observation(
         at: day,
         sourceKind: ObservationSource.vendor,
@@ -716,7 +755,7 @@ class HelioStrapAdapter extends BandAdapter {
         vendorKey: vendorKey,
         value: value,
         unit: unit,
-        attribution: kHelioStrapAttribution,
+        attribution: attribution,
       );
 }
 
@@ -846,8 +885,21 @@ const Map<InputSignal, Duration> kHelioStrapSignals = {
   InputSignal.vendorScalars: Duration.zero,
 };
 
+/// The signals Mi Band 7 supplies. Mirrored in `kAdapterSignals`. No skin
+/// temperature (no sensor), and no HRV: its HRV records are banked raw,
+/// not decoded ([HelioStrapAdapter._decodesHrv]).
+const Map<InputSignal, Duration> kMiBand7Signals = {
+  InputSignal.hrSparse: Duration(minutes: 1),
+  InputSignal.steps: Duration(minutes: 1),
+  InputSignal.deviceStages: Duration.zero,
+  InputSignal.vendorScalars: Duration.zero,
+};
+
 /// The single instance. Holds no per-strap state.
 final HelioStrapAdapter kHelioStrapAdapter = HelioStrapAdapter();
+
+/// The Mi Band 7 instance: the same adapter driving [kMiBand7].
+final HelioStrapAdapter kMiBand7Adapter = HelioStrapAdapter(entry: kMiBand7);
 
 /// Notifications buffered so a reply landing before anyone waits is kept.
 /// Identical shape to Colmi's `_Inbox` — duplicated rather than shared,

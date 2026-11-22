@@ -23,6 +23,7 @@ void main() {
           'ultrahuman',
           'miband234',
           'helio_strap',
+          'zeppos_l66',
           'pebble',
           'colmi',
           'garmin',
