@@ -6136,7 +6136,8 @@ class DerivationEngine {
   Future<bool> _quietRepassOwed(String date, Map<String, dynamic> bundle) async {
     if (!quietBlocked(bundle)) return false;
     final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
-    final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys;
+    // Band AND active-wearable days: a wearable-only day is substrate too.
+    final rawDays = await substrateDays();
     if (rawDays.any((d) => d.compareTo(date) < 0 && !finalized.contains(d))) {
       return true;
     }
@@ -6168,7 +6169,7 @@ class DerivationEngine {
         .length;
     if (valid >= ana.quietHrrMinDays) return false;
     final pending = [
-      for (final d in (await LocalDb.decodedRecTsMaxByDay()).keys)
+      for (final d in await substrateDays())
         if (d.compareTo(date) < 0 && !derived.contains(d)) d,
     ].length;
     return valid + pending < ana.quietHrrMinDays;
@@ -6240,7 +6241,7 @@ class DerivationEngine {
       }
       final prunedBeforeSec = await LocalDb.getCursorInt(_prunedBeforeCursor);
       final withRaw = {
-        for (final d in rawDays ?? (await LocalDb.decodedRecTsMaxByDay()).keys)
+        for (final d in rawDays ?? await substrateDays())
           if (!windowTruncatedByPrune(d, prunedBeforeSec)) d,
       };
       for (final d in owed.difference(withRaw)) {
@@ -10310,6 +10311,9 @@ class DerivationEngine {
         ? needInputNote('weight_kg')
         : sex == null
         ? needInputNote('sex')
+        // The %HRR flex gate needs a resting end too (nocturnal or entered).
+        : rhrForTrimp == null
+        ? needInputNote('resting_hr')
         : hrMax == null
         ? ceilingAbsent
         // Keytel does not read height; `dailyEnergy`'s ACTIVE
@@ -10842,15 +10846,10 @@ class DerivationEngine {
     if (cut == null) return const [];
     // Running count of still seconds, over substrate index. Prefix-summed so a
     // window's stillness is two array reads instead of a rescan.
+    final still = _stillSeconds(s, cut);
     final quietPrefix = List<int>.filled(s.length + 1, 0);
     for (var i = 0; i < s.length; i++) {
-      var q = 0;
-      if (s.accelPresentAt(i)) {
-        final mag =
-            math.sqrt(s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
-        if ((mag - 1.0).abs() <= cut) q = 1;
-      }
-      quietPrefix[i + 1] = quietPrefix[i] + q;
+      quietPrefix[i + 1] = quietPrefix[i] + (still[i] ? 1 : 0);
     }
 
     final ts = <double>[], rr = <double>[];
@@ -10974,6 +10973,40 @@ class DerivationEngine {
     'gen5': 0.02,
   };
 
+  /// Per substrate index: is the wrist still that second. The 1 Hz accel is a
+  /// near-constant-norm gravity vector (|a| sits around 1.03 g on gen4 whether
+  /// sitting or walking), so `||a| - 1 g|` reads the posture's calibration
+  /// offset, not movement. Stillness is the gravity-removed vector instead:
+  /// `a - trailingMean(a)` over the analytics high-pass window, the same
+  /// construction as `dynAmp`, so a per-axis offset cancels. Absent seconds
+  /// are never still and never enter the mean.
+  static List<bool> _stillSeconds(Substrate s, double cut) {
+    final out = List<bool>.filled(s.length, false);
+    final idx = <int>[
+      for (var i = 0; i < s.length; i++)
+        if (s.accelPresentAt(i)) i,
+    ];
+    var lo = 0;
+    var sx = 0.0, sy = 0.0, sz = 0.0;
+    for (var k = 0; k < idx.length; k++) {
+      final i = idx[k];
+      sx += s.ax[i];
+      sy += s.ay[i];
+      sz += s.az[i];
+      while (lo < k &&
+          s.tsSec[i] - s.tsSec[idx[lo]] >= ana.defaultGravityWindowS) {
+        final j = idx[lo++];
+        sx -= s.ax[j];
+        sy -= s.ay[j];
+        sz -= s.az[j];
+      }
+      final n = k - lo + 1;
+      final dx = s.ax[i] - sx / n, dy = s.ay[i] - sy / n, dz = s.az[i] - sz / n;
+      out[i] = math.sqrt(dx * dx + dy * dy + dz * dz) <= cut;
+    }
+    return out;
+  }
+
   @visibleForTesting
   static Map<String, dynamic> daytimeHrv(
           Substrate s, int onsetSec, int offsetSec) =>
@@ -11031,13 +11064,11 @@ class DerivationEngine {
     // The seconds we can call still. Built once over the day substrate; a
     // second with no gravity vector never lands here, so it can only break a
     // pair, never join one.
-    final quiet = <int>{};
-    for (var i = 0; i < s.length; i++) {
-      if (!s.accelPresentAt(i)) continue;
-      final mag = math.sqrt(
-          s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i]);
-      if ((mag - 1.0).abs() <= cut) quiet.add(s.tsSec[i]);
-    }
+    final still = _stillSeconds(s, cut);
+    final quiet = <int>{
+      for (var i = 0; i < s.length; i++)
+        if (still[i]) s.tsSec[i],
+    };
     final bins = <int, List<double>>{};
     double? prev;
     for (var k = 0; k < s.rrMs.length; k++) {
