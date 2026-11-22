@@ -1203,7 +1203,12 @@ class OuraLink {
       cursor: cursor,
       replyTimeout: timeouts,
       firstFrameTimeout: timeouts,
-      confirmTimeout: timeouts,
+      // the confirm wait covers the host's durable commit, not ring silence:
+      // a 50ms silence timeout must not also bound a CI-slow sqlite commit.
+      confirmTimeout:
+          timeouts < const Duration(seconds: 5)
+              ? const Duration(seconds: 5)
+              : timeouts,
     ).whenComplete(() => finished = true);
     var served = 0;
     // ONE deadline, started ONCE and shared by every stage below: the
