@@ -124,16 +124,22 @@ class MiBand234Link {
   /// Mi Band 4 on the same link: its own `device` row, key and cursor, and
   /// the crypt-flagged handshake its adapter runs for [kMiBand4].
   static final MiBand234Link miBand4 = MiBand234Link._(kMiBand4);
+  static final MiBand234Link miBand5 = MiBand234Link._(kMiBand5);
+  static final MiBand234Link miBand6 = MiBand234Link._(kMiBand6);
+
+  /// Every Mi Band link, so app-wide stop / background sync loop over them.
+  static final List<MiBand234Link> all = [instance, miBand4, miBand5, miBand6];
 
   /// The family this link drives.
   final BandEntry entry;
 
   /// The link for [adapterId], or null when it is not a Mi Band.
-  static MiBand234Link? forId(Object? adapterId) => adapterId == kMiBand234.id
-      ? instance
-      : adapterId == kMiBand4.id
-          ? miBand4
-          : null;
+  static MiBand234Link? forId(Object? adapterId) {
+    for (final l in all) {
+      if (l.entry.id == adapterId) return l;
+    }
+    return null;
+  }
 
   /// The `device` row for the paired band, or null.
   static Future<Map<String, Object?>?> pairedRow() =>
@@ -838,10 +844,19 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
   }
 }
 
-/// Pair [device] as this phone's Mi Band 4 with a 16-byte key the user
-/// already has (the band only answers to the key its vendor pairing issued;
-/// it never takes one from this app). Null on success, or a sentence the
-/// user can act on.
+/// The typed-key pairing function for [adapterId] when it is a Mi Band that
+/// only answers to a vendor-issued key (Mi Band 4, 5, 6), else null.
+Future<String?> Function(BluetoothDevice, String)? miBandTypedKeyPairFor(
+    String adapterId) {
+  final link = MiBand234Link.forId(adapterId);
+  if (link == null || link.entry.id == kMiBand234.id) return null;
+  return (device, raw) => _pairCryptMiBandWithTypedKey(device, raw, link.entry);
+}
+
+/// Pair [device] as this phone's [entry] (Mi Band 4, 5 or 6) with a 16-byte
+/// key the user already has (the band only answers to the key its vendor
+/// pairing issued; it never takes one from this app). Null on success, or a
+/// sentence the user can act on.
 ///
 /// READ-ONLY ON THE BAND: only the crypt-flagged handshake runs
 /// ([MiBand234Adapter.authenticateOnly]), so a wrong key costs a refusal and
@@ -850,7 +865,8 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
 /// its row ([miBandReusableDeviceId]).
 ///
 /// STILL HARDWARE-UNVERIFIED (R6).
-Future<String?> pairMiBand4WithTypedKey(BluetoothDevice device, String raw) async {
+Future<String?> _pairCryptMiBandWithTypedKey(
+    BluetoothDevice device, String raw, BandEntry entry) async {
   final hex = raw.trim().replaceFirst(RegExp('^0x', caseSensitive: false), '');
   if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(hex)) {
     return 'That is not a valid key: it must be exactly 32 hex characters.';
@@ -862,8 +878,8 @@ Future<String?> pairMiBand4WithTypedKey(BluetoothDevice device, String raw) asyn
   final rnd = Random.secure();
   final deviceId = miBandReusableDeviceId(
           await LocalDb.deviceRows(), device.remoteId.str,
-          adapterId: kMiBand4.id) ??
-      '${kMiBand4.id}-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+          adapterId: entry.id) ??
+      '${entry.id}-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
   return withSecondaryLinkSlot<String?>(
     timeout: const Duration(seconds: 30),
     onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
@@ -874,17 +890,17 @@ Future<String?> pairMiBand4WithTypedKey(BluetoothDevice device, String raw) asyn
         await device.connect(timeout: const Duration(seconds: 20));
         final services = await device.discoverServices();
         link = GattBandLink(
-          entry: kMiBand4,
+          entry: entry,
           services: services,
-          onLog: (m) => debugPrint('[${kMiBand4.id} pair] $m'),
+          onLog: (m) => debugPrint('[${entry.id} pair] $m'),
         );
-        if (link.missingCharacteristics(kMiBand4.requiredCharacteristics)
+        if (link.missingCharacteristics(entry.requiredCharacteristics)
             .isNotEmpty) {
           return 'That device does not expose the service this app speaks '
-              'for a Mi Band 4.';
+              'for a ${entry.label}.';
         }
         final refusal =
-            await MiBand234Adapter(entry: kMiBand4, key: key).authenticateOnly(link);
+            await MiBand234Adapter(entry: entry, key: key).authenticateOnly(link);
         if (refusal != null) {
           return refusal.status == null
               ? 'The band didn’t answer. Make sure it’s close by and try again.'
@@ -899,9 +915,9 @@ Future<String?> pairMiBand4WithTypedKey(BluetoothDevice device, String raw) asyn
         }
         await LocalDb.upsertDevice(
           id: deviceId,
-          adapterId: kMiBand4.id,
+          adapterId: entry.id,
           remoteId: device.remoteId.str,
-          label: cleanDeviceLabel(device.platformName) ?? kMiBand4.label,
+          label: cleanDeviceLabel(device.platformName) ?? entry.label,
         );
         return null;
       } catch (e) {

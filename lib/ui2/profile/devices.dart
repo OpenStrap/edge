@@ -58,6 +58,8 @@ import '../../ble/adapters/_registry.dart'
         kAmazfitGts3,
         kMiBand234,
         kMiBand4,
+        kMiBand5,
+        kMiBand6,
         kMiScale2,
         kMiScaleComposition,
         kOura,
@@ -951,7 +953,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'ultrahuman' => LucideIcons.circle,
       'thermometer' => LucideIcons.thermometer,
       'miscale_bc' || 'miscale2' => LucideIcons.scale,
-      'garmin' || 'miband234' || 'huami_cinco' || 'pebble' =>
+      'garmin' || 'miband234' || 'huami_cinco' || 'huami_kongming' ||
+      'huami_pangu' || 'pebble' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -1313,6 +1316,24 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     pick: null,
   ),
   (
+    entry: kMiBand5,
+    blurb: 'A Mi Smart Band 5. First pairing still has to go through Zepp '
+        'Life or Mi Fit, which is where the band\'s key comes from; this '
+        'app can\'t install one on it. Paste that key below to pair it here '
+        'instead. Syncs its stored heart rate, steps and sleep. '
+        'Experimental.',
+    pick: null,
+  ),
+  (
+    entry: kMiBand6,
+    blurb: 'A Mi Smart Band 6. First pairing still has to go through Zepp '
+        'Life or Mi Fit, which is where the band\'s key comes from; this '
+        'app can\'t install one on it. Paste that key below to pair it here '
+        'instead. Syncs its stored heart rate, steps and sleep. '
+        'Experimental.',
+    pick: null,
+  ),
+  (
     entry: kHelioStrap,
     blurb: 'An Amazfit Helio Strap. First pairing still has to go through '
         'the real Zepp app — that is where the strap\'s key comes from, and '
@@ -1413,8 +1434,7 @@ bool sensorCapReached(Iterable<Map<String, Object?>> deviceRows,
   final sameAdapterRewrites = adapterId != null &&
       (anyOfAdapter ||
           adapterId == kOura.id ||
-          adapterId == kMiBand234.id ||
-          adapterId == kMiBand4.id);
+          MiBand234Link.forId(adapterId) != null);
   for (final r in secondary) {
     if (repairingId != null && r['id'] == repairingId) return false;
     if (sameAdapterRewrites && r['adapter_id'] == adapterId) return false;
@@ -2194,8 +2214,8 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'coros' => () => _syncCorosWatch(c),
         'garmin' => () => _syncGarminWatch(c),
         'ultrahuman' => () => _syncUltrahumanRing(c),
-        'miband234' => () => _syncMiband(c),
-        'huami_cinco' => () => _syncMiband(c, MiBand234Link.miBand4),
+        final f when MiBand234Link.forId(f) != null =>
+          () => _syncMiband(c, MiBand234Link.forId(f)),
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
         final f when HelioStrapLink.forId(f) != null =>

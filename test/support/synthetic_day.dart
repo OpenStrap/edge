@@ -596,8 +596,10 @@ class SyntheticDay {
   /// characteristics) with one 4-byte record per minute: kind (deep 11,
   /// light/REM 9, awake-in-night 12, else 1), intensity, steps, HR. Returns
   /// (characteristic, bytes) notifications. [now] is the sync instant.
+  /// [recordSize] 8 renders Mi Band 5/6 records: the same four bytes, then
+  /// four filler bytes the decoder must skip.
   static List<(String, List<int>)> Function(String, List<int>) miBandHistory(
-      List<SyntheticDay> days, DateTime now) {
+      List<SyntheticDay> days, DateTime now, {int recordSize = 4}) {
     var pending = const <int>[];
     return (char, w) {
       if (char != kHuamiActivityControlChar) return const [];
@@ -620,12 +622,13 @@ class SyntheticDay {
             s += d.steps[k] ?? 0;
           }
           recs.addAll([kind, st == null ? 40 : 5, math.min(s, 255), d.hr[t]!]);
+          if (recordSize == 8) recs.addAll(const [0x7e, 0x7e, 0x7e, 0x7e]);
         }
         pending = recs;
         final first = DateTime.fromMillisecondsSinceEpoch(
             (from - from % 60) * 1000);
         final tz = (first.timeZoneOffset.inMinutes ~/ 15) & 0xff;
-        final n = recs.length ~/ 4; // the header counts minute samples
+        final n = recs.length ~/ recordSize; // the header counts minute samples
         return [
           (kHuamiActivityControlChar, [
             0x10, 0x01, 0x01, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, 0,

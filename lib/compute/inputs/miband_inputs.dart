@@ -29,8 +29,18 @@ const String kMiBandFamily = 'miband234';
 /// same column serves it.
 const String kMiBand4Family = 'huami_cinco';
 
+/// Mi Band 5 and 6: the same minute record in an 8-byte slot (the first
+/// four bytes read the same), so the same column serves them too.
+const String kMiBand5Family = 'huami_kongming';
+const String kMiBand6Family = 'huami_pangu';
+
 /// Every family [kMiBandColumn] serves.
-const Set<String> kMiBandFamilies = {kMiBandFamily, kMiBand4Family};
+const Set<String> kMiBandFamilies = {
+  kMiBandFamily,
+  kMiBand4Family,
+  kMiBand5Family,
+  kMiBand6Family,
+};
 
 /// Whether [family] is one of [kMiBandFamilies].
 bool isMiBandFamily(Object? family) => kMiBandFamilies.contains(family);
