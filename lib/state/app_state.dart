@@ -1252,8 +1252,10 @@ class AppState extends ChangeNotifier {
   // afterwards `setHealthShareConsent` had no caller anywhere — an install
   // carrying `consent_health_data = true` from before the rebuild kept
   // uploading its whole database with no way to stop it. Nothing here may be
-  // enabled except by an explicit tap; `consentChosen` records only that the
-  // user has answered at least once.
+  // enabled except by an explicit tap (health-data sharing). Anonymous
+  // diagnostics are the one exception: ON by default, announced once on Home,
+  // off in Settings. `consentChosen` records only that the user has answered
+  // at least once.
   static const String _kDeviceId = 'install_device_id';
   static const String _kTelemetryConsent = 'consent_telemetry';
   static const String _kHealthShareConsent = 'consent_health_data';
@@ -1283,7 +1285,9 @@ class AppState extends ChangeNotifier {
         deviceId = const Uuid().v4();
         await prefs.setString(_kDeviceId, deviceId);
       }
-      telemetryConsent = prefs.getBool(_kTelemetryConsent) ?? false;
+      // Diagnostics are ON unless the user switched them off; Home shows a
+      // one-time notice (TelemetryNotice). Health-data sharing stays default OFF.
+      telemetryConsent = prefs.getBool(_kTelemetryConsent) ?? true;
       healthShareConsent = prefs.getBool(_kHealthShareConsent) ?? false;
       consentChosen = prefs.getBool(_kConsentChosen) ?? false;
       CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);

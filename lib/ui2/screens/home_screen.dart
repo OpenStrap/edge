@@ -2573,6 +2573,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       if (widget.data == null)
         WearableCells(kHomeWearableRows, date: isToday ? null : _day),
 
+      const TelemetryNotice(),
+
       if (bare) ...[
         // A live workout holds derivation, so a bare day with a session open
         // is the hold at work, not a sync problem — see [workoutHoldCard].

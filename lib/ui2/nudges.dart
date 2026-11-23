@@ -8,6 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../l10n/app_localizations.dart';
+import 'package:provider/provider.dart';
+
+import '../state/app_state.dart';
 import '../state/prefs.dart';
 import 'ui2.dart';
 
@@ -174,6 +177,78 @@ class _AskCard extends StatelessWidget {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// One-time notice that anonymous diagnostics are on by default. Shown once per
+/// install while diagnostics are still on; "Got it" or "Turn off" ends it.
+class TelemetryNotice extends StatefulWidget {
+  const TelemetryNotice({super.key});
+
+  @override
+  State<TelemetryNotice> createState() => _TelemetryNoticeState();
+}
+
+class _TelemetryNoticeState extends State<TelemetryNotice> {
+  static const _seenKey = 'nudge.telemetry.dismissed';
+  bool _seen = Prefs.getBool(_seenKey, false);
+
+  void _done() {
+    Prefs.setBool(_seenKey, true);
+    setState(() => _seen = true);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    if (_seen || !c.select<AppState, bool>((a) => a.telemetryConsent)) {
+      return const SizedBox.shrink();
+    }
+    final p = P.of(c);
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x5, bottom: S.x3),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: R.rLg,
+          border: Border.all(color: p.on(C.indigo).withValues(alpha: .55)),
+        ),
+        child: Surface(
+        color: p.wash(C.indigo),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(LucideIcons.shieldCheck, size: 18, color: p.on(C.indigo)),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text('Anonymous diagnostics are on',
+                  style: F.body
+                      .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+            ),
+          ]),
+          const SizedBox(height: 2),
+          Text(
+              'We collect crash reports and anonymous usage counts, only to fix '
+              'technical problems. No health data, band data or personal '
+              'information is ever included. You can turn this off anytime in '
+              'Settings.',
+              style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x3),
+          BigButton('Got it', color: C.indigo, onTap: _done),
+          const SizedBox(height: S.x2),
+          Center(
+            child: Pressable(
+              onTap: () {
+                c.read<AppState>().setTelemetryConsent(false);
+                _done();
+              },
+              semanticLabel: 'Turn off diagnostics',
+              child: Text('Turn off',
+                  style: F.over.copyWith(
+                      color: p.ink3, decoration: TextDecoration.underline)),
+            ),
+          ),
+        ]),
+      ),
       ),
     );
   }

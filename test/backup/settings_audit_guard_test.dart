@@ -52,6 +52,7 @@ const _mustTravel = {
   'notif_osid:health:2026-09-21:low_read', 'notif_osslot:health:0',
   'notif_osnext:health', 'ui.metric_tab.sleep',
   'nudge.discord.dismissed', 'nudge.discord.last_shown_ms',
+  'nudge.telemetry.dismissed',
   'ai.briefing.morning',
   // Serial-scoped ECG safety guards must survive so reconnect still cleans up
   // a possibly active publisher. These are separate from alarm arm receipts.
