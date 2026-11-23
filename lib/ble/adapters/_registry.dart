@@ -1027,8 +1027,8 @@ const BandEntry kMiBand234 = BandEntry.notify(
 /// the user types the one its vendor pairing issued (like the Helio Strap).
 ///
 /// EXPERIMENTAL, and it stays that way: nobody on this project owns one
-/// (ASSUMPTIONS R6). Not in [kAskPickerSensors]: one more FEE1-sharing
-/// device in the iOS picker is the owner's call, not made for this one yet.
+/// (ASSUMPTIONS R6). In [kAskPickerSensors] under the shared-FEE1 risk
+/// written up there.
 const BandEntry kMiBand4 = BandEntry.notify(
   id: 'huami_cinco',
   role: DeviceRole.band,
@@ -1486,6 +1486,11 @@ final List<BandEntry> kFramedBands =
 /// more FEE1 devices, told apart only by the names they advertise. They sit
 /// before [kHelioStrap] so the FEE1 label the picker shows stays the strap's.
 ///
+/// [kMiBand4] is listed under the same owner-accepted risk (owner decision
+/// 2026-11-23): one more FEE1 device, told apart only by the name it
+/// advertises. It sits before [kHelioStrap] so the FEE1 label the picker
+/// shows stays the strap's.
+///
 /// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
 /// [kMiScale2] are listed although they break the rule above: the band is
 /// not known to advertise FEE1, the Colmi ring is not known to advertise its
@@ -1503,6 +1508,7 @@ const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kColmi,
   kUltrahuman,
   kMiBand234,
+  kMiBand4,
   kMiBand7,
   kAmazfitGtr3,
   kAmazfitGtr3Pro,

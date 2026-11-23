@@ -72,8 +72,11 @@ void main() {
       expect(kMiBand4.id, 'huami_cinco');
       expect(kMiBand4.service, kMiBand234.service);
       expect(kBandRegistry, contains(kMiBand4));
-      expect(kAskPickerSensors, isNot(contains(kMiBand4)),
-          reason: 'the iOS picker is the owner\'s call for this one');
+      expect(kAskPickerSensors, contains(kMiBand4));
+      expect(
+          kAskPickerSensors.indexOf(kMiBand4),
+          lessThan(kAskPickerSensors.indexOf(kHelioStrap)),
+          reason: 'the FEE1 label the picker shows stays the strap\'s');
     });
 
     test('names: its own, and no other entry claims them', () {
