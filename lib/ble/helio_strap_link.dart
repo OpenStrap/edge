@@ -259,6 +259,23 @@ class HelioStrapLink {
     return true;
   }
 
+  /// "Delete everything": drop the strap's pairing key, whatever device it
+  /// was for. False when the keychain refused, so the reset can say a key
+  /// was left behind.
+  static Future<bool> dropStoredKey() async {
+    try {
+      await _pairSecure.delete(
+        key: kHelioStrapSecureStorageKey,
+        iOptions: kHelioStrapIosKeyOptions,
+        mOptions: kHelioStrapMacosKeyOptions,
+      );
+      return true;
+    } catch (e) {
+      debugPrint('[helio_strap] could not drop the stored key: $e');
+      return false;
+    }
+  }
+
   BluetoothDevice? _device;
   GattBandLink? _link;
   BandHost? _host;

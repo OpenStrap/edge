@@ -343,7 +343,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     // nearby tap opens its key screen instead.
     if (sensor.entry.id == kHelioStrap.id) {
       await HrsLink.stopScanIfRunning(this);
-      final r = await _openEntry(sensor.entry);
+      final r = await _openEntry(sensor.entry, returnOnPair: true);
       return r == BandFlowResult.pairedWearable
           ? const PairOutcome.saved()
           : const PairOutcome.failed('');
