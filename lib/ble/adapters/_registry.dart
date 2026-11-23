@@ -1039,6 +1039,8 @@ const BandEntry kMiBand4 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Mi Smart Band 4',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeMiBand4,
@@ -1062,6 +1064,8 @@ const BandEntry kMiBand5 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Mi Smart Band 5',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeMiBand5,
@@ -1079,6 +1083,8 @@ const BandEntry kMiBand6 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Mi Smart Band 6',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeMiBand6,
@@ -1103,6 +1109,8 @@ const BandEntry kAmazfitBipS = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit Bip S',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeBipS,
@@ -1118,6 +1126,8 @@ const BandEntry kAmazfitBipU = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit Bip U',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeBipU,
@@ -1133,6 +1143,8 @@ const BandEntry kAmazfitGts = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit GTS',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeGts,
@@ -1148,6 +1160,8 @@ const BandEntry kAmazfitGts2 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit GTS 2',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeGts2,
@@ -1163,6 +1177,8 @@ const BandEntry kAmazfitGtr = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit GTR',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[kHuami234AuthChar],
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeGtr,
@@ -1256,6 +1272,8 @@ const BandEntry kMiBand7 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Xiaomi Smart Band 7',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: <String>[
     kHuami2021ChunkWriteChar,
     kHuami2021ChunkNotifyChar,
@@ -1286,6 +1304,8 @@ const BandEntry kAmazfitGtr3 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit GTR 3',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: _kZeppOsChars,
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeGtr3,
@@ -1301,6 +1321,8 @@ const BandEntry kAmazfitGtr3Pro = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit GTR 3 Pro',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: _kZeppOsChars,
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeGtr3Pro,
@@ -1316,6 +1338,8 @@ const BandEntry kAmazfitGts3 = BandEntry.notify(
   category: DeviceCategory.wearable,
   label: 'Amazfit GTS 3',
   service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
   characteristics: _kZeppOsChars,
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeGts3,
