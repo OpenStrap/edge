@@ -67,10 +67,10 @@ class SleepTab extends StatelessWidget {
 }
 
 /// A band is paired, or there is no AppState above (gallery, goldens: as
-/// before).
+/// before). Selected, so pairing or forgetting a band redraws the tab.
 bool _hasBand(BuildContext c) {
   try {
-    return c.read<AppState>().isPaired;
+    return c.select<AppState, bool>((a) => a.isPaired);
   } catch (_) {
     return true;
   }
