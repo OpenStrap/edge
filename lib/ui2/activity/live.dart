@@ -188,6 +188,10 @@ class ActivityHost {
   /// Whether the band is connected right now.
   final bool bandConnected;
 
+  /// Whether a band is paired at all: with one, "not connected" is the
+  /// answer; without one, there is no live heart rate to wait for.
+  final bool bandPaired;
+
   const ActivityHost({
     this.feed,
     this.onStart,
@@ -195,6 +199,7 @@ class ActivityHost {
     this.onSets,
     this.history = const {},
     this.bandConnected = false,
+    this.bandPaired = true,
   });
 
   /// No app behind the screens: they still render, nothing is persisted.

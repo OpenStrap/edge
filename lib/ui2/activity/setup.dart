@@ -180,8 +180,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
                         widget.host.bandConnected
                             ? (l?.activitySetupBandConnected ??
                                 'Band connected')
-                            : (l?.activitySetupNoBandConnected ??
-                                'No live heart rate'),
+                            : widget.host.bandPaired
+                                ? (l?.activitySetupNoBandConnected ??
+                                    'No band connected')
+                                : (l?.activitySetupNoLiveHr ??
+                                    'No live heart rate'),
                         widget.host.bandConnected),
                     Divider(color: p.line, height: 1),
                     _toggle(

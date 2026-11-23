@@ -9967,9 +9967,13 @@
   "@activitySetupBandConnected": {
     "description": "Detail text when the band is connected, shown under the heart rate row"
   },
-  "activitySetupNoBandConnected": "No live heart rate",
+  "activitySetupNoBandConnected": "No band connected",
   "@activitySetupNoBandConnected": {
     "description": "Detail text when no band is connected, shown under the heart rate row"
+  },
+  "activitySetupNoLiveHr": "No live heart rate",
+  "@activitySetupNoLiveHr": {
+    "description": "Workout setup heart-rate row when no band is paired and no device streams live heart rate."
   },
   "activitySetupPrivateLabel": "Private session",
   "@activitySetupPrivateLabel": {

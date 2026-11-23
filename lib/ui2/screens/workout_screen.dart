@@ -1359,6 +1359,7 @@ ActivityHost activityHost(AppState app,
     onSets: (sets) => _bankSets(app, sets),
     history: history,
     bandConnected: app.isConnected,
+    bandPaired: app.isPaired,
   );
 }
 
