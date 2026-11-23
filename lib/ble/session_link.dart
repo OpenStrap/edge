@@ -35,8 +35,16 @@ class SessionLink {
   static final SessionLink miScale2 = SessionLink._(
       kMiScale2, (now) => MiScaleAdapter(kMiScale2, nowSeconds: now));
 
+  static final SessionLink amazfitScale = SessionLink._(
+      kAmazfitScale, (now) => AmazfitScaleAdapter(nowSeconds: now));
+
   /// Every short-session device, for the background pass and the forget path.
-  static final List<SessionLink> all = [thermometer, miScaleComposition, miScale2];
+  static final List<SessionLink> all = [
+    thermometer,
+    miScaleComposition,
+    miScale2,
+    amazfitScale,
+  ];
 
   /// The link for a registry id, or null.
   static SessionLink? forId(String? adapterId) {

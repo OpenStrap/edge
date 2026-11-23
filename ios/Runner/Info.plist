@@ -83,6 +83,7 @@
 		<string>1809</string>
 		<string>181B</string>
 		<string>181D</string>
+		<string>FEE0</string>
 		<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor service
 		     above, and NOT the Bluetooth-base expansion
 		     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises that).
@@ -157,6 +158,8 @@
 		<string>Mi Body Composition Scale</string>
 		<key>181D</key>
 		<string>Mi Smart Scale 2</string>
+		<key>FEE0</key>
+		<string>Amazfit Scale</string>
 	</dict>
 	<!-- GENERATED (see above): the declared services that belong to a SENSOR
 	     paired through its own ASK picker, not to a band. AccessorySetup.swift
@@ -195,6 +198,7 @@
 		<string>1809</string>
 		<string>181B</string>
 		<string>181D</string>
+		<string>FEE0</string>
 	</array>
 	<!-- The automatic-backup folder lives in the app's Documents directory.
 	     Without BOTH of these it exists but is invisible in Files, so nothing

@@ -67,6 +67,7 @@ import '../../ble/adapters/_registry.dart'
         kAmazfitGtr,
         DeviceKind,
         kMiScale2,
+        kAmazfitScale,
         kMiScaleComposition,
         kOura,
         kPebble,
@@ -958,7 +959,7 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'coros' => LucideIcons.timer,
       'ultrahuman' => LucideIcons.circle,
       'thermometer' => LucideIcons.thermometer,
-      'miscale_bc' || 'miscale2' => LucideIcons.scale,
+      'miscale_bc' || 'miscale2' || 'amazfit_scale' => LucideIcons.scale,
       'garmin' || 'pebble' => LucideIcons.watch,
       final id when MiBand234Link.forId(id) != null => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
@@ -1267,6 +1268,13 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     entry: kMiScale2,
     blurb: 'The Mi Smart Scale 2. Saves each settled weight and reads back '
         'the weights the scale stored while the phone was away.',
+    pick: null,
+  ),
+  (
+    entry: kAmazfitScale,
+    blurb: 'The Amazfit Scale. Saves each settled weight. Step on it with '
+        'the app open; weights it stored while the phone was away stay on '
+        'the scale. Experimental.',
     pick: null,
   ),
   (
@@ -2225,7 +2233,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'colmi' => () => _syncColmiRing(c),
         final f when HelioStrapLink.forId(f) != null =>
           () => _syncSensor(c, HelioStrapLink.forId(f)!.sync),
-        'thermometer' || 'miscale_bc' || 'miscale2' =>
+        'thermometer' || 'miscale_bc' || 'miscale2' || 'amazfit_scale' =>
           () => _syncSensor(c, SessionLink.forId(s.family)!.sync),
         _ => null,
       },

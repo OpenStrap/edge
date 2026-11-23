@@ -66,6 +66,7 @@ void main() {
       'thermometer': ThermometerAdapter().signals,
       'miscale_bc': MiScaleAdapter(kMiScaleComposition).signals,
       'miscale2': MiScaleAdapter(kMiScale2).signals,
+      'amazfit_scale': AmazfitScaleAdapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,

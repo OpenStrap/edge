@@ -1514,6 +1514,27 @@ const BandEntry kMiScale2 = BandEntry.notify(
 
 bool _looksLikeMiScale2(String lowercaseName) => lowercaseName == 'mi scale2';
 
+/// Amazfit Scale: plain GATT on FEE0, no auth (see `amazfit_scale.dart` in
+/// `protocol`). Live weighings only, as `weight` observations like the Mi
+/// scales'; its stored history is never read or acknowledged.
+/// EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one.
+const BandEntry kAmazfitScale = BandEntry.notify(
+  id: 'amazfit_scale',
+  role: DeviceRole.sensor,
+  kind: DeviceKind.scale,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.healthMeasurement,
+  label: 'Amazfit Scale',
+  service: kAmazfitScaleService,
+  characteristics: <String>[kAmazfitScaleMeasureChar, kAmazfitScaleClockChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeAmazfitScale,
+  scanByName: true,
+);
+
+bool _looksLikeAmazfitScale(String lowercaseName) =>
+    lowercaseName == 'amazfit scale';
+
 /// The entry whose [BandEntry.nameMatcher] claims [lowercaseName] while
 /// [advertisedUuids] (canonical 128-bit lowercase) carries one of that same
 /// entry's [BandEntry.scanHints], or null. Name and hint together name the
@@ -1567,6 +1588,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kThermometer,
   kMiScaleComposition,
   kMiScale2,
+  kAmazfitScale,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -1640,6 +1662,10 @@ final List<BandEntry> kFramedBands =
 /// be found at all. They stay listed because outside this list they have no
 /// iOS 18+ path whatever, and none of their UUIDs is shared with another
 /// entry, so the picker cannot hand back another sensor's approval.
+///
+/// [kAmazfitScale] is listed on the same terms as the Mi scales: whether it
+/// advertises FEE0 in its service list (rather than only as service data)
+/// is untested; FEE0 is no other listed entry's service.
 const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kBleHrs,
   kOura,
@@ -1664,6 +1690,7 @@ const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kThermometer,
   kMiScaleComposition,
   kMiScale2,
+  kAmazfitScale,
 ];
 
 /// A service UUID as Core Bluetooth spells it: a Bluetooth-base UUID
@@ -1894,6 +1921,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
   'thermometer': <InputSignal, Duration>{},
   'miscale_bc': <InputSignal, Duration>{},
   'miscale2': <InputSignal, Duration>{},
+  'amazfit_scale': <InputSignal, Duration>{},
   'garmin': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(days: 1),

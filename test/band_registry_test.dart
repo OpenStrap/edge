@@ -41,6 +41,7 @@ void main() {
           'thermometer',
           'miscale_bc',
           'miscale2',
+          'amazfit_scale',
         ]);
   });
 
