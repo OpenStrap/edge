@@ -35,6 +35,12 @@ const Map<String, Set<String>> kVendorStagesReported = {
   // so the same three stages (the rest of their record is not decoded).
   'huami_kongming': {'wake', 'light', 'deep'},
   'huami_pangu': {'wake', 'light', 'deep'},
+  // The first Amazfit watches: the same minute record, the same stages.
+  'huami_tonlesap': {'wake', 'light', 'deep'},
+  'huami_como': {'wake', 'light', 'deep'},
+  'huami_kestrel': {'wake', 'light', 'deep'},
+  'huami_newton': {'wake', 'light', 'deep'},
+  'huami_falcon': {'wake', 'light', 'deep'},
   'pebble': {'light', 'deep'},
   kHrWindowNightSource: {},
 };

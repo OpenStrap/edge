@@ -60,6 +60,12 @@ import '../../ble/adapters/_registry.dart'
         kMiBand4,
         kMiBand5,
         kMiBand6,
+        kAmazfitBipS,
+        kAmazfitBipU,
+        kAmazfitGts,
+        kAmazfitGts2,
+        kAmazfitGtr,
+        DeviceKind,
         kMiScale2,
         kMiScaleComposition,
         kOura,
@@ -953,9 +959,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'ultrahuman' => LucideIcons.circle,
       'thermometer' => LucideIcons.thermometer,
       'miscale_bc' || 'miscale2' => LucideIcons.scale,
-      'garmin' || 'miband234' || 'huami_cinco' || 'huami_kongming' ||
-      'huami_pangu' || 'pebble' =>
-        LucideIcons.watch,
+      'garmin' || 'pebble' => LucideIcons.watch,
+      final id when MiBand234Link.forId(id) != null => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -1315,24 +1320,24 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     // Null: typed key only, like the Helio Strap.
     pick: null,
   ),
-  (
-    entry: kMiBand5,
-    blurb: 'A Mi Smart Band 5. First pairing still has to go through Zepp '
-        'Life or Mi Fit, which is where the band\'s key comes from; this '
-        'app can\'t install one on it. Paste that key below to pair it here '
-        'instead. Syncs its stored heart rate, steps and sleep. '
-        'Experimental.',
-    pick: null,
-  ),
-  (
-    entry: kMiBand6,
-    blurb: 'A Mi Smart Band 6. First pairing still has to go through Zepp '
-        'Life or Mi Fit, which is where the band\'s key comes from; this '
-        'app can\'t install one on it. Paste that key below to pair it here '
-        'instead. Syncs its stored heart rate, steps and sleep. '
-        'Experimental.',
-    pick: null,
-  ),
+  for (final e in [
+    kMiBand5,
+    kMiBand6,
+    kAmazfitBipS,
+    kAmazfitBipU,
+    kAmazfitGts,
+    kAmazfitGts2,
+    kAmazfitGtr,
+  ])
+    (
+      entry: e,
+      blurb: 'A ${e.label}. First pairing still has to go through '
+          '${e.kind == DeviceKind.watch ? 'Zepp' : 'Zepp Life or Mi Fit'}, '
+          'which is where its key comes from; this app can\'t install one on '
+          'it. Paste that key below to pair it here instead. Syncs its stored '
+          'heart rate, steps and sleep. Experimental.',
+      pick: null,
+    ),
   (
     entry: kHelioStrap,
     blurb: 'An Amazfit Helio Strap. First pairing still has to go through '

@@ -127,8 +127,22 @@ class MiBand234Link {
   static final MiBand234Link miBand5 = MiBand234Link._(kMiBand5);
   static final MiBand234Link miBand6 = MiBand234Link._(kMiBand6);
 
-  /// Every Mi Band link, so app-wide stop / background sync loop over them.
-  static final List<MiBand234Link> all = [instance, miBand4, miBand5, miBand6];
+  /// Every link on this engine, so app-wide stop / background sync loop over
+  /// them: the Mi Bands and the first Amazfit watches.
+  static final List<MiBand234Link> all = [
+    instance,
+    miBand4,
+    miBand5,
+    miBand6,
+    for (final e in [
+      kAmazfitBipS,
+      kAmazfitBipU,
+      kAmazfitGts,
+      kAmazfitGts2,
+      kAmazfitGtr,
+    ])
+      MiBand234Link._(e),
+  ];
 
   /// The family this link drives.
   final BandEntry entry;

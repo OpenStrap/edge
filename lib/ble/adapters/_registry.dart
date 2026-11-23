@@ -1090,6 +1090,94 @@ bool _looksLikeMiBand5(String n) =>
 bool _looksLikeMiBand6(String n) =>
     const {'mi smart band 6', 'pangu'}.contains(n);
 
+/// Amazfit Bip S (codename Tonlesap). A first-generation Amazfit watch on the
+/// legacy Huami protocol: [kMiBand4]'s crypt-flagged handshake and typed
+/// vendor key, 4-byte minute records. EXPERIMENTAL (ASSUMPTIONS R6), nobody
+/// on this project owns one. Watches on newer firmware may answer only the
+/// chunked protocol instead; that is untested.
+const BandEntry kAmazfitBipS = BandEntry.notify(
+  id: 'huami_tonlesap',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit Bip S',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeBipS,
+  scanByName: true,
+);
+
+/// Amazfit Bip U (codename Como): see [kAmazfitBipS], 8-byte records.
+const BandEntry kAmazfitBipU = BandEntry.notify(
+  id: 'huami_como',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit Bip U',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeBipU,
+  scanByName: true,
+);
+
+/// Amazfit GTS (codename Kestrel): see [kAmazfitBipS], 4-byte records.
+const BandEntry kAmazfitGts = BandEntry.notify(
+  id: 'huami_kestrel',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTS',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGts,
+  scanByName: true,
+);
+
+/// Amazfit GTS 2 (codename Newton): see [kAmazfitBipS], 8-byte records.
+const BandEntry kAmazfitGts2 = BandEntry.notify(
+  id: 'huami_newton',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTS 2',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGts2,
+  scanByName: true,
+);
+
+/// Amazfit GTR (codename Falcon): see [kAmazfitBipS], 4-byte records.
+const BandEntry kAmazfitGtr = BandEntry.notify(
+  id: 'huami_falcon',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTR',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGtr,
+  scanByName: true,
+);
+
+// Exact names only: "amazfit gts" must not claim "amazfit gts 2", nor
+// "amazfit gtr" a GTR 2 or 3.
+bool _looksLikeBipS(String n) => n == 'amazfit bip s';
+bool _looksLikeBipU(String n) => n == 'amazfit bip u';
+bool _looksLikeGts(String n) =>
+    const {'amazfit gts', 'amazfit kestrel'}.contains(n);
+bool _looksLikeGts2(String n) => const {'amazfit gts 2', 'newton'}.contains(n);
+bool _looksLikeGtr(String n) => n == 'amazfit gtr';
+
 /// The names Mi Band 2 and Mi Band 3 advertise.
 bool _looksLikeMiBand23(String lowercaseName) => const {
       'mi band 2',
@@ -1463,6 +1551,11 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kMiBand4,
   kMiBand5,
   kMiBand6,
+  kAmazfitBipS,
+  kAmazfitBipU,
+  kAmazfitGts,
+  kAmazfitGts2,
+  kAmazfitGtr,
   kHelioStrap,
   kMiBand7,
   kAmazfitGtr3,
@@ -1704,6 +1797,31 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceStages: Duration(minutes: 1),
   },
   'huami_pangu': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_tonlesap': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_como': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_kestrel': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_newton': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_falcon': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(days: 1),
     InputSignal.deviceStages: Duration(minutes: 1),

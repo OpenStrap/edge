@@ -64,7 +64,7 @@ void main() {
       }
       expect(miBandTypedKeyPairFor(kMiBand234.id), isNull,
           reason: 'Mi Band 2/3 pairs on its own screen with a minted key');
-      expect(MiBand234Link.all, hasLength(4));
+      expect(MiBand234Link.all, hasLength(9));
     });
   });
 
