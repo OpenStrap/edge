@@ -124,6 +124,8 @@ void main() {
     test("the helio strap's one fixed key is dropped too", () async {
       final store = <String, String>{
         kHelioStrapSecureStorageKey: 'ee',
+        'zeppos_l66_auth_key': 'ff', // and every zepp os device's own slot
+        'zeppos_verona_auth_key': 'ff',
         'unrelated': 'dd',
       };
       FlutterSecureStorage.setMockInitialValues(store);

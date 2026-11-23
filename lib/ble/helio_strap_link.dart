@@ -370,21 +370,24 @@ class HelioStrapLink {
     return true;
   }
 
-  /// "Delete everything": drop the strap's pairing key, whatever device it
-  /// was for. False when the keychain refused, so the reset can say a key
-  /// was left behind.
+  /// "Delete everything": drop every Zepp OS family's pairing key (the
+  /// strap's and each device's own slot), whatever device it was for. False
+  /// when the keychain refused any, so the reset can say a key was left.
   static Future<bool> dropStoredKey() async {
-    try {
-      await _pairSecure.delete(
-        key: kHelioStrapSecureStorageKey,
-        iOptions: kHelioStrapIosKeyOptions,
-        mOptions: kHelioStrapMacosKeyOptions,
-      );
-      return true;
-    } catch (e) {
-      debugPrint('[helio_strap] could not drop the stored key: $e');
-      return false;
+    var complete = true;
+    for (final l in all) {
+      try {
+        await _pairSecure.delete(
+          key: zeppOsKeySlot(l.entry),
+          iOptions: kHelioStrapIosKeyOptions,
+          mOptions: kHelioStrapMacosKeyOptions,
+        );
+      } catch (e) {
+        complete = false;
+        debugPrint('[${l.entry.id}] could not drop the stored key: $e');
+      }
     }
+    return complete;
   }
 
   BluetoothDevice? _device;
