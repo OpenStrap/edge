@@ -10095,7 +10095,7 @@ class DerivationEngine {
       // When the on-chip counter is the day's answer, WHEN it counted: hourly
       // spans off the counter's own per-record times, scaled by the same
       // factor as `value` and summing to it exactly.
-      if (useBand && bandSpans != null)
+      if (useBand && !useWearable && bandSpans != null)
         'spans': _scaleSpans(bandSpans, rawBand!, calibratedBand),
       // WHICH SENSOR COUNTED WHAT, so a screen can say so instead of implying
       // the phone's count came off the wrist or the other way round. Only the

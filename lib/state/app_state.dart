@@ -1809,6 +1809,9 @@ class AppState extends ChangeNotifier {
       _lastRecTs = null;
       _bandUntimedArchive = false;
       lastSynced = null;
+      // The active wearable's cached source flag: left on, `hasSource` kept
+      // a wiped install out of the welcome screen until the next refresh.
+      _wearableSource = false;
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
       await signOut();
