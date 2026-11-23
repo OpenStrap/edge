@@ -894,6 +894,32 @@ Future<String?> _pairCryptMiBandWithTypedKey(
           await LocalDb.deviceRows(), device.remoteId.str,
           adapterId: entry.id) ??
       '${entry.id}-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+  // What the keychain held for this row before, so a row write that fails
+  // after the key write can put it back instead of leaving a stray key.
+  String? priorHex;
+  try {
+    priorHex = await _secure.read(
+        key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
+  } catch (e) {
+    return 'The phone’s keychain is locked. Unlock the phone and try again.';
+  }
+  Future<void> restoreKey() async {
+    try {
+      if (priorHex == null) {
+        await _secure.delete(
+            key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
+      } else {
+        await _secure.write(
+            key: _keyItem(deviceId), value: priorHex,
+            iOptions: _kApple, mOptions: _kMacos);
+      }
+    } catch (_) {}
+  }
+
+  // A "delete everything" landing while this waits on the slot or the
+  // handshake must not find a fresh key and device row behind it.
+  final resetGen = ResetGate.generation;
+  const resetText = 'Pairing was interrupted by a reset. Pair the band again.';
   return withSecondaryLinkSlot<String?>(
     timeout: const Duration(seconds: 30),
     onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
@@ -920,6 +946,9 @@ Future<String?> _pairCryptMiBandWithTypedKey(
               ? 'The band didn’t answer. Make sure it’s close by and try again.'
               : 'The band rejected this key. Double-check it and try again.';
         }
+        // ponytail: check-then-write, like the Zepp OS pairing: a reset
+        // landing between the check and the writes still slips past.
+        if (ResetGate.changedSince(resetGen)) return resetText;
         try {
           await _secure.write(
               key: _keyItem(deviceId), value: hex.toLowerCase(),
@@ -927,12 +956,21 @@ Future<String?> _pairCryptMiBandWithTypedKey(
         } catch (e) {
           return 'The phone’s keychain is locked. Unlock the phone and try again.';
         }
-        await LocalDb.upsertDevice(
-          id: deviceId,
-          adapterId: entry.id,
-          remoteId: device.remoteId.str,
-          label: cleanDeviceLabel(device.platformName) ?? entry.label,
-        );
+        if (ResetGate.changedSince(resetGen)) {
+          await restoreKey(); // the wipe ran during the write
+          return resetText;
+        }
+        try {
+          await LocalDb.upsertDevice(
+            id: deviceId,
+            adapterId: entry.id,
+            remoteId: device.remoteId.str,
+            label: cleanDeviceLabel(device.platformName) ?? entry.label,
+          );
+        } catch (e) {
+          await restoreKey();
+          return 'Could not save the band: $e';
+        }
         return null;
       } catch (e) {
         return 'Could not connect: $e';
