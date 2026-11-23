@@ -2372,7 +2372,7 @@
   "settingsTaskerShortcutsRowSub": "Android uniquement pour les événements sortants. iOS peut faire vibrer le bracelet mais ne peut pas être déclenché par lui",
   "settingsGroupPrivacy": "Confidentialité",
   "settingsCrashReportsRowTitle": "Rapports de plantage",
-  "settingsCrashReportsRowSub": "Rien n’est envoyé tant que vous ne l’avez pas autorisé",
+  "settingsCrashReportsRowSub": "Rapports de plantage et statistiques d’usage anonymes. Aucune donnée de santé",
   "settingsBarcodeLookupRowTitle": "Rechercher les codes-barres en ligne",
   "settingsBarcodeLookupRowSub": "Envoie un code-barres scanné à openfoodfacts.org. Rien à votre sujet ne l’accompagne",
   "settingsContributeHealthDataRowTitle": "Contribuer mes données de santé",

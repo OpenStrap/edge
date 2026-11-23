@@ -886,7 +886,7 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.bug, C.orange,
                       l?.settingsCrashReportsRowTitle ?? 'Crash reports',
                       sub: l?.settingsCrashReportsRowSub ??
-                          'Nothing is sent until you say so',
+                          'Anonymous crash reports and usage counts. No health data',
                       value: telemetry ? on : off,
                       onTap: onToggleTelemetry),
                   SetRow(LucideIcons.messageSquareWarning, C.orange,

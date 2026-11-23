@@ -2464,7 +2464,7 @@
   "settingsTaskerShortcutsRowSub": "Ereignisse senden nur unter Android. Unter iOS kann ein Kurzbefehl das Band vibrieren lassen, aber nicht vom Band ausgelöst werden",
   "settingsGroupPrivacy": "Datenschutz",
   "settingsCrashReportsRowTitle": "Absturzberichte",
-  "settingsCrashReportsRowSub": "Es wird nichts gesendet, solange du nicht zustimmst",
+  "settingsCrashReportsRowSub": "Anonyme Absturzberichte und Nutzungszahlen. Keine Gesundheitsdaten",
   "settingsBarcodeLookupRowTitle": "Barcodes online nachschlagen",
   "settingsBarcodeLookupRowSub": "Sendet einen gescannten Barcode an openfoodfacts.org. Sonst wird nichts über dich übertragen",
   "settingsContributeHealthDataRowTitle": "Gesundheitsdaten spenden",
