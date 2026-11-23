@@ -42,6 +42,10 @@ void main() {
       'miband234': MiBand234Adapter(key: const [0]).signals,
       'huami_cinco':
           MiBand234Adapter(key: const [0], entry: kMiBand4).signals,
+      'huami_kongming':
+          MiBand234Adapter(key: const [0], entry: kMiBand5).signals,
+      'huami_pangu':
+          MiBand234Adapter(key: const [0], entry: kMiBand6).signals,
       'pebble': kPebbleAdapter.signals,
       'colmi': kColmiAdapter.signals,
       'helio_strap': kHelioStrapAdapter.signals,

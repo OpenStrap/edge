@@ -27,6 +27,8 @@ const List<String> _families = [
   'pebble',
   'miband234',
   'huami_cinco',
+  'huami_kongming',
+  'huami_pangu',
   'colmi',
   'oura',
   'helio_strap',

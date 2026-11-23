@@ -162,8 +162,15 @@ class MiBand234Adapter extends BandAdapter {
   final BandEntry entry;
 
   /// The crypt flag OR-ed into the challenge and answer opcodes: 0x80 on
-  /// Mi Band 4, 0 on Mi Band 2/3.
-  int get _cryptFlags => entry.id == kMiBand4.id ? 0x80 : 0x00;
+  /// Mi Band 4, 5 and 6, 0 on Mi Band 2/3.
+  int get _cryptFlags =>
+      {kMiBand4.id, kMiBand5.id, kMiBand6.id}.contains(entry.id)
+          ? 0x80
+          : 0x00;
+
+  /// Bytes per stored minute: 8 on Mi Band 5 and 6, 4 on the others.
+  int get _recordSize =>
+      {kMiBand5.id, kMiBand6.id}.contains(entry.id) ? 8 : 4;
 
   @override
   Map<InputSignal, Duration> get signals => kMiBand234Signals;
@@ -375,15 +382,17 @@ extension on MiBand234Adapter {
         if (!await link.write(kHuamiActivityControlChar, kHuamiActivityFetchData)) {
           break;
         }
-        // The header counts 4-byte minute samples, not bytes.
-        final want = start.count * 4;
+        // The header counts minute samples, not bytes.
+        final recordSize = _recordSize;
+        final want = start.count * recordSize;
         final buf = HuamiActivityBuffer();
         var raw = <Uint8List>[];
         final previousKind = minutes.isEmpty ? 1 : minutes.last.kind;
         // How many of this round's minutes are already banked.
         var banked = 0;
         List<HuamiMinute> decoded() => buf
-            .minutes(start.startSec, previousKind: previousKind)
+            .minutes(start.startSec,
+                previousKind: previousKind, recordSize: recordSize)
             .take(start.count)
             .toList();
         // Ends with all the announced samples, or shortly after the band's
@@ -406,7 +415,8 @@ extension on MiBand234Adapter {
           // A first sync answers one fetch with up to a week in one round:
           // bank it a day at a time, so a session the sync window (or a
           // drop) cuts mid-round still keeps, and resumes after, what came.
-          if (buf.ok && buf.bytes.length ~/ 4 - banked >= _kBankEveryMinutes) {
+          if (buf.ok &&
+              buf.bytes.length ~/ recordSize - banked >= _kBankEveryMinutes) {
             final got = decoded();
             minutes.addAll(got.skip(banked));
             for (final e in _bank(got.skip(banked), raw, minutes, sessionSince,

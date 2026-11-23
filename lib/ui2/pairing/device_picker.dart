@@ -49,7 +49,7 @@ import '../../ble/ble_state.dart'
 import '../../ble/hrs_link.dart';
 import '../../ble/helio_strap_link.dart'
     show zeppOsTypedKeyPairFor;
-import '../../ble/miband_link.dart' show pairMiBand4WithTypedKey;
+import '../../ble/miband_link.dart' show miBandTypedKeyPairFor;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -433,7 +433,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
           final id when id == kOura.id => pairOuraRingWithTypedKey,
           final id when zeppOsTypedKeyPairFor(id) != null =>
             zeppOsTypedKeyPairFor(id),
-          final id when id == kMiBand4.id => pairMiBand4WithTypedKey,
+          final id when miBandTypedKeyPairFor(id) != null =>
+            miBandTypedKeyPairFor(id),
           _ => null,
         },
         ),

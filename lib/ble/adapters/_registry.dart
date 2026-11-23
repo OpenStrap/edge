@@ -1049,6 +1049,47 @@ const BandEntry kMiBand4 = BandEntry.notify(
 bool _looksLikeMiBand4(String lowercaseName) =>
     const {'mi smart band 4', 'cinco'}.contains(lowercaseName);
 
+/// Mi Smart Band 5 (codename Kongming): [kMiBand4]'s protocol, auth and
+/// typed vendor key, with 8-byte minute records instead of 4 (the first four
+/// bytes are the same). EXPERIMENTAL (ASSUMPTIONS R6), not in the iOS picker.
+const BandEntry kMiBand5 = BandEntry.notify(
+  id: 'huami_kongming',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Mi Smart Band 5',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand5,
+  scanByName: true,
+);
+
+/// Mi Smart Band 6 (codename Pangu): see [kMiBand5].
+const BandEntry kMiBand6 = BandEntry.notify(
+  id: 'huami_pangu',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Mi Smart Band 6',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand6,
+  scanByName: true,
+);
+
+bool _looksLikeMiBand5(String n) =>
+    const {'mi smart band 5', 'kongming'}.contains(n);
+bool _looksLikeMiBand6(String n) =>
+    const {'mi smart band 6', 'pangu'}.contains(n);
+
 /// The names Mi Band 2 and Mi Band 3 advertise.
 bool _looksLikeMiBand23(String lowercaseName) => const {
       'mi band 2',
@@ -1420,6 +1461,8 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kUltrahuman,
   kMiBand234,
   kMiBand4,
+  kMiBand5,
+  kMiBand6,
   kHelioStrap,
   kMiBand7,
   kAmazfitGtr3,
@@ -1651,6 +1694,16 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
   },
   // Mi Band 4: the same adapter and the same records as Mi Band 2/3.
   'huami_cinco': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_kongming': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_pangu': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(days: 1),
     InputSignal.deviceStages: Duration(minutes: 1),

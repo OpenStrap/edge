@@ -154,7 +154,7 @@ void main() {
       'UltrahumanLink.instance.stop',
       'ColmiLink.instance.stop',
       'GarminLink.instance.stop',
-      'MiBand234Link.instance.stop',
+      'MiBand234Link.all',
       'PebbleLink.instance.stop',
       'CorosLink.instance.stop',
       'SessionLink.all',

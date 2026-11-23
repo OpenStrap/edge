@@ -1305,7 +1305,7 @@ void tagEnvelopes(Map? clinical, String? family) {
 Map<String, Cell>? columnFor(String? adapterId) => switch (adapterId) {
   kGarminFamily => kGarminColumn,
   kPebbleFamily => kPebbleColumn,
-  kMiBandFamily || kMiBand4Family => kMiBandColumn,
+  final String f when isMiBandFamily(f) => kMiBandColumn,
   kUltrahumanFamily => kUltrahumanColumn,
   kColmiFamily => kColmiColumn,
   kOuraFamily => kOuraColumn,

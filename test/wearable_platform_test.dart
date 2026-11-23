@@ -53,6 +53,8 @@ void main() {
       'ultrahuman': DeviceCategory.wearable,
       'miband234': DeviceCategory.wearable,
       'huami_cinco': DeviceCategory.wearable,
+      'huami_kongming': DeviceCategory.wearable,
+      'huami_pangu': DeviceCategory.wearable,
       'pebble': DeviceCategory.wearable,
       'colmi': DeviceCategory.wearable,
       'helio_strap': DeviceCategory.wearable,

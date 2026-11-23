@@ -23,6 +23,8 @@ void main() {
           'ultrahuman',
           'miband234',
           'huami_cinco',
+          'huami_kongming',
+          'huami_pangu',
           'helio_strap',
           'zeppos_l66',
           'zeppos_verona',
