@@ -225,6 +225,17 @@ void main() {
     // least one archived frame must contain the chunk-transport marker
     // byte (0x03) that only a handshake chunk carries, since the fetch
     // channel's own frames never do.
+    // The fetch starts at a local midnight (two days back), never mid-day:
+    // a day the window cut into would replace the whole day's stored total.
+    final start = r.link.writes.firstWhere((w) =>
+        w.$1 == kHuami2021FetchControlChar &&
+        w.$2.length > 1 &&
+        w.$2[0] == 0x01 &&
+        w.$2[1] == kHuami2021TypeActivity);
+    final since = DateTime(2026, 10, 2);
+    expect(start.$2, huami2021FetchStartRequest(kHuami2021TypeActivity, since,
+        since.timeZoneOffset.inMinutes));
+
     final raw = [for (final b in r.events.whereType<SampleBatch>()) ...?b.raw];
     expect(raw, isNotEmpty);
     expect(raw.any((f) => f.isNotEmpty && f[0] == 0x03), isTrue,

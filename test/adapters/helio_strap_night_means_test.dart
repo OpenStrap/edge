@@ -73,4 +73,14 @@ void main() {
       isEmpty,
     );
   });
+
+  test('a night begun before the fetch window is not used, a whole one is',
+      () {
+    final cut = _night(_ms(1, 23), _ms(2, 7)); // window starts Oct 2 00:00
+    final nap = _night(_ms(1, 23, 30), _ms(2, 0, 30), nap: true);
+    expect(
+        HelioStrapAdapter.wholeSessions(
+            [cut, nap, night], DateTime(2026, 10, 2).millisecondsSinceEpoch),
+        [night]);
+  });
 }

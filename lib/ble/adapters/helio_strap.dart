@@ -85,7 +85,9 @@ const String kHelioNoKeyNote = 'helio_no_key';
 /// timed out, with a short machine-readable reason as its value.
 const String kHelioAuthFailedNote = 'helio_auth_failed';
 
-/// How far back one session's single fetch round reaches, for every type.
+/// How far back one session's single fetch round reaches, for every type,
+/// counted in whole local days: the fetch starts at the local midnight this
+/// many days before today.
 const Duration kHelioFetchWindow = Duration(days: 2);
 
 /// The secure-storage key the adapter reads from and the pairing screen
@@ -304,7 +306,11 @@ class HelioStrapAdapter extends BandAdapter {
 
       // ── authenticated: the fetch channel itself is plaintext ──
       final now = DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000);
-      final since = now.subtract(kHelioFetchWindow);
+      // From a local midnight, never mid-day: each day's step total and
+      // daily means replace the stored ones (one row per day), so a day the
+      // window cut into would overwrite the whole day an earlier sync read.
+      final since = DateTime(
+          now.year, now.month, now.day - kHelioFetchWindow.inDays);
       final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
 
       Future<_FetchRound?> fetch(int type) => _fetchOneRound(
@@ -530,7 +536,11 @@ class HelioStrapAdapter extends BandAdapter {
       if (sleepFetch != null) {
         final epochs = <VendorEpoch>[];
         final stageRows = <Observation>[];
-        final sessions = parseHuami2021Sleep(sleepFetch.bytes);
+        // Only sessions the window holds whole: one begun before `since`
+        // is read from `since` on, and its stage minutes and night means
+        // would replace the whole night an earlier sync stored.
+        final sessions = wholeSessions(parseHuami2021Sleep(sleepFetch.bytes),
+            since.millisecondsSinceEpoch);
         for (final session in sessions) {
           _emitSleepSession(session, epochs, stageRows);
         }
@@ -595,6 +605,16 @@ class HelioStrapAdapter extends BandAdapter {
       ));
     }
   }
+
+  /// [sessions] that start at or after [sinceMs] (first stage, else the
+  /// session start): the ones a fetch from [sinceMs] holds whole.
+  @visibleForTesting
+  static List<Huami2021SleepSession> wholeSessions(
+          List<Huami2021SleepSession> sessions, int sinceMs) =>
+      [
+        for (final s in sessions)
+          if ((_nightSpan(s)?.$1 ?? s.sessionStartMs) >= sinceMs) s,
+      ];
 
   /// The strap's own mean of each reading in [samples] (vendor key ->
   /// (epoch ms, value)) over each night it staged, stamped on the night's
