@@ -10093,6 +10093,7 @@ class LocalDb {
     double? rmssd,
     double? readiness,
     Map<String, double?> series = const {},
+    Set<String> clearIfAbsent = const {},
     // WHO produced these scalars — 'band' for a day this app derived from 1 Hz
     // records, a vendor tag for an importer. NULL is the default and means
     // UNKNOWN; it is never filled in with a guess, because the whole point of
@@ -10162,6 +10163,21 @@ class LocalDb {
       // baseline reads via metric_series. The next successful (non-partial)
       // pass writes the real value once it lands.
       if (!partial) {
+        // [clearIfAbsent]: keys this write OWNS, so absence means "no
+        // longer". PE-1's device night RMSSD exists only on a day an admitted
+        // device's readings produced it; a re-derive that no longer does (the
+        // day now belongs to another wearable, or its readings stopped
+        // passing the gate) takes the old row and its method label with it,
+        // or that device's baseline keeps reading a night it no longer owns.
+        // Only the full derive passes it: a backfill writing one key must not
+        // clear the rest.
+        for (final key in clearIfAbsent) {
+          if (reviewedSeries.containsKey(key)) continue;
+          await txn.delete('metric_series',
+              where: 'date = ? AND key = ?', whereArgs: [dayId, key]);
+          await txn.delete('metric_method',
+              where: 'date = ? AND key = ?', whereArgs: [dayId, key]);
+        }
         for (final e in reviewedSeries.entries) {
           await txn.insert('metric_series', {
             'date': dayId,
@@ -11608,6 +11624,13 @@ class LocalDb {
           whereArgs: [dayId],
         );
         await copyRows('metric_method', where: 'date = ?', whereArgs: [dayId]);
+        // A wearable's own daily step count is a derive input
+        // ([deviceDaySteps]); without it the exported day re-derives with
+        // a different total. Only that row, not the rest of the device's
+        // observations.
+        await copyRows('observation',
+            where: "date = ? AND key = 'steps' AND device_id IS NOT NULL",
+            whereArgs: [dayId]);
         await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('journal_metric', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);

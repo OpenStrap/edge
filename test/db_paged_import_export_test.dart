@@ -24,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/data/observation.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 /// The page size used by both paged readers in db.dart. The tests deliberately
@@ -276,6 +277,32 @@ void main() {
         await databaseFactory.deleteDatabase(outPath);
       }
     });
+  });
+
+  test("exportDaysDb carries a wearable's daily step count, not its other rows",
+      () async {
+    await clearLocal();
+    Observation obs(String key, num v) => Observation(
+          at: DateTime(2026, 5, 21),
+          sourceKind: ObservationSource.vendor,
+          key: key,
+          value: v,
+          unit: key == 'steps' ? 'steps' : 'kcal',
+          attribution: 'test',
+        );
+    await LocalDb.putObservations([obs('steps', 8123), obs('calories', 400)],
+        deviceId: 'watch-1');
+    final outPath = await LocalDb.exportDaysDb({'2026-05-21'});
+    final out = await databaseFactory.openDatabase(outPath);
+    try {
+      final rows = await out.rawQuery('SELECT key, value FROM observation');
+      expect(rows, [
+        {'key': 'steps', 'value': 8123},
+      ]);
+    } finally {
+      await out.close();
+      await databaseFactory.deleteDatabase(outPath);
+    }
   });
 
   test('exportDaysDb copies a day that has a workout on it', () async {

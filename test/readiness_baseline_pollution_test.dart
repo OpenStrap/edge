@@ -357,4 +357,30 @@ void main() {
     await LocalDb.putMetricSeriesValue('2027-02-01', 'ln_rmssd_dev', 3.5);
     expect(await debugBaselineSignature(), isNot(before));
   });
+
+  test('a full derive that no longer makes device HRV removes the old row', () async {
+    final db = await LocalDb.instance;
+    Future<List<Map<String, Object?>>> rows(String table) => db.query(table,
+        where: "date = '2027-03-01' AND key = 'ln_rmssd_dev'");
+    Future<void> put(Map<String, double?> series, {Set<String> clear = const {}}) =>
+        LocalDb.putDayResult(
+          dayId: '2027-03-01',
+          algoVersion: 1,
+          payloadJson: '{}',
+          windowJson: '{}',
+          series: series,
+          clearIfAbsent: clear,
+          seriesMethod: (k) => (method: 'm', family: 'helio_strap', cls: 'ours'),
+        );
+    await put({'ln_rmssd_dev': 3.6, 'rhr': 50});
+    expect(await rows('metric_series'), hasLength(1));
+    expect(await rows('metric_method'), hasLength(1));
+    // A backfill writing one key leaves it alone.
+    await put({'strain': 9});
+    expect(await rows('metric_series'), hasLength(1));
+    // The full derive owns the key: absent now, gone now.
+    await put({'rhr': 51}, clear: const {'ln_rmssd_dev'});
+    expect(await rows('metric_series'), isEmpty);
+    expect(await rows('metric_method'), isEmpty);
+  });
 }
