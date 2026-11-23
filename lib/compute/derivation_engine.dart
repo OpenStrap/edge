@@ -7894,7 +7894,10 @@ class DerivationEngine {
         'readiness': sc('readiness'),
         'readiness_z': sc('readiness_z'),
         'ln_rmssd': sc('ln_rmssd'),
-        'ln_rmssd_dev': sc('ln_rmssd_dev'),
+        // Only on an admitted device family's day: there a null overwrites a
+        // value a previous pass left; any other day never carries the key.
+        if (kDeviceRmssdFamilies.contains(daySub.deviceFamily))
+          'ln_rmssd_dev': sc('ln_rmssd_dev'),
         'resp_rate': sc('resp_rate'),
         'skin_temp_z': sc('skin_temp_z'),
         // RAW nightly ADC mean — the baseline series for skin_temp_z. Written
