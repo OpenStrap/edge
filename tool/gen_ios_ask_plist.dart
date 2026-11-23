@@ -93,11 +93,13 @@ String _sensorServicesBody(List<BandEntry> sensors) => sensors
     .map((e) => '\t\t<string>${plistUuid(e.service)}</string>\n')
     .join();
 
-String _companyIdsBody(List<BandEntry> sensors) => [
+// A set: one company makes several listed devices, and each id is declared
+// once.
+String _companyIdsBody(List<BandEntry> sensors) => <String>{
       for (final e in sensors)
         if (kAskSensorCompanyIds[e.id] case final id?)
           '\t\t<string>${companyIdString(id)}</string>\n',
-    ].join();
+    }.join();
 
 String _labelsBody(List<BandEntry> registry) => registry
     .map((e) => '\t\t<key>${plistUuid(e.service)}</key>\n'

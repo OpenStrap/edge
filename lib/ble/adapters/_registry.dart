@@ -1400,6 +1400,10 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
   // Unverified on a band (R6): declared because a Mi Band 2/3 advertisement
   // is expected to carry this manufacturer data, the Oura case above.
   'miband234': 0x0157, // Anhui Huami Information Technology
+  // The same company (Zepp Health, formerly Huami) makes every Amazfit
+  // device, so the same id; already declared above, listed so the plist
+  // test keeps it declared for this entry too. Unverified on a strap (R6).
+  'helio_strap': 0x0157,
 };
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed
