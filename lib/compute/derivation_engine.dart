@@ -1938,7 +1938,11 @@ import 'vendor_sleep.dart';
 // readings (`ln_rmssd_dev`) feeds exp(ln_rmssd_dev) as the HRV row, against
 // the same device family's earlier nights only, tagged source device_rmssd.
 // Cross-day only; a band night has no `ln_rmssd_dev`, so nothing else moves.
-const int kAlgoVersion = 131;
+// 131 → 132 (no analytics change): a day whose steps the active wearable's
+// own count won names it: `inputs_used` ['wearable_pedometer'] and its own
+// note, where it still named the phone pedometer it outcounted (the Home card
+// read "Phone"). Wearable days only; every other day's envelope unchanged.
+const int kAlgoVersion = 132;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2995,13 +2999,18 @@ class _BaselineHistoryCache {
   /// whole rescan window on every heavy pass for nothing. Once ANY baseline
   /// series has a later day (one too short to write its own level, say, which
   /// may already be finalized), that day was priced on it, so it is hashed.
-  String _quietFingerprint() {
-    final series = _series['quiet_hrr'] ?? const <_DatedValue>[];
+  String _quietFingerprint() => _datedFingerprint('quiet_hrr');
+
+  /// [_quietFingerprint]'s rule for any trailing-window series: every dated
+  /// value an earlier day's window can see, newest excluded until a later day
+  /// exists.
+  String _datedFingerprint(String key) {
+    final series = _series[key] ?? const <_DatedValue>[];
     const span = _rescanWindowDays + _baselineWindowDays;
     final newest = series.isEmpty ? null : series.last.date;
     final laterDay = newest != null &&
         _series.entries.any((e) =>
-            e.key != 'quiet_hrr' &&
+            e.key != key &&
             e.value.isNotEmpty &&
             e.value.last.date.compareTo(newest) > 0);
     final end = series.isEmpty ? 0 : series.length - (laterDay ? 0 : 1);
@@ -3025,9 +3034,15 @@ class _BaselineHistoryCache {
     final temp = values('skin_temp_adc');
     final resp = values('resp_rate');
     final readiness = values('readiness');
+    // PE-1's device night RMSSD feeds readiness too, dated like the quiet
+    // levels (a reshuffle that keeps the median still moves a day's window).
+    // Only when the series has values: a band-only install's signature reads
+    // exactly as before.
+    final hasDev = (_series['ln_rmssd_dev'] ?? const []).isNotEmpty;
     final signature =
         'v$kAlgoVersion|n${rhr.length}|rhr${fmt(_median(rhr))}|rmssd${fmt(_median(rmssd))}'
         '|temp${fmt(_median(temp))}|resp${fmt(_median(resp))}'
+        '${hasDev ? '|dev${_datedFingerprint('ln_rmssd_dev')}' : ''}'
         '|q${_quietFingerprint()}';
     return {
       'algo_version': kAlgoVersion,
@@ -10124,6 +10139,8 @@ class DerivationEngine {
       // reads these to label the card.
       'inputs_used': !haveRealSteps
           ? const <String>[]
+          : useWearable
+              ? const ['wearable_pedometer']
           : useBand
               ? const ['band_step_counter']
               : <String>[
@@ -10131,7 +10148,11 @@ class DerivationEngine {
                   if (phone > 0) 'phone_pedometer',
                 ],
       'note': haveRealSteps
-          ? (useBand
+          ? (useWearable
+              ? 'the wearable\'s own daily step count, as it counted it; used '
+                  'whole when it counted more than the other sensors, never '
+                  'added to them'
+              : useBand
               ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
                   'counter; wrapped and reset boundaries contribute nothing '
                   'rather than a guess'

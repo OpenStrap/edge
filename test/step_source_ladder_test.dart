@@ -72,6 +72,7 @@ Substrate _sub(List<int> counters, {int step = 600, String? family = 'gen5'}) {
   required int liveStepsReal,
   required int liveStepsFromStrap,
   StepCalibrationProfile? counterProfile,
+  int? wearableSteps,
 }) {
   final bundle = <String, dynamic>{};
   final scalars = <String, dynamic>{};
@@ -90,6 +91,7 @@ Substrate _sub(List<int> counters, {int step = 600, String? family = 'gen5'}) {
     liveStepsReal: liveStepsReal,
     liveStepsFromStrap: liveStepsFromStrap,
     counterProfile: counterProfile,
+    wearableSteps: wearableSteps,
   );
   return ((bundle['steps'] as Map).cast<String, dynamic>(), scalars);
 }
@@ -362,6 +364,13 @@ void main() {
       expect(label(4000, 4000), 'Strap');
       expect(label(4000, 0), 'Phone');
       expect(label(0, 0), 'Strap', reason: 'the on-chip counter is the strap');
+      // A wearable's own count that beat the phone's: the card names the
+      // device, and the envelope never names the phone it outcounted.
+      final (wore, _) = _derive(gen5,
+          liveStepsReal: 1000, liveStepsFromStrap: 0, wearableSteps: 900000);
+      expect(wore['source'], 'wearable');
+      expect(wore['inputs_used'], ['wearable_pedometer']);
+      expect(stepSensorLabel(Metric.parse(wore)), 'Device');
       expect(
         stepSensorLabel(Metric.parse(
             _derive(_sub([-1, -1]), liveStepsReal: 0, liveStepsFromStrap: 0).$1)),

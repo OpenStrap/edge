@@ -340,4 +340,21 @@ void main() {
     await LocalDb.putMetricSeriesValue('2027-01-07', 'quiet_hrr', 0.14);
     expect(await debugBaselineSignature(), isNot(withLater));
   });
+
+  test("a device's night RMSSD history moves the rescan signature", () async {
+    final db = await LocalDb.instance;
+    await db.delete('metric_series', where: 'key = ?', whereArgs: ['ln_rmssd_dev']);
+    final none = await debugBaselineSignature();
+    expect(none, isNot(contains('|dev')), reason: 'no series, no term');
+    for (final (d, v) in [('2027-02-01', 3.6), ('2027-02-02', 3.8), ('2027-02-03', 3.7)]) {
+      await LocalDb.putMetricSeriesValue(d, 'ln_rmssd_dev', v);
+    }
+    await LocalDb.putMetricSeriesValue('2027-02-04', 'rhr', 52);
+    final before = await debugBaselineSignature();
+    expect(await debugBaselineSignature(), before);
+    // Same median (3.7), but the 02-02 night is not what it was.
+    await LocalDb.putMetricSeriesValue('2027-02-02', 'ln_rmssd_dev', 3.9);
+    await LocalDb.putMetricSeriesValue('2027-02-01', 'ln_rmssd_dev', 3.5);
+    expect(await debugBaselineSignature(), isNot(before));
+  });
 }

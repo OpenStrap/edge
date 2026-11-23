@@ -156,6 +156,9 @@ void main() {
     final stored = _payload((await LocalDb.dayResult(_dayId))!);
     expect((stored['scalars'] as Map)['steps'], 8123);
     expect((stored['steps'] as Map)['source'], 'wearable');
+    expect((stored['steps'] as Map)['inputs_used'], ['wearable_pedometer'],
+        reason: 'the sensor that won is the one named, not the phone');
+    expect((stored['steps'] as Map)['note'], contains("wearable's own"));
     final cells = (await dayCells(_dayId))!;
     expect(cells['steps']!['class'], 'ours');
     expect(cells['steps']!['value'], 8123);

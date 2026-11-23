@@ -365,6 +365,9 @@ String? stepSensorLabel(Metric m, [AppLocalizations? l]) {
   final strap = used.contains('band_pedometer_100hz') ||
       used.contains('band_step_counter');
   final phone = used.contains('phone_pedometer');
+  if (used.contains('wearable_pedometer')) {
+    return l?.homeStepSensorDevice ?? 'Device';
+  }
   if (strap && phone) return l?.homeStepSensorStrapPhone ?? 'Strap + phone';
   if (strap) return l?.homeStepSensorStrap ?? 'Strap';
   if (phone) return l?.homeStepSensorPhone ?? 'Phone';
