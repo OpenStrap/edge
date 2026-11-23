@@ -2084,7 +2084,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       // PE-1: the admitted wearable's own night RMSSD, ln, banked as its own
       // series (never `ln_rmssd`) for its own baseline, whether or not beats
       // won tonight. Absent (no key) when there is none.
-      if (d.deviceLnRmssd case final v?) 'ln_rmssd_dev': v,
+      'ln_rmssd_dev': ?d.deviceLnRmssd,
       'resp_rate': respToday,
       'skin_temp_z': skinTempZ,
       // Nightly skin-temp ADC mean (of the settled samples, where the family
