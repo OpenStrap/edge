@@ -1328,6 +1328,18 @@
   "@pairSensorKeyHint": {
     "description": "Hint text in the existing-key field."
   },
+  "pairSensorKeyRequiredTitle": "Device key",
+  "@pairSensorKeyRequiredTitle": {
+    "description": "Key field title for a device that pairs only with a typed key."
+  },
+  "pairSensorKeyRequiredBody": "This device pairs only with the key its own app set up. Paste that one key: 32 hex digits.",
+  "@pairSensorKeyRequiredBody": {
+    "description": "Key field body for a device that pairs only with one typed hex key."
+  },
+  "pairSensorKeyRequiredHint": "32 hex digits",
+  "@pairSensorKeyRequiredHint": {
+    "description": "Key field hint for a device that pairs only with one typed hex key."
+  },
   "pairSensorSearchAnyway": "Search anyway",
   "@pairSensorSearchAnyway": {
     "description": "iOS-gate status card fix."
@@ -7394,6 +7406,10 @@
   "homeStepSensorPhone": "Phone",
   "@homeStepSensorPhone": {
     "description": "Step count sensor label: the phone counted."
+  },
+  "homeStepSensorDevice": "Device",
+  "@homeStepSensorDevice": {
+    "description": "Step count sensor label: the paired wearable's own daily count was used."
   },
   "homeOvernightBuilding": "Last night is still being worked out.",
   "@homeOvernightBuilding": {
@@ -14468,6 +14484,10 @@
   },
   "supplementTheNightSMeanRaw25e383": "The night's mean raw sensor reading, expressed as distance from your own recent nights. There is no conversion to degrees anywhere in the path.",
   "@supplementTheNightSMeanRaw25e383": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSkinTempMethodTrend": "The night's mean raw sensor reading, expressed as distance from your own recent nights. The charted trend is that uncalibrated ADC distance, with no conversion to degrees. (A WHOOP 5 reads in real degrees; its nightly deviation is shown on Vitals in your temperature unit instead.)",
+  "@supplementSkinTempMethodTrend": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
   "supplementTheRatioOfLowTo817781": "The ratio of low- to high-frequency power in beat-interval variability, from a Lomb–Scargle periodogram (the series is unevenly sampled, so an FFT would be wrong).",

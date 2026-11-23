@@ -555,6 +555,8 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementTheLowestSustainedSleepingHeart72e5dd,
     "The night's mean raw sensor reading, expressed as distance from your own recent nights. There is no conversion to degrees anywhere in the path." =>
       l.supplementTheNightSMeanRaw25e383,
+    "The night's mean raw sensor reading, expressed as distance from your own recent nights. The charted trend is that uncalibrated ADC distance, with no conversion to degrees. (A WHOOP 5 reads in real degrees; its nightly deviation is shown on Vitals in your temperature unit instead.)" =>
+      l.supplementSkinTempMethodTrend,
     "The ratio of low- to high-frequency power in beat-interval variability, from a Lomb–Scargle periodogram (the series is unevenly sampled, so an FFT would be wrong)." =>
       l.supplementTheRatioOfLowTo817781,
     "There is no resting heart rate from a scored night to measure against." =>

@@ -1067,6 +1067,9 @@
     "description": "Explainer under the existing-key section title."
   },
   "pairSensorKeyHint": "เลขฐานสิบหก 32 หลัก หรือ base64 — บรรทัดละหนึ่งคีย์",
+  "pairSensorKeyRequiredTitle": "คีย์ของอุปกรณ์",
+  "pairSensorKeyRequiredBody": "อุปกรณ์นี้จับคู่ได้เฉพาะกับคีย์ที่แอปของอุปกรณ์ตั้งไว้เท่านั้น วางคีย์นั้นหนึ่งคีย์: เลขฐานสิบหก 32 หลัก",
+  "pairSensorKeyRequiredHint": "เลขฐานสิบหก 32 หลัก",
   "@pairSensorKeyHint": {
     "description": "Hint text in the existing-key field."
   },
@@ -7104,6 +7107,7 @@
     "description": "Step count sensor label: the strap counted."
   },
   "homeStepSensorPhone": "โทรศัพท์",
+  "homeStepSensorDevice": "อุปกรณ์",
   "@homeStepSensorPhone": {
     "description": "Step count sensor label: the phone counted."
   },
@@ -14164,6 +14168,7 @@
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
   "supplementTheNightSMeanRaw25e383": "ค่าเฉลี่ยเซ็นเซอร์ดิบของคืน แสดงเป็นความต่างจากคืนล่าสุด ๆ ของคุณ ไม่มีขั้นตอนใดแปลงเป็นองศา",
+  "supplementSkinTempMethodTrend": "ค่าเฉลี่ยดิบของเซ็นเซอร์ตลอดคืน แสดงเป็นระยะห่างจากคืนล่าสุดของคุณเอง แนวโน้มในกราฟคือระยะห่าง ADC ที่ยังไม่สอบเทียบนั้น โดยไม่แปลงเป็นองศา (WHOOP 5 วัดเป็นองศาจริง ค่าเบี่ยงเบนรายคืนของมันจะแสดงในหน้าสัญญาณชีพตามหน่วยอุณหภูมิของคุณแทน)",
   "@supplementTheNightSMeanRaw25e383": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
