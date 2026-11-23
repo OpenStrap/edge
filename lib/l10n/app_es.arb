@@ -3753,6 +3753,7 @@
   "supplementThereIsNoRestingHeart36a9ca": "No hay frecuencia cardíaca en reposo de una noche puntuada con la que comparar.",
   "supplementThereIsNoScoredNight5d353d": "No hay ninguna noche puntuada de la que leer esto.",
   "supplementTheseRecordingsAreNotStamped66b52f": "Estos registros no indican qué banda los hizo, y este valor hay que calibrarlo para cada banda, así que se omite en lugar de adivinarlo.",
+  "supplementNoCalibrationForThisDevice": "Este valor debe calibrarse para cada dispositivo y todavía no hay calibración para este, así que se omite en lugar de estimarlo.",
   "supplementThisDayCameFromAn2dc4b2": "Este día viene de una importación que solo cubre la noche, así que no hay nada registrado de las horas de vigilia.",
   "supplementTimeAsleepAsAFraction516f7f": "Tiempo dormido como fracción del tiempo en la cama.",
   "supplementTimeToMove7afe98": "Hora de moverse",

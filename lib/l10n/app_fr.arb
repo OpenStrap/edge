@@ -3750,6 +3750,7 @@
   "supplementThereIsNoRestingHeart36a9ca": "Il n’y a pas de fréquence cardiaque au repos issue d’une nuit notée pour comparer.",
   "supplementThereIsNoScoredNight5d353d": "Il n’y a aucune nuit notée d’où lire cette valeur.",
   "supplementTheseRecordingsAreNotStamped66b52f": "Ces enregistrements n’indiquent pas quel bracelet les a faits, et cette valeur doit être étalonnée pour chaque bracelet, elle est donc omise plutôt que devinée.",
+  "supplementNoCalibrationForThisDevice": "Cette valeur doit être calibrée pour chaque appareil, et il n'existe pas encore de calibration pour celui-ci : elle est donc retenue plutôt que devinée.",
   "supplementThisDayCameFromAn2dc4b2": "Ce jour vient d’une importation qui ne couvre que la nuit, donc rien n’est enregistré pour les heures d’éveil.",
   "supplementTimeAsleepAsAFraction516f7f": "Temps de sommeil rapporté au temps passé au lit.",
   "supplementTimeToMove7afe98": "Il est temps de bouger",

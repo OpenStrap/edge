@@ -14178,6 +14178,7 @@
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
   "supplementTheseRecordingsAreNotStamped66b52f": "ข้อมูลนี้ไม่ได้ระบุว่าสายรัดใดบันทึก และค่านี้ต้องปรับเทียบรายสายรัด จึงไม่แสดงแทนการเดา",
+  "supplementNoCalibrationForThisDevice": "ค่านี้ต้องปรับเทียบแยกตามอุปกรณ์ และยังไม่มีการปรับเทียบสำหรับอุปกรณ์นี้ จึงงดแสดงแทนการคาดเดา",
   "@supplementTheseRecordingsAreNotStamped66b52f": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },

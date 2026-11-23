@@ -253,6 +253,14 @@ String? whyFromNote(String? note, {String unit = 'nights'}) {
     return c == null ? why : '$why There were ${c[1]}, and it needs ${c[2]}.';
   }
   if (s.startsWith('unknown_device_family')) {
+    // `id=none` is an unstamped recording; any other id is a known device
+    // this number has no calibration for yet (a wearable with no motion
+    // channel, say), and "not stamped" would be false there.
+    if (!s.endsWith('id=none') && s.contains('id=')) {
+      return 'This number has to be calibrated per device, and there is no '
+          'calibration for this one yet, so it is withheld rather than '
+          'guessed.';
+    }
     return 'These recordings are not stamped with which strap made them, and '
         'this number has to be calibrated per strap, so it is withheld rather '
         'than guessed.';

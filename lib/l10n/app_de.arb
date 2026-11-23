@@ -3012,6 +3012,7 @@
   "supplementThereIsNoRestingHeart36a9ca": "Es gibt keinen Ruhepuls aus einer bewerteten Nacht als Vergleich.",
   "supplementThereIsNoScoredNight5d353d": "Es gibt keine bewertete Nacht, aus der sich das ablesen lässt.",
   "supplementTheseRecordingsAreNotStamped66b52f": "Diese Aufzeichnungen sind nicht mit dem Band gekennzeichnet, von dem sie stammen, und dieser Wert muss je Band kalibriert werden. Er wird daher zurückgehalten statt geschätzt.",
+  "supplementNoCalibrationForThisDevice": "Dieser Wert muss je Gerät kalibriert werden, und für dieses gibt es noch keine Kalibrierung. Er wird daher zurückgehalten statt geschätzt.",
   "supplementThisDayCameFromAn2dc4b2": "Dieser Tag stammt aus einem Import, der nur die Nacht abdeckt. Für die Wachzeit ist daher nichts aufgezeichnet.",
   "supplementTimeAsleepAsAFraction516f7f": "Schlafzeit als Anteil der Zeit im Bett.",
   "supplementTimeToMove7afe98": "Zeit für Bewegung",

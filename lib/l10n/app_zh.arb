@@ -3750,6 +3750,7 @@
   "supplementThereIsNoRestingHeart36a9ca": "没有来自已评分夜晚的静息心率可供比较。",
   "supplementThereIsNoScoredNight5d353d": "没有可供读取的已评分夜晚。",
   "supplementTheseRecordingsAreNotStamped66b52f": "这些记录没有标明来自哪个手环，而这个数值需要针对每个手环校准，因此不予显示，而不是猜测。",
+  "supplementNoCalibrationForThisDevice": "这个数值需要按设备分别校准，而这台设备还没有校准，所以不显示，而不是猜测。",
   "supplementThisDayCameFromAn2dc4b2": "这一天来自只包含夜间数据的导入，因此清醒时段没有任何记录。",
   "supplementTimeAsleepAsAFraction516f7f": "睡眠时长占卧床时间的比例。",
   "supplementTimeToMove7afe98": "该活动一下了",
