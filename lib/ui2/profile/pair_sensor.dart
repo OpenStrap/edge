@@ -498,6 +498,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     paired: _paired,
     busyRemoteId: _busy,
     keyController: widget.onPickedWithKey == null ? null : _key,
+    keyRequired: widget.onPickedWithKey != null && widget.onPicked == null,
     onScan: _scan,
     onPick: _pick,
     onForget: _forget,
@@ -525,6 +526,10 @@ class PairSensorView extends StatelessWidget {
   /// The optional "pair with the key it already holds" field. Null hides it.
   final TextEditingController? keyController;
 
+  /// The device pairs ONLY with a typed key (no install path): the field says
+  /// one key is required, and the ring's key-replacement warning is not shown.
+  final bool keyRequired;
+
   final VoidCallback? onScan;
   final void Function(BandCandidate)? onPick;
   final void Function(String id)? onForget;
@@ -540,6 +545,7 @@ class PairSensorView extends StatelessWidget {
     this.paired,
     this.busyRemoteId,
     this.keyController,
+    this.keyRequired = false,
     this.onScan,
     this.onPick,
     this.onForget,
@@ -599,6 +605,7 @@ class PairSensorView extends StatelessWidget {
                 if (keyController != null) ...[
                   // Before the user commits: a new key evicts the ring's own
                   // app, and there is no state in which both work.
+                  if (!keyRequired) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
                     l?.pairSensorKeyReplacesTitle ??
@@ -607,8 +614,10 @@ class PairSensorView extends StatelessWidget {
                         'The ring holds one key. Pairing without the Oura app’s key gives it a new one, and the Oura app stops working with it until the ring is reset.',
                     icon: LucideIcons.triangleAlert,
                   ),
+                  ],
                   const SizedBox(height: S.x4),
-                  _keySection(c, keyController!, busy || scanning),
+                  _keySection(c, keyController!, busy || scanning,
+                      required: keyRequired),
                 ],
                 if (heldBack != null) ...[
                   const SizedBox(height: S.x4),
@@ -684,16 +693,22 @@ class PairSensorView extends StatelessWidget {
 
   /// The key the device already holds, if the user has it. Optional, and says
   /// so: an empty field is the ordinary pairing.
-  Widget _keySection(BuildContext c, TextEditingController ctl, bool locked) {
+  Widget _keySection(BuildContext c, TextEditingController ctl, bool locked,
+      {bool required = false}) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     return Section(
-      l?.pairSensorKeyTitle ?? 'Already set up elsewhere?',
+      required
+          ? (l?.pairSensorKeyRequiredTitle ?? 'Device key')
+          : (l?.pairSensorKeyTitle ?? 'Already set up elsewhere?'),
       Surface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(
-            l?.pairSensorKeyBody ??
-                'Have this device’s key? Paste it to pair without a factory reset. Several keys, one per line, are tried in turn. Leave it empty to pair normally.',
+            required
+                ? (l?.pairSensorKeyRequiredBody ??
+                    'This device pairs only with the key its own app set up. Paste that one key: 32 hex digits.')
+                : (l?.pairSensorKeyBody ??
+                    'Have this device’s key? Paste it to pair without a factory reset. Several keys, one per line, are tried in turn. Leave it empty to pair normally.'),
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
           TextField(
@@ -711,8 +726,10 @@ class PairSensorView extends StatelessWidget {
             textInputAction: TextInputAction.newline,
             style: F.head.copyWith(color: p.ink),
             decoration: InputDecoration(
-              hintText: l?.pairSensorKeyHint ??
-                  '32 hex digits or base64 — one key per line',
+              hintText: required
+                  ? (l?.pairSensorKeyRequiredHint ?? '32 hex digits')
+                  : (l?.pairSensorKeyHint ??
+                      '32 hex digits or base64 — one key per line'),
               hintStyle: F.head.copyWith(color: p.ink3),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(vertical: S.x3),

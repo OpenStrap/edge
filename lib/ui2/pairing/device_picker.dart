@@ -338,6 +338,16 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
                   'sensors alongside your band. Remove one to add another.');
     }
     if (!mounted) return const PairOutcome.failed('');
+    // The strap pairs only with the key its vendor app issued, and a plain
+    // pair would save a row with none (every sync then ends at once). A
+    // nearby tap opens its key screen instead.
+    if (sensor.entry.id == kHelioStrap.id) {
+      await HrsLink.stopScanIfRunning(this);
+      final r = await _openEntry(sensor.entry);
+      return r == BandFlowResult.pairedWearable
+          ? const PairOutcome.saved()
+          : const PairOutcome.failed('');
+    }
     setState(() => _busy = cand.device.remoteId.str);
     // OUR OWN SCAN, ENDED FIRST. It runs for a 15 s window and the user has
     // tapped a row several seconds into it, so without this the radio keeps

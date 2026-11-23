@@ -103,6 +103,10 @@ Future<String?> pairHelioStrapWithTypedKey(
     return 'The phone’s keychain is locked. Unlock the phone and try again.';
   }
 
+  // A "delete everything" that lands while this waits on the slot or the
+  // handshake must not find a fresh key and device row behind it.
+  final resetGen = ResetGate.generation;
+  const resetText = 'Pairing was interrupted by a reset. Pair the strap again.';
   return withSecondaryLinkSlot<String?>(
     timeout: const Duration(seconds: 30),
     onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
@@ -143,6 +147,10 @@ Future<String?> pairHelioStrapWithTypedKey(
           };
         }
 
+        // ponytail: check-then-write, so a reset landing between this check
+        // and the two writes below still slips past; a reset-held lock
+        // around pairing persistence closes it if that is ever seen.
+        if (ResetGate.changedSince(resetGen)) return resetText;
         try {
           await _pairSecure.write(
             key: kHelioStrapSecureStorageKey,
@@ -153,6 +161,17 @@ Future<String?> pairHelioStrapWithTypedKey(
         } catch (e) {
           return 'The phone’s keychain is locked. Unlock the phone and try '
               'again.';
+        }
+        if (ResetGate.changedSince(resetGen)) {
+          // The wipe ran during the keychain write: take the key back out.
+          try {
+            await _pairSecure.delete(
+              key: kHelioStrapSecureStorageKey,
+              iOptions: kHelioStrapIosKeyOptions,
+              mOptions: kHelioStrapMacosKeyOptions,
+            );
+          } catch (_) {}
+          return resetText;
         }
         try {
           await LocalDb.upsertDevice(
@@ -317,6 +336,14 @@ class HelioStrapLink {
           // still settling can throw a confusing error on a phone whose
           // Bluetooth is genuinely on.
           await _awaitAdapterOn();
+          // The same checks as on entering the slot: a forget during the
+          // wait above found no host to stop, so nothing else would keep
+          // this sync off the forgotten strap.
+          if (_deviceId != deviceId ||
+              _forgets != forgets ||
+              ResetGate.changedSince(resetGen)) {
+            return false;
+          }
           await device.connect(timeout: const Duration(seconds: 20));
           final services = await device.discoverServices();
           final link = GattBandLink(
@@ -370,15 +397,20 @@ class HelioStrapLink {
   Future<void> stop() async {
     _link?.close();
     _link = null;
-    await _host?.stop();
-    _host = null;
-    _deviceId = null;
-    final d = _device;
-    _device = null;
-    if (d != null) {
-      try {
-        await d.disconnect();
-      } catch (_) {/* already gone */}
+    try {
+      await _host?.stop();
+    } finally {
+      // A host whose final flush throws still leaves the link torn down and
+      // the strap disconnected; the error then reaches the caller.
+      _host = null;
+      _deviceId = null;
+      final d = _device;
+      _device = null;
+      if (d != null) {
+        try {
+          await d.disconnect();
+        } catch (_) {/* already gone */}
+      }
     }
   }
 

@@ -193,6 +193,21 @@ void main() {
       expect(find.textContaining('recovery'), findsNothing);
     });
 
+    testWidgets('a key-only device asks for its one key, without the ring warning',
+        (t) async {
+      final key = TextEditingController();
+      addTearDown(key.dispose);
+      await _pump(t, PairSensorView(
+          entryLabel: 'Amazfit Helio Strap', keyController: key, keyRequired: true));
+      expect(find.text('Device key'), findsOneWidget);
+      expect(find.text('32 hex digits'), findsOneWidget);
+      expect(find.textContaining('Leave it empty'), findsNothing);
+      expect(find.textContaining('Oura'), findsNothing);
+      await _pump(t, PairSensorView(entryLabel: 'Oura Ring', keyController: key));
+      expect(find.text('Already set up elsewhere?'), findsOneWidget);
+      expect(find.textContaining('Leave it empty'), findsOneWidget);
+    });
+
     testWidgets('the iOS gate replaces the button with the reason', (t) async {
       await _pump(
         t,
