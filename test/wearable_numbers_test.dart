@@ -13,6 +13,7 @@ import 'package:openstrap_edge/compute/inputs/pebble_inputs.dart';
 import 'package:openstrap_edge/compute/inputs/ultrahuman_inputs.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/ui2/profile/pair_sensor.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 import 'package:openstrap_edge/ui2/profile/wearable_numbers.dart';
@@ -386,6 +387,43 @@ void main() {
       expect(find.text('Usual resting HR'), findsNothing);
       expect(find.textContaining('35.3'), findsOneWidget);
       expect(find.textContaining('bpm'), findsNothing);
+    });
+  });
+
+  group('formatCell skin temperature honours the units setting', () {
+    final l = lookupAppLocalizations(const Locale('en'));
+    final metric = UnitsController.seed(UnitSystem.metric);
+    final imperial = UnitsController.seed(UnitSystem.imperial);
+
+    test('a device skin temp is °C for metric, °F for imperial (absolute, '
+        '+32 offset)', () {
+      expect(formatCell(l, 'skin_temp', 33.0, device: true, units: metric),
+          ('33.0', l.wearableUnitCelsius));
+      // 33 °C = 91.4 °F.
+      final (n, u) =
+          formatCell(l, 'skin_temp', 33.0, device: true, units: imperial);
+      expect(n, '91.4');
+      expect(u, '°F');
+    });
+
+    test("a ring's centi-°C baseline converts too", () {
+      // 3530 centi-°C = 35.3 °C = 95.54 → 95.5 °F.
+      final (n, u) = formatCell(l, 'baselines_load_illness', 3530,
+          method: 'skin_temp_c_event', units: imperial);
+      expect(n, '95.5');
+      expect(u, '°F');
+    });
+
+    test('no units (golden) stays °C', () {
+      expect(formatCell(l, 'skin_temp', 33.0, device: true),
+          ('33.0', l.wearableUnitCelsius));
+    });
+
+    test('the SD deviation row is never treated as a temperature', () {
+      // ours (non-device) skin_temp is an SD z-score; imperial must not touch
+      // it.
+      expect(formatCell(l, 'skin_temp', 1.2, units: imperial),
+          ('+1.2', l.wearableUnitSd));
     });
   });
 
