@@ -17,6 +17,11 @@ const Map<String, String> kPinnedOfficialHost = <String, String>{
   'huami_cinco': 'www.mi.com', // Mi Smart Band 4, same reviewed host as the other Xiaomi rows
   'huami_kongming': 'www.mi.com', // Mi Smart Band 5
   'huami_pangu': 'www.mi.com', // Mi Smart Band 6
+  'huami_tonlesap': 'support.amazfit.com',
+  'huami_como': 'support.amazfit.com',
+  'huami_kestrel': 'support.amazfit.com',
+  'huami_newton': 'support.amazfit.com',
+  'huami_falcon': 'support.amazfit.com',
   'helio_strap': 'support.amazfit.com',
   'zeppos_l66': 'www.mi.com', // Xiaomi / Mi Smart Band 7, same reviewed host as the other Xiaomi rows
   'zeppos_verona': 'support.amazfit.com', // Amazfit GTR 3, same reviewed host as the Helio row
@@ -79,6 +84,11 @@ const Set<String> kPairingFollowUp = <String>{
   'huami_cinco',
   'huami_kongming',
   'huami_pangu',
+  'huami_tonlesap',
+  'huami_como',
+  'huami_kestrel',
+  'huami_newton',
+  'huami_falcon',
   'helio_strap',
   'zeppos_l66',
   'zeppos_verona',

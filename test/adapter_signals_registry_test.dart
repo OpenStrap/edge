@@ -46,6 +46,16 @@ void main() {
           MiBand234Adapter(key: const [0], entry: kMiBand5).signals,
       'huami_pangu':
           MiBand234Adapter(key: const [0], entry: kMiBand6).signals,
+      'huami_tonlesap':
+          MiBand234Adapter(key: const [0], entry: kAmazfitBipS).signals,
+      'huami_como':
+          MiBand234Adapter(key: const [0], entry: kAmazfitBipU).signals,
+      'huami_kestrel':
+          MiBand234Adapter(key: const [0], entry: kAmazfitGts).signals,
+      'huami_newton':
+          MiBand234Adapter(key: const [0], entry: kAmazfitGts2).signals,
+      'huami_falcon':
+          MiBand234Adapter(key: const [0], entry: kAmazfitGtr).signals,
       'pebble': kPebbleAdapter.signals,
       'colmi': kColmiAdapter.signals,
       'helio_strap': kHelioStrapAdapter.signals,

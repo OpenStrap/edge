@@ -156,21 +156,25 @@ class MiBand234Adapter extends BandAdapter {
 
   static const int kMiBandFirstFetchDays = 7;
 
-  /// [kMiBand234] or [kMiBand4]: same protocol, but Mi Band 4 authenticates
-  /// with crypt flag 0x80 and never takes a key from this app.
+  /// [kMiBand234] or one of the crypt-flagged entries on the same protocol
+  /// (Mi Band 4-6, the first Amazfit watches): those authenticate with crypt
+  /// flag 0x80 and never take a key from this app.
   @override
   final BandEntry entry;
 
   /// The crypt flag OR-ed into the challenge and answer opcodes: 0x80 on
-  /// Mi Band 4, 5 and 6, 0 on Mi Band 2/3.
-  int get _cryptFlags =>
-      {kMiBand4.id, kMiBand5.id, kMiBand6.id}.contains(entry.id)
-          ? 0x80
-          : 0x00;
+  /// everything but Mi Band 2/3 (Mi Band 4-6 and the first Amazfit watches).
+  int get _cryptFlags => entry.id == kMiBand234.id ? 0x00 : 0x80;
 
-  /// Bytes per stored minute: 8 on Mi Band 5 and 6, 4 on the others.
-  int get _recordSize =>
-      {kMiBand5.id, kMiBand6.id}.contains(entry.id) ? 8 : 4;
+  /// Bytes per stored minute: 8 on Mi Band 5/6, Bip U and GTS 2, else 4.
+  int get _recordSize => {
+        kMiBand5.id,
+        kMiBand6.id,
+        kAmazfitBipU.id,
+        kAmazfitGts2.id,
+      }.contains(entry.id)
+          ? 8
+          : 4;
 
   @override
   Map<InputSignal, Duration> get signals => kMiBand234Signals;
