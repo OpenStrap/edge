@@ -2505,7 +2505,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final (:stats, samples: rawBySession) = await LocalDb.sessionHrReads(
+      final (:stats, samples: rawBySession, :caps) = await LocalDb.sessionHrReads(
         fromTs,
         nowSec,
         maxHrCeiling: hrCeilingForAge(age),
@@ -2524,7 +2524,9 @@ class LocalRepositoryImpl extends LocalRepository {
         }
         // Peak: smoothed-from-raw (authoritative, matches the detail screen);
         // else stored column, else the ceiling-bounded SQL max.
-        final smax = raw == null ? null : smoothedMaxHr(raw, age: age);
+        // Each source at its own cadence, as the scorer and detail read.
+        final smax =
+            raw == null ? null : cadenceAwareMaxHrAt(raw, caps[w['id']], age: age)?.$1;
         if (smax != null) {
           w['max_hr'] = smax;
         } else if (s != null && (s['n'] ?? 0) != 0) {
@@ -2633,7 +2635,8 @@ class LocalRepositoryImpl extends LocalRepository {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
         w.addAll(_sessionTrace(ts, hr, startTs, endTs,
-            row['device_family'] as String?, await _zoneAnchors()));
+            row['device_family'] as String?, await _zoneAnchors(),
+            caps: _cadencesOf(hrRows)));
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
@@ -2671,8 +2674,9 @@ class LocalRepositoryImpl extends LocalRepository {
     int startTs,
     int endTs,
     String? deviceFamily,
-    _ZoneAnchors anchors,
-  ) {
+    _ZoneAnchors anchors, {
+    List<int>? caps,
+  }) {
     final w = <String, dynamic>{};
     w['hr'] = _minuteHrCurve(ts, hr);
     // Spike-suppressed trough (issue #127): a lone low PPG dropout must not
@@ -2681,20 +2685,31 @@ class LocalRepositoryImpl extends LocalRepository {
     // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
     // do NOT floor against the stored column: the live path may already have
     // written a spiked max there, and math.max() would preserve it.
-    final peakAt = smoothedMaxHrAt(hr, age: _profileAge());
+    // Each source smoothed at its own cadence, as the scorer did.
+    final peakAt = cadenceAwareMaxHrAt(hr, caps, age: _profileAge());
     if (peakAt != null) {
       w['max_hr'] = peakAt.$1;
       w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
     }
-    w['zone_bands'] = _zoneBands(hr, deviceFamily, anchors);
+    // Weighted by the seconds each sample stands for, as the stored split
+    // is: a wearable's minute HR is a minute a sample, not a second.
+    w['zone_bands'] = _zoneBands(hr, deviceFamily, anchors,
+        spans: caps == null
+            ? null
+            : sampleSpansSec(ts, capsSec: caps, endSec: endTs));
     final drift = _hrDriftPct(ts, hr, startTs, endTs);
     if (drift != null) w['hr_drift_pct'] = drift;
     w['trace_samples'] = hr.length;
     final windowSec = endTs - startTs;
     if (windowSec > 0) {
+      // Seconds covered, not samples: a minute-HR sample covers a minute.
+      final covered = caps == null
+          ? hr.length
+          : sampleSpansSec(ts, capsSec: caps, endSec: endTs)
+              .fold<int>(0, (a, b) => a + b);
       w['trace_coverage_pct'] = math.min(
         100,
-        (hr.length / windowSec * 100).round(),
+        (covered / windowSec * 100).round(),
       );
     }
     return w;
@@ -2766,17 +2781,20 @@ class LocalRepositoryImpl extends LocalRepository {
   List<Map<String, dynamic>> _zoneBands(
     List<int> hr,
     String? deviceFamily,
-    _ZoneAnchors anchors,
-  ) {
+    _ZoneAnchors anchors, {
+    List<int>? spans,
+  }) {
     final set = _zoneSetFor(deviceFamily, anchors);
     // No age, or a strap with no calibrated ceiling ⇒ no bands.
     if (set == null) return const [];
     final secs = List<int>.filled(5, 0);
-    for (final v in hr) {
-      final z = set.zoneNumber(v.toDouble());
-      if (z >= 1) secs[z - 1]++;
+    for (var i = 0; i < hr.length; i++) {
+      final z = set.zoneNumber(hr[i].toDouble());
+      if (z >= 1) secs[z - 1] += spans?[i] ?? 1;
     }
-    final total = hr.length;
+    final total = spans == null
+        ? hr.length
+        : spans.fold<int>(0, (a, b) => a + b);
     return [
       for (var z = 0; z < 5; z++)
         {
@@ -3442,6 +3460,7 @@ class LocalRepositoryImpl extends LocalRepository {
           endTs,
           row['device_family'] as String?,
           await _zoneAnchors(),
+          caps: _cadencesOf(hrRows),
         );
         // The post-end recovery window is outside the session and outside the
         // rows read above, so it costs one more bounded (~205 s) read — only on

@@ -53,6 +53,7 @@ import 'backup_extras.dart';
 import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
+import '../compute/inputs/garmin_inputs.dart' show kHrCadenceSec;
 import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
@@ -82,6 +83,10 @@ typedef DbRebuild = ({
 typedef SessionHrReads = ({
   Map<String, Map<String, num>> stats,
   Map<String, List<int>> samples,
+  // Parallel to [samples]: the seconds each sample stands for, by its source
+  // (a wearable's minute HR vs a 1 Hz strap). Absent for a session whose
+  // samples are all 1 Hz.
+  Map<String, List<int>> caps,
 });
 
 // ── SUBSTRATE ADMISSION — the one predicate that decides what may become a
@@ -11776,6 +11781,13 @@ class LocalDb {
           where: 'ts >= ? AND ts < ?',
           whereArgs: [startSec, endSec],
         );
+        // A wearable's own daily step count is a derive input now
+        // ([deviceDaySteps]): deleting the day deletes it.
+        deleted += await txn.delete(
+          'observation',
+          where: "date = ? AND key = 'steps' AND device_id IS NOT NULL",
+          whereArgs: [dayId],
+        );
         // CASCADE the GPS route and the typed sets BEFORE their session row
         // disappears — otherwise the join key is gone and every lat/lng point
         // of a deleted run (and every logged set) stays on disk forever. Must
@@ -16243,7 +16255,8 @@ class LocalDb {
     // own a window ([sessionWindowRows]).
     if (sessionSensorSources.isEmpty && sessionWearableSource == null) {
       return (stats: await _sessionHrStatsSql(from, to, maxHrCeiling, minHrFloor),
-          samples: await _sessionHrSamplesSql(from, to));
+          samples: await _sessionHrSamplesSql(from, to),
+          caps: const <String, List<int>>{});
     }
     return _sessionWindows(from, to, maxHrCeiling, minHrFloor);
   }
@@ -16290,14 +16303,18 @@ class LocalDb {
     }
     final stats = <String, Map<String, num>>{};
     final samples = <String, List<int>>{};
+    final caps = <String, List<int>>{};
     for (final MapEntry(key: id, value: rs) in by.entries) {
-      final hr = [
+      final kept = [
         for (final r in _sessionWindowRowsFor(rs,
             sensors: sensors, wearable: wearable))
-          if (((r['hr'] as num?) ?? 0) > 0) (r['hr'] as num).toInt(),
+          if (((r['hr'] as num?) ?? 0) > 0) r,
       ];
+      final hr = [for (final r in kept) (r['hr'] as num).toInt()];
       if (hr.isEmpty) continue;
       samples[id] = hr;
+      final c = [for (final r in kept) kHrCadenceSec[r['source']] ?? 1];
+      if (c.any((v) => v > 1)) caps[id] = c;
       final low = [
         for (final h in hr)
           if (minHrFloor <= 0 || h >= minHrFloor) h,
@@ -16313,7 +16330,7 @@ class LocalDb {
         'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
       };
     }
-    return ((stats: stats, samples: samples),
+    return ((stats: stats, samples: samples, caps: caps),
         Isolate.current.debugName ?? 'unnamed');
   }
 

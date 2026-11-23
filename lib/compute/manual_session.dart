@@ -32,7 +32,7 @@ import 'dart:convert';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-import 'hr_max.dart' show kHrSmoothWindow, smoothedMaxHr;
+import 'hr_max.dart' show cadenceAwareMaxHrAt, kHrSmoothWindow, smoothedMaxHr;
 import 'profile.dart';
 
 /// Shortest window we accept. Below a minute the 1 Hz substrate cannot say
@@ -425,10 +425,15 @@ ManualSessionStats computeManualSessionStats({
   // on a wearable storing one (already averaged) HR a minute, which would
   // report a five-minute median as the peak. A stream sampled at least as
   // coarsely as the window takes no further smoothing.
+  // Per source when the rows say which source each is (a window can mix a
+  // minute-HR wearable with a 1 Hz strap); otherwise the stream's own step.
   final step = sampleSpansSec(wornTs, capSec: cadence, capsSec: caps)
       .fold<int>(0, (a, b) => b > a ? b : a);
-  final peak = smoothedMaxHr(worn,
-          age: age?.round(), window: step >= kHrSmoothWindow ? 1 : kHrSmoothWindow) ??
+  final peak = (caps != null
+          ? cadenceAwareMaxHrAt(worn, caps, age: age?.round())?.$1
+          : smoothedMaxHr(worn,
+              age: age?.round(),
+              window: step >= kHrSmoothWindow ? 1 : kHrSmoothWindow)) ??
       worn.reduce((a, b) => a > b ? a : b);
   final weightKg = profile.weightKg;
   final heightCm = profile.heightCm;

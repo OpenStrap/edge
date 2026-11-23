@@ -323,4 +323,19 @@ void main() {
       expect(DerivationEngine.recoveryTau(hr, ts, 0), isNull);
     });
   });
+
+  group('cadence-aware peak', () {
+    test('a 1 Hz spike stays suppressed beside a minute-HR sample', () {
+      final hr = [100, 100, 100, 100, 160, 100, 100, 100];
+      final caps = [60, 1, 1, 1, 1, 1, 1, 1];
+      expect(cadenceAwareMaxHrAt(hr, caps)!.$1, 100);
+    });
+
+    test("a wearable's hardest minute is its peak, not a five-minute median", () {
+      final hr = [100, 100, 160, 100, 100];
+      final at = cadenceAwareMaxHrAt(hr, [60, 60, 60, 60, 60])!;
+      expect(at.$1, 160);
+      expect(at.$2, 2, reason: 'the index is into the full stream');
+    });
+  });
 }

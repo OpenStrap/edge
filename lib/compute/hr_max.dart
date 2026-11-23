@@ -325,6 +325,33 @@ int hrCeilingForAge(int? age) {
         {int? age, int window = kHrSmoothWindow}) =>
     _smoothedExtremeHrAt(hr, wantMax: false, age: age, window: window);
 
+/// [smoothedMaxHrAt] with each sample smoothed at its OWN source's cadence:
+/// [capsSec] (parallel to [hr]) is the seconds each sample stands for. A
+/// window of [kHrSmoothWindow] samples is 5 s of a 1 Hz strap but 5 minutes
+/// of a wearable's minute HR (already one averaged value a minute), so the
+/// sparse samples take no further smoothing and the dense ones keep theirs,
+/// even when one session holds both. Null [capsSec]: [smoothedMaxHrAt].
+(int, int)? cadenceAwareMaxHrAt(List<int> hr, List<int>? capsSec,
+    {int? age}) {
+  if (capsSec == null || capsSec.length != hr.length) {
+    return smoothedMaxHrAt(hr, age: age);
+  }
+  (int, int)? best;
+  for (final sparse in const [false, true]) {
+    final idx = [
+      for (var i = 0; i < hr.length; i++)
+        if ((capsSec[i] >= kHrSmoothWindow) == sparse) i,
+    ];
+    if (idx.isEmpty) continue;
+    final at = smoothedMaxHrAt([for (final i in idx) hr[i]],
+        age: age, window: sparse ? 1 : kHrSmoothWindow);
+    if (at != null && (best == null || at.$1 > best.$1)) {
+      best = (at.$1, idx[at.$2]);
+    }
+  }
+  return best;
+}
+
 /// Spike-suppressed peak HR (value only) — see [smoothedMaxHrAt].
 int? smoothedMaxHr(List<int> hr, {int? age, int window = kHrSmoothWindow}) =>
     smoothedMaxHrAt(hr, age: age, window: window)?.$1;

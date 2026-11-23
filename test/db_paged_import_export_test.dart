@@ -305,6 +305,24 @@ void main() {
     }
   });
 
+  test("deleteDays takes the wearable's step count for that day, not others",
+      () async {
+    await clearLocal();
+    Observation steps(int day, int n) => Observation(
+          at: DateTime(2026, 5, day),
+          sourceKind: ObservationSource.vendor,
+          key: 'steps',
+          value: n,
+          unit: 'steps',
+          attribution: 'test',
+        );
+    await LocalDb.putObservations([steps(22, 5000), steps(23, 6000)],
+        deviceId: 'watch-1');
+    await LocalDb.deleteDays({'2026-05-22'});
+    expect(await LocalDb.deviceDaySteps('watch-1', '2026-05-22'), isNull);
+    expect(await LocalDb.deviceDaySteps('watch-1', '2026-05-23'), 6000);
+  });
+
   test('exportDaysDb copies a day that has a workout on it', () async {
     await clearLocal();
     // Local noon, so the session sits inside the day in any timezone.
