@@ -1006,7 +1006,7 @@
   },
   "readinessDetailNoHistoryTitle": "Нет истории восстановления",
   "readinessDetailNoHistoryBody": "Оценённых дней: 0.",
-  "readinessDetailWearOvernight": "Носите браслет ночью",
+  "readinessDetailWearOvernight": "Носите устройство ночью",
   "readinessDetailUnit": "/100",
   "readinessDetailDaysAgo": "{n, plural, one{{n} день назад} few{{n} дня назад} many{{n} дней назад} other{{n} дня назад}}",
   "@readinessDetailDaysAgo": {
@@ -1237,9 +1237,9 @@
   "driverBreakdownToday": "Сегодня",
   "driverBreakdownAbsenceTitle": "Нет данных для разбивки",
   "driverBreakdownAbsenceAlgoVersion": "В последнем обновлении изменился расчёт восстановления. Ваши дни пересчитываются.",
-  "driverBreakdownAbsenceStale": "Тренды устарели. Синхронизируйте браслет, чтобы обновить их.",
+  "driverBreakdownAbsenceStale": "Тренды устарели. Синхронизируйте устройство, чтобы обновить их.",
   "driverBreakdownAbsenceNoVersion": "Тренды обновляются. После синхронизации это занимает около минуты.",
-  "driverBreakdownSyncTheBand": "Синхронизировать браслет",
+  "driverBreakdownSyncTheBand": "Синхронизировать устройство",
   "driverBreakdownAbsenceNoReason": "Причина отсутствия разбивки за прошлую ночь не записана.",
   "coachFiguresCouldNotBeDrawn": "Не удалось построить график",
   "coachFiguresNoType": "Тренер прислал график без указания типа.",
@@ -1287,7 +1287,7 @@
   "circadianDetailTitle": "Биологические часы",
   "circadianDetailNoNightsTitle": "Пока нет ночей для графика",
   "circadianDetailNoNightsBody": "Оценённых ночей: 0.",
-  "circadianDetailNoNightsFix": "Носите браслет ночью",
+  "circadianDetailNoNightsFix": "Носите устройство ночью",
   "circadianDetailSleepTitle": "Сон по ночам",
   "circadianDetailAsleep": "Сон",
   "circadianDetailSleepFootnote": "{count, plural, one{{count} ночь} few{{count} ночи} many{{count} ночей} other{{count} ночи}}, по столбцу на каждую; чем темнее, тем большая часть часа прошла во сне.",
@@ -2475,7 +2475,7 @@
   "metricDetailNoValueYet": "За сегодня значения пока нет.",
   "metricDetailNoValueYetWiderRanges": "За сегодня значения ещё нет. В более широких периодах выше есть дни с рассчитанными значениями.",
   "metricDetailNoValueInWindow": "За этот период значений нет.",
-  "metricDetailWearBandFix": "Носите браслет ночью для начала ряда",
+  "metricDetailWearBandFix": "Носите устройство ночью для начала ряда",
   "metricDetailBreakdownLinkTitle": "Подробности",
   "metricDetailBreakdownLinkSub": "Каждый отрезок дня и источник его оценки",
   "metricDetailNerdStatsTitle": "Подробная статистика",
@@ -3128,7 +3128,7 @@
   },
   "healthNothingMeasuredDay": "За этот день ничего не измерено",
   "healthNoBandRecordings": "Записи браслета за этот день не поступили.",
-  "healthSyncTheBand": "Синхронизировать браслет",
+  "healthSyncTheBand": "Синхронизировать устройство",
   "healthDeepDivesTitle": "Подробный разбор",
   "healthHeartRateVariability": "Вариабельность сердечного ритма",
   "healthTimeFrequencyNonLinear": "Временные, частотные и нелинейные показатели",
@@ -3422,8 +3422,8 @@
   "homeWorkoutHoldBody": "Сегодняшний день заполнится, когда вы завершите тренировку.",
   "homeInsightsRebuildingTitle": "Обновляем ваши тренды",
   "homeInsightsRebuildingAlgoVersion": "Обновляется после последнего обновления приложения.",
-  "homeInsightsStaleOverWeek": "Тренды обновлялись больше недели назад. Синхронизируйте браслет, чтобы обновить их.",
-  "homeInsightsStaleOnDay": "Тренды обновлялись {day}. Синхронизируйте браслет, чтобы обновить их.",
+  "homeInsightsStaleOverWeek": "Тренды обновлялись больше недели назад. Синхронизируйте устройство, чтобы обновить их.",
+  "homeInsightsStaleOnDay": "Тренды обновлялись {day}. Синхронизируйте устройство, чтобы обновить их.",
   "@homeInsightsStaleOnDay": {
     "placeholders": {
       "day": {
@@ -3433,7 +3433,7 @@
     }
   },
   "homeInsightsNoVersionStamp": "Тренды обновляются. После синхронизации это занимает около минуты.",
-  "homeSyncBand": "Синхронизировать браслет",
+  "homeSyncBand": "Синхронизировать устройство",
   "homeCalibrating": "Изучаем ваш обычный уровень",
   "homeCalibratingNights": "{have} из {need} ночей",
   "@homeCalibratingNights": {
@@ -3577,7 +3577,7 @@
   "wellnessLoadFailedBody": "Не удалось прочитать сохранённые данные. Ничего не удалено — это сбой чтения, а не отсутствие данных.",
   "homeTryAgain": "Повторить",
   "homeNothingDerivedTitle": "Ночей с оценкой пока нет",
-  "homeNothingDerivedBody": "Наденьте браслет на ночь и откройте приложение утром.",
+  "homeNothingDerivedBody": "Наденьте устройство на ночь и откройте приложение утром.",
   "homeSyncedThrough": "Данные по {when}",
   "@homeSyncedThrough": {
     "placeholders": {
@@ -4059,7 +4059,7 @@
   "sleepDetailNavTitle": "Сон",
   "sleepDetailNoNightTitle": "Нет ночи для просмотра",
   "sleepDetailNoNightBody": "Нет достаточно длинного отрезка записей браслета для расчёта.",
-  "sleepDetailNoNightFix": "Наденьте браслет на ночь и синхронизируйте утром",
+  "sleepDetailNoNightFix": "Наденьте устройство на ночь и синхронизируйте утром",
   "sleepDetailStagesSection": "Стадии",
   "sleepDetailVersusUsualSection": "В сравнении с обычным уровнем",
   "sleepDetailUnusualLastNight": "Необычные показатели прошлой ночи",
@@ -4605,7 +4605,7 @@
   "activitySetupRouteDetail": "Записывается при доступной геолокации и хранится на этом телефоне",
   "activitySetupHeartRateLabel": "Пульс",
   "activitySetupBandConnected": "Браслет подключён",
-  "activitySetupNoBandConnected": "Браслет не подключён",
+  "activitySetupNoBandConnected": "Нет пульса в реальном времени",
   "activitySetupPrivateLabel": "Личная тренировка",
   "activitySetupWorkLabel": "Работа",
   "activitySetupRestLabel": "Отдых",
@@ -4682,7 +4682,7 @@
       }
     }
   },
-  "dayStrainWearBandFix": "Носите браслет в течение дня",
+  "dayStrainWearBandFix": "Носите устройство в течение дня",
   "dayStrainChartTitle": "Нагрузка в течение дня",
   "dayStrainChartFootnote": "Усилие выше вашего обычного темпа бодрствования. Позже может снизиться, если вы вернётесь к этому темпу. По {drawn} записанным минутам бодрствования.",
   "@dayStrainChartFootnote": {
@@ -4740,7 +4740,7 @@
   "activityZonesNoCeilingTitle": "Максимальный пульс ещё не измерен",
   "activityZonesNoCeilingTanakaTail": " Пока максимум не измерен, зоны ниже определяются по возрасту.",
   "activityZonesNoCeilingDefaultBody": "Учитывается только высокий пульс, сохранявшийся 15 секунд во время движения. Односекундный скачок не считается пульсом.",
-  "activityZonesWearBandFix": "Носите браслет на обычных интенсивных тренировках",
+  "activityZonesWearBandFix": "Носите устройство на обычных интенсивных тренировках",
   "activityZonesHighestSeenLabel": "НАИБОЛЬШИЙ ИЗМЕРЕННЫЙ",
   "activityZonesBpmUnit": "уд/мин",
   "activityZonesCeilingOnDate": "за {date}",
@@ -7631,7 +7631,7 @@
   "homeBackToToday": "Вернуться к сегодняшнему дню",
   "homeSomeDataMissingTitle": "Часть сегодняшних данных отсутствует",
   "homeFirstWeekTitle": "Ваши первые недели",
-  "homeFirstWeekWear": "Наденьте браслет на ночь",
+  "homeFirstWeekWear": "Наденьте устройство на ночь",
   "homeFirstWeekSleep": "Сон: утром после первой ночи",
   "homeFirstWeekStrain": "Нагрузка: с {day}-го дня",
   "@homeFirstWeekStrain": {

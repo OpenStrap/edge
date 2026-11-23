@@ -2456,7 +2456,7 @@
   "@readinessDetailNoHistoryBody": {
     "description": "Status card body stating 0 days scored."
   },
-  "readinessDetailWearOvernight": "Wear the band overnight",
+  "readinessDetailWearOvernight": "Wear your device overnight",
   "@readinessDetailWearOvernight": {
     "description": "Fix button label suggesting the user wear the band overnight."
   },
@@ -2889,7 +2889,7 @@
   "@driverBreakdownAbsenceAlgoVersion": {
     "description": "Absence card body when the breakdown is missing because the algorithm version changed and is rebuilding."
   },
-  "driverBreakdownAbsenceStale": "Your trends are out of date. Sync the band to update them.",
+  "driverBreakdownAbsenceStale": "Your trends are out of date. Sync your device to update them.",
   "@driverBreakdownAbsenceStale": {
     "description": "Absence card body when the last stored rollup is too old to show."
   },
@@ -2897,7 +2897,7 @@
   "@driverBreakdownAbsenceNoVersion": {
     "description": "Absence card body when the stored rollup has no version stamp."
   },
-  "driverBreakdownSyncTheBand": "Sync the band",
+  "driverBreakdownSyncTheBand": "Sync your device",
   "@driverBreakdownSyncTheBand": {
     "description": "Absence card action button: sync the band to refresh the rollup."
   },
@@ -2997,7 +2997,7 @@
   "@circadianDetailNoNightsBody": {
     "description": "Empty-state body under circadianDetailNoNightsTitle"
   },
-  "circadianDetailNoNightsFix": "Wear the band overnight",
+  "circadianDetailNoNightsFix": "Wear your device overnight",
   "@circadianDetailNoNightsFix": {
     "description": "Empty-state suggested fix action"
   },
@@ -5823,7 +5823,7 @@
   "@metricDetailNoValueInWindow": {
     "description": "Empty-state body for a multi-day window with no value in it."
   },
-  "metricDetailWearBandFix": "Wear the band overnight to start the series",
+  "metricDetailWearBandFix": "Wear your device overnight to start the series",
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
   },
@@ -7005,7 +7005,7 @@
   "@healthNoBandRecordings": {
     "description": "Vitals empty-state body"
   },
-  "healthSyncTheBand": "Sync the band",
+  "healthSyncTheBand": "Sync your device",
   "@healthSyncTheBand": {
     "description": "Vitals empty-state fix button: sync the band"
   },
@@ -7613,11 +7613,11 @@
   "@homeInsightsRebuildingAlgoVersion": {
     "description": "Reason the cross-day rollup is being rebuilt: the algorithm version changed."
   },
-  "homeInsightsStaleOverWeek": "Your trends were last updated over a week ago. Sync the band to bring them up to date.",
+  "homeInsightsStaleOverWeek": "Your trends were last updated over a week ago. Sync your device to bring them up to date.",
   "@homeInsightsStaleOverWeek": {
     "description": "Reason the cross-day rollup is being rebuilt: the last rollup is more than a week old."
   },
-  "homeInsightsStaleOnDay": "Your trends were last updated on {day}. Sync the band to bring them up to date.",
+  "homeInsightsStaleOnDay": "Your trends were last updated on {day}. Sync your device to bring them up to date.",
   "@homeInsightsStaleOnDay": {
     "description": "Reason the cross-day rollup is being rebuilt: names the day the last rollup was built.",
     "placeholders": {
@@ -7631,7 +7631,7 @@
   "@homeInsightsNoVersionStamp": {
     "description": "Reason the cross-day rollup is being rebuilt: the stored rollup has no version stamp."
   },
-  "homeSyncBand": "Sync the band",
+  "homeSyncBand": "Sync your device",
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
   },
@@ -7843,7 +7843,7 @@
   "@homeNothingDerivedTitle": {
     "description": "Title shown on a first-run day with nothing derived yet."
   },
-  "homeNothingDerivedBody": "Wear the band tonight and open the app in the morning.",
+  "homeNothingDerivedBody": "Wear your device tonight and open the app in the morning.",
   "@homeNothingDerivedBody": {
     "description": "Body shown on a first-run day with nothing derived yet."
   },
@@ -8838,7 +8838,7 @@
   "@sleepDetailNoNightBody": {
     "description": "Status card body explaining why there is no night."
   },
-  "sleepDetailNoNightFix": "Wear the band overnight and sync in the morning",
+  "sleepDetailNoNightFix": "Wear your device overnight and sync in the morning",
   "@sleepDetailNoNightFix": {
     "description": "Suggested fix line on the no-night status card."
   },
@@ -9963,7 +9963,7 @@
   "@activitySetupBandConnected": {
     "description": "Detail text when the band is connected, shown under the heart rate row"
   },
-  "activitySetupNoBandConnected": "No band connected",
+  "activitySetupNoBandConnected": "No live heart rate",
   "@activitySetupNoBandConnected": {
     "description": "Detail text when no band is connected, shown under the heart rate row"
   },
@@ -10138,7 +10138,7 @@
       }
     }
   },
-  "dayStrainWearBandFix": "Wear the band through the day",
+  "dayStrainWearBandFix": "Wear your device through the day",
   "@dayStrainWearBandFix": {
     "description": "Suggested fix action on the no-strain-trace card, shown when the band never saw the day"
   },
@@ -10255,7 +10255,7 @@
   "@activityZonesNoCeilingDefaultBody": {
     "description": "Default explanation of the 15-second hold rule for a measured ceiling, shown when no other reason was given"
   },
-  "activityZonesWearBandFix": "Wear the band for your normal hard sessions",
+  "activityZonesWearBandFix": "Wear your device for your normal hard sessions",
   "@activityZonesWearBandFix": {
     "description": "Suggested fix action on the no-ceiling card"
   },
@@ -15975,7 +15975,7 @@
   "@homeFirstWeekTitle": {
     "description": "Today tab: card saying when each score first appears."
   },
-  "homeFirstWeekWear": "Wear the band tonight",
+  "homeFirstWeekWear": "Wear your device tonight",
   "@homeFirstWeekWear": {
     "description": "First weeks card step."
   },

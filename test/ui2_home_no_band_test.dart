@@ -38,7 +38,7 @@ void main() {
 
     expect(find.text('No band is paired'), findsOneWidget);
     expect(find.text('Pair a band'), findsOneWidget);
-    expect(find.text('Sync the band'), findsNothing);
+    expect(find.text('Sync your device'), findsNothing);
 
     await t.tap(find.text('Pair a band'));
     await t.pump();

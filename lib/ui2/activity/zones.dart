@@ -392,7 +392,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
         // The hard-session instruction belongs to the hold gate alone.
         fix: why == null
             ? (l?.activityZonesWearBandFix ??
-                'Wear the band for your normal hard sessions')
+                'Wear your device for your normal hard sessions')
             : '',
         icon: LucideIcons.heartPulse,
       );

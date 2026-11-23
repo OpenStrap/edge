@@ -772,7 +772,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   l?.sleepDetailNoNightBody ??
                   'No stretch of band recordings long enough to score.'),
           fix: rejected ? '' : (l?.sleepDetailNoNightFix ??
-              'Wear the band overnight and sync in the morning'),
+              'Wear your device overnight and sync in the morning'),
           icon: rejected ? LucideIcons.undo2 : LucideIcons.moon,
         ),
         // Undo goes back to automatic, which needs the whole night window.

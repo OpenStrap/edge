@@ -1012,9 +1012,9 @@ class _MetricDetailState extends State<MetricDetail> {
             fix: all.isEmpty
                 ? (kDaytimeMetricKeys.contains(widget.metricKey)
                     ? (l?.dayStrainWearBandFix ??
-                        'Wear the band through the day')
+                        'Wear your device through the day')
                     : (l?.metricDetailWearBandFix ??
-                        'Wear the band overnight to start the series'))
+                        'Wear your device overnight to start the series'))
                 : '',
             icon: spec.icon,
           ),

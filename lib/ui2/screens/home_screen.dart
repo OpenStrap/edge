@@ -632,12 +632,12 @@ StatusCard? staleInsightsCard(
           'Updating after the latest app update.',
       'stale' => built == null || built.isEmpty
           ? (l?.homeInsightsStaleOverWeek ??
-              'Your trends were last updated over a week ago. Sync the band to bring them up to date.')
+              'Your trends were last updated over a week ago. Sync your device to bring them up to date.')
           : (l?.homeInsightsStaleOnDay(prettyDay(built, l)) ??
-              'Your trends were last updated on ${prettyDay(built, l)}. Sync the band to bring them up to date.'),
+              'Your trends were last updated on ${prettyDay(built, l)}. Sync your device to bring them up to date.'),
       _ => l?.homeInsightsNoVersionStamp ?? 'Your trends are being updated. This takes a minute after a sync.',
     },
-    fix: onSync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+    fix: onSync == null ? '' : (l?.homeSyncBand ?? 'Sync your device'),
     icon: LucideIcons.refreshCw,
     onFix: onSync,
   );
@@ -2353,10 +2353,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           ? (l?.homeNothingDerivedTitle ?? 'No nights scored yet')
           : (l?.homeNothingTodayTitle ?? 'Nothing recorded for today'),
       d.heldOverNight == null
-          ? (l?.homeNothingDerivedBody ?? 'Wear the band tonight and open the app in the morning.')
+          ? (l?.homeNothingDerivedBody ?? 'Wear your device tonight and open the app in the morning.')
           : (l?.homeNothingTodayBody(prettyDay(d.heldOverNight, l)) ??
               'Last scored night: ${prettyDay(d.heldOverNight, l)}.'),
-      fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+      fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync your device'),
       icon: LucideIcons.watch,
       onFix: sync == null ? null : () => _tapSync(sync),
     );
@@ -2426,8 +2426,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             final sync = syncOf(c);
             return StatusCard(
               l?.homeNothingDerivedTitle ?? 'No nights scored yet',
-              l?.homeNothingDerivedBody ?? 'Wear the band tonight and open the app in the morning.',
-              fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+              l?.homeNothingDerivedBody ?? 'Wear your device tonight and open the app in the morning.',
+              fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync your device'),
               icon: LucideIcons.watch,
               onFix: sync == null ? null : () => _tapSync(sync),
             );
@@ -3158,7 +3158,7 @@ Widget firstWeekCard(BuildContext c,
       Text(l?.homeFirstWeekTitle ?? 'Your first weeks',
           style: F.head.copyWith(color: p.ink)),
       const SizedBox(height: S.x2),
-      step(days > 0, l?.homeFirstWeekWear ?? 'Wear the band tonight'),
+      step(days > 0, l?.homeFirstWeekWear ?? 'Wear your device tonight'),
       step(days > 0,
           l?.homeFirstWeekSleep ?? 'Sleep: the morning after your first night'),
       step(strainScored,

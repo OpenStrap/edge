@@ -20,8 +20,8 @@ Future<void> _pump(WidgetTester t, String key) async {
   await t.pumpAndSettle();
 }
 
-const _overnight = 'Wear the band overnight to start the series';
-const _daytime = 'Wear the band through the day';
+const _overnight = 'Wear your device overnight to start the series';
+const _daytime = 'Wear your device through the day';
 
 // Written out, not read from kDaytimeMetricKeys: a key dropped from the set
 // must fail here rather than quietly lose its test.

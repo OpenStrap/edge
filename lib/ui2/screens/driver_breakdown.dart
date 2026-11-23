@@ -522,11 +522,11 @@ StatusCard driverAbsenceCard(
         'algo_version' => l?.driverBreakdownAbsenceAlgoVersion ??
             'The way recovery is worked out changed in the last update. Your days are being recalculated.',
         'stale' => l?.driverBreakdownAbsenceStale ??
-            'Your trends are out of date. Sync the band to update them.',
+            'Your trends are out of date. Sync your device to update them.',
         _ => l?.driverBreakdownAbsenceNoVersion ??
             'Your trends are being updated. This takes a minute after a sync.',
       },
-      fix: onSync == null ? '' : (l?.driverBreakdownSyncTheBand ?? 'Sync the band'),
+      fix: onSync == null ? '' : (l?.driverBreakdownSyncTheBand ?? 'Sync your device'),
       onFix: onSync,
       icon: LucideIcons.refreshCw,
     );

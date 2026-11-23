@@ -381,7 +381,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
               ? StatusCard(
                   l?.readinessDetailNoHistoryTitle ?? 'No recovery history',
                   l?.readinessDetailNoHistoryBody ?? '0 days scored.',
-                  fix: l?.readinessDetailWearOvernight ?? 'Wear the band overnight',
+                  fix: l?.readinessDetailWearOvernight ?? 'Wear your device overnight',
                   icon: LucideIcons.chartLine,
                 )
               : Surface(child: _history(c, d)),

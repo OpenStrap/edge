@@ -941,7 +941,7 @@ void main() {
       await show(const DayStrainData(wornMin: 1274, coveragePct: 89));
       expect(find.textContaining('scored night'), findsNothing,
           reason: 'the night WAS scored — a cause nobody gave this screen');
-      expect(find.textContaining('Wear the band through the day'), findsNothing,
+      expect(find.textContaining('Wear your device through the day'), findsNothing,
           reason: 'an action that cannot change the outcome is worse than none');
       expect(find.textContaining('Nothing recorded says why'), findsOneWidget);
 
@@ -957,7 +957,7 @@ void main() {
       // A day the band genuinely never saw is the ONE state where "wear the
       // band" is an instruction rather than an insult, so it survives there.
       await show(const DayStrainData());
-      expect(find.textContaining('Wear the band through the day'),
+      expect(find.textContaining('Wear your device through the day'),
           findsOneWidget);
 
       // MEASURED on whoop-4, 6 of 17 days: `backfillStrainScale` rescales the
@@ -1007,7 +1007,7 @@ void main() {
           source: 'tanaka',
           ceilingNote: 'unknown_device_family:id=none'));
       expect(find.textContaining('HELD'), findsNothing);
-      expect(find.textContaining('Wear the band for your normal hard sessions'),
+      expect(find.textContaining('Wear your device for your normal hard sessions'),
           findsNothing);
       expect(find.textContaining('which strap'), findsWidgets);
 

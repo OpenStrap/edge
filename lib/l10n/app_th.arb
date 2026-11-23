@@ -2192,7 +2192,7 @@
   "@readinessDetailNoHistoryBody": {
     "description": "Status card body stating 0 days scored."
   },
-  "readinessDetailWearOvernight": "สวมสายรัดขณะนอน",
+  "readinessDetailWearOvernight": "สวมอุปกรณ์ขณะนอน",
   "@readinessDetailWearOvernight": {
     "description": "Fix button label suggesting the user wear the band overnight."
   },
@@ -2625,7 +2625,7 @@
   "@driverBreakdownAbsenceAlgoVersion": {
     "description": "Absence card body when the breakdown is missing because the algorithm version changed and is rebuilding."
   },
-  "driverBreakdownAbsenceStale": "แนวโน้มของคุณยังไม่เป็นปัจจุบัน ซิงค์สายรัดเพื่ออัปเดต",
+  "driverBreakdownAbsenceStale": "แนวโน้มของคุณยังไม่เป็นปัจจุบัน ซิงค์อุปกรณ์เพื่ออัปเดต",
   "@driverBreakdownAbsenceStale": {
     "description": "Absence card body when the last stored rollup is too old to show."
   },
@@ -2633,7 +2633,7 @@
   "@driverBreakdownAbsenceNoVersion": {
     "description": "Absence card body when the stored rollup has no version stamp."
   },
-  "driverBreakdownSyncTheBand": "ซิงค์สายรัด",
+  "driverBreakdownSyncTheBand": "ซิงค์อุปกรณ์",
   "@driverBreakdownSyncTheBand": {
     "description": "Absence card action button: sync the band to refresh the rollup."
   },
@@ -2733,7 +2733,7 @@
   "@circadianDetailNoNightsBody": {
     "description": "Empty-state body under circadianDetailNoNightsTitle"
   },
-  "circadianDetailNoNightsFix": "สวมสายรัดขณะนอน",
+  "circadianDetailNoNightsFix": "สวมอุปกรณ์ขณะนอน",
   "@circadianDetailNoNightsFix": {
     "description": "Empty-state suggested fix action"
   },
@@ -5559,7 +5559,7 @@
   "@metricDetailNoValueInWindow": {
     "description": "Empty-state body for a multi-day window with no value in it."
   },
-  "metricDetailWearBandFix": "สวมสายรัดขณะนอนเพื่อเริ่มมีชุดข้อมูล",
+  "metricDetailWearBandFix": "สวมอุปกรณ์ขณะนอนเพื่อเริ่มมีชุดข้อมูล",
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
   },
@@ -6720,7 +6720,7 @@
   "@healthNoBandRecordings": {
     "description": "Vitals empty-state body"
   },
-  "healthSyncTheBand": "ซิงค์สายรัด",
+  "healthSyncTheBand": "ซิงค์อุปกรณ์",
   "@healthSyncTheBand": {
     "description": "Vitals empty-state fix button: sync the band"
   },
@@ -7328,11 +7328,11 @@
   "@homeInsightsRebuildingAlgoVersion": {
     "description": "Reason the cross-day rollup is being rebuilt: the algorithm version changed."
   },
-  "homeInsightsStaleOverWeek": "อัปเดตแนวโน้มล่าสุดเกินหนึ่งสัปดาห์แล้ว ซิงค์สายรัดเพื่ออัปเดต",
+  "homeInsightsStaleOverWeek": "อัปเดตแนวโน้มล่าสุดเกินหนึ่งสัปดาห์แล้ว ซิงค์อุปกรณ์เพื่ออัปเดต",
   "@homeInsightsStaleOverWeek": {
     "description": "Reason the cross-day rollup is being rebuilt: the last rollup is more than a week old."
   },
-  "homeInsightsStaleOnDay": "อัปเดตแนวโน้มล่าสุดเมื่อ {day} ซิงค์สายรัดเพื่ออัปเดต",
+  "homeInsightsStaleOnDay": "อัปเดตแนวโน้มล่าสุดเมื่อ {day} ซิงค์อุปกรณ์เพื่ออัปเดต",
   "@homeInsightsStaleOnDay": {
     "description": "Reason the cross-day rollup is being rebuilt: names the day the last rollup was built.",
     "placeholders": {
@@ -7346,7 +7346,7 @@
   "@homeInsightsNoVersionStamp": {
     "description": "Reason the cross-day rollup is being rebuilt: the stored rollup has no version stamp."
   },
-  "homeSyncBand": "ซิงค์สายรัด",
+  "homeSyncBand": "ซิงค์อุปกรณ์",
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
   },
@@ -7558,7 +7558,7 @@
   "@homeNothingDerivedTitle": {
     "description": "Title shown on a first-run day with nothing derived yet."
   },
-  "homeNothingDerivedBody": "สวมสายรัดคืนนี้ แล้วเปิดแอปตอนเช้า",
+  "homeNothingDerivedBody": "สวมอุปกรณ์คืนนี้ แล้วเปิดแอปตอนเช้า",
   "@homeNothingDerivedBody": {
     "description": "Body shown on a first-run day with nothing derived yet."
   },
@@ -8550,7 +8550,7 @@
   "@sleepDetailNoNightBody": {
     "description": "Status card body explaining why there is no night."
   },
-  "sleepDetailNoNightFix": "สวมสายรัดขณะนอนแล้วซิงค์ตอนเช้า",
+  "sleepDetailNoNightFix": "สวมอุปกรณ์ขณะนอนแล้วซิงค์ตอนเช้า",
   "@sleepDetailNoNightFix": {
     "description": "Suggested fix line on the no-night status card."
   },
@@ -9672,7 +9672,7 @@
   "@activitySetupBandConnected": {
     "description": "Detail text when the band is connected, shown under the heart rate row"
   },
-  "activitySetupNoBandConnected": "ไม่มีสายรัดเชื่อมต่อ",
+  "activitySetupNoBandConnected": "ไม่มีอัตราการเต้นของหัวใจแบบสด",
   "@activitySetupNoBandConnected": {
     "description": "Detail text when no band is connected, shown under the heart rate row"
   },
@@ -9844,7 +9844,7 @@
       }
     }
   },
-  "dayStrainWearBandFix": "สวมสายรัดตลอดวัน",
+  "dayStrainWearBandFix": "สวมอุปกรณ์ตลอดวัน",
   "@dayStrainWearBandFix": {
     "description": "Suggested fix action on the no-strain-trace card, shown when the band never saw the day"
   },
@@ -9961,7 +9961,7 @@
   "@activityZonesNoCeilingDefaultBody": {
     "description": "Default explanation of the 15-second hold rule for a measured ceiling, shown when no other reason was given"
   },
-  "activityZonesWearBandFix": "สวมสายรัดระหว่างการออกกำลังกายหนักตามปกติ",
+  "activityZonesWearBandFix": "สวมอุปกรณ์ระหว่างการออกกำลังกายหนักตามปกติ",
   "@activityZonesWearBandFix": {
     "description": "Suggested fix action on the no-ceiling card"
   },
@@ -15676,7 +15676,7 @@
   "@homeFirstWeekTitle": {
     "description": "Today tab: card saying when each score first appears."
   },
-  "homeFirstWeekWear": "สวมสายรัดคืนนี้",
+  "homeFirstWeekWear": "สวมอุปกรณ์คืนนี้",
   "@homeFirstWeekWear": {
     "description": "First weeks card step."
   },
