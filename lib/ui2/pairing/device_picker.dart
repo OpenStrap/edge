@@ -340,10 +340,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
                   'sensors alongside your band. Remove one to add another.');
     }
     if (!mounted) return const PairOutcome.failed('');
-    // The strap pairs only with the key its vendor app issued, and a plain
-    // pair would save a row with none (every sync then ends at once). A
-    // nearby tap opens its key screen instead.
-    if (sensor.entry.id == kHelioStrap.id) {
+    // These pair only with the key their vendor app issued (the Helio Strap,
+    // the Zepp OS devices, Mi Band 4-6 and the first Amazfit watches), and a
+    // plain pair would save a row with none (every sync then ends at once).
+    // A nearby tap opens their key screen instead.
+    if (zeppOsTypedKeyPairFor(sensor.entry.id) != null ||
+        miBandTypedKeyPairFor(sensor.entry.id) != null) {
       await HrsLink.stopScanIfRunning(this);
       final r =
           await _openEntry(sensor.entry, returnOnPair: true, selected: cand);
