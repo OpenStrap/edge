@@ -1624,7 +1624,9 @@ final List<BandEntry> kFramedBands =
 ///
 /// [kMiBand4] is listed under the same owner-accepted risk (owner decision
 /// 2026-11-23): one more FEE1 device, told apart only by the name it
-/// advertises. It sits before [kHelioStrap] so the FEE1 label the picker
+/// advertises. [kMiBand5], [kMiBand6] and the first Amazfit watches
+/// ([kAmazfitBipS] to [kAmazfitGtr]) follow it on the same reasoning. They
+/// sit before [kHelioStrap] so the FEE1 label the picker
 /// shows stays the strap's.
 ///
 /// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
@@ -1645,6 +1647,13 @@ const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kUltrahuman,
   kMiBand234,
   kMiBand4,
+  kMiBand5,
+  kMiBand6,
+  kAmazfitBipS,
+  kAmazfitBipU,
+  kAmazfitGts,
+  kAmazfitGts2,
+  kAmazfitGtr,
   kMiBand7,
   kAmazfitGtr3,
   kAmazfitGtr3Pro,
