@@ -2186,7 +2186,9 @@ const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // REPIN: protocol feat/zepp-family @ d74cbc8 (Huami2021 transport for the
 // Helio Strap, additions only on top of fbadb5b). Its decoders feed the
 // Helio adapter at ingest; WHOOP output unchanged (freeze goldens).
-const String kProtocolPin = 'd74cbc86d3b2cfb22444f638bdf5a76649f96878';
+// REPIN: protocol feat/zepp-family @ f2398ab (#86 head: review fixes to the
+// Huami2021 transport and decoders). Ingest only; WHOOP output unchanged.
+const String kProtocolPin = 'f2398ab77c2a4b5cf2f92b8ec6e111d40dd599ba';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

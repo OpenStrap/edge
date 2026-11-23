@@ -273,7 +273,12 @@ dependencies:
       # fbadb5b: the Huami2021 transport the Helio Strap needs (chunked
       # transport, auth, fetch, record decoders). Additions only; WHOOP decode
       # untouched. Re-point at the merge commit once it lands on protocol main.
-      ref: d74cbc86d3b2cfb22444f638bdf5a76649f96878
+      # REPIN: protocol feat/zepp-family @ f2398ab, PR #86's head: its review
+      # fixes to the same transport (chunk counter wrap, stale first chunk,
+      # short bodies, activity record stride/count, protobuf bounds, nap
+      # stage edge). Also carries #86's legacy-Huami and scale decoders,
+      # unread here.
+      ref: f2398ab77c2a4b5cf2f92b8ec6e111d40dd599ba
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
