@@ -222,6 +222,22 @@ class UnitsController extends ChangeNotifier {
   /// a fixed-point trim, rounds it).
   double weightValue(num kg) => isImperial ? kg / _kgPerLb : kg.toDouble();
 
+  // ── temperature (skin-temp deviation; storage stays °C) ────────────────────
+  /// "°C" / "°F" — the unit label for a temperature figure.
+  String get tempUnit => isImperial ? '°F' : '°C';
+
+  /// An ABSOLUTE temperature in °C → the display unit's value
+  /// (°F = °C·9/5 + 32). For an absolute readout; the only temperature the app
+  /// shows today is a deviation (see [tempDeltaValue]).
+  double tempValue(double celsius) =>
+      isImperial ? celsius * 9 / 5 + 32 : celsius;
+
+  /// A temperature DIFFERENCE / deviation in °C → the display unit's magnitude.
+  /// A delta scales by 9/5 but takes NO +32 offset: a +0.5 °C deviation is
+  /// +0.9 °F, not +32.9 °F. This is what the skin-temperature row uses.
+  double tempDeltaValue(double celsiusDelta) =>
+      isImperial ? celsiusDelta * 9 / 5 : celsiusDelta;
+
   /// The stepper increment for a lift, in kg, given the exercise's own kg
   /// step (see `ExerciseDef.step`) — metric uses it untouched; imperial
   /// snaps to a clean 5 lb plate step rather than a raw conversion (2.5 kg

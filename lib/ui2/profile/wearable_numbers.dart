@@ -24,6 +24,8 @@ import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../l10n/decimal_text.dart';
 import '../../state/prefs.dart';
+import '../../state/units_controller.dart';
+import '../screens/home_screen.dart' show unitsOf;
 import '../ui2.dart';
 import 'profile.dart';
 
@@ -241,24 +243,30 @@ String whyText(AppLocalizations l, String? reason, String device) =>
 
 /// [v] in [row]'s unit, as (number, unit). [device] marks the device's own
 /// value where its unit differs from ours: skin temperature is ours as a
-/// deviation and the device's in °C.
+/// deviation and the device's in °C. [units] converts the absolute °C skin
+/// temperatures to °F for an imperial user (null keeps metric); a delta/SD
+/// value is never a temperature and is left alone.
 (String, String) formatCell(
   AppLocalizations l,
   String row,
   num v, {
   String? method,
   bool device = false,
+  UnitsController? units,
 }) {
   String int0(num x) => x.round().toString();
   String fixed1(num x) => x.toStringAsFixed(1);
+  // An ABSOLUTE skin temperature in °C → the user's unit (°F with the +32
+  // offset for imperial, plain °C otherwise). Not for the deviation/SD row.
+  (String, String) tempCell(num celsius) =>
+      units != null && units.isImperial
+          ? (fixed1(units.tempValue(celsius.toDouble())), units.tempUnit)
+          : (fixed1(celsius), l.wearableUnitCelsius);
   return switch (row) {
     'sleep_window' || 'sleep_stages' || 'naps' => (axisHm(v.toDouble()), ''),
     'efficiency_awakenings' || 'spo2' => (int0(v), l.wearableUnitPct),
     'sleep_debt_need_sri' => (fixed1(v), l.wearableUnitHours),
-    'baselines_load_illness' when _skinTempMethod(method) => (
-        fixed1(v / 100),
-        l.wearableUnitCelsius,
-      ),
+    'baselines_load_illness' when _skinTempMethod(method) => tempCell(v / 100),
     'resting_hr' ||
     'nadir_dip' ||
     'hrr' ||
@@ -266,7 +274,7 @@ String whyText(AppLocalizations l, String? reason, String device) =>
     'hrv' => (int0(v), l.wearableUnitMs),
     'respiratory_rate' => (fixed1(v), l.wearableUnitBrMin),
     'skin_temp' => device
-        ? (fixed1(v), l.wearableUnitCelsius)
+        ? tempCell(v)
         : ('${v > 0 ? '+' : ''}${fixed1(v)}', l.wearableUnitSd),
     'strain' => (displayFixed(v, 1), ''),
     'calories' => (int0(v), l.wearableUnitKcal),
@@ -286,9 +294,10 @@ String whyText(AppLocalizations l, String? reason, String device) =>
 
 /// The confidence line for a cell whose method has a measured [band]
 /// (`validation_bands.dart`), in the row's unit; null with none.
-String? bandText(AppLocalizations l, String row, num? band) {
+String? bandText(AppLocalizations l, String row, num? band,
+    {UnitsController? units}) {
   if (band == null) return null;
-  final (n, unit) = formatCell(l, row, band);
+  final (n, unit) = formatCell(l, row, band, units: units);
   final text = unit.isEmpty ? n : '$n $unit';
   // Readiness is banded only as the partial score, against the same partial
   // score at 1 Hz, never against the full composite.
@@ -345,6 +354,7 @@ class WearableCell extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final l = _l(c);
+    final units = unitsOf(c);
     final cls = _classOf(cell);
     final method = cell['method'] as String?;
     final label = rowLabel(l, row, method: method);
@@ -367,12 +377,12 @@ class WearableCell extends StatelessWidget {
             label: label,
             ours: cls == MetricClass.device
                 ? null
-                : formatCell(l, row, value, method: method),
+                : formatCell(l, row, value, method: method, units: units),
             estimated: cls == MetricClass.estimated,
             provisional: cell['provisional'] == true,
             deviceValue: devValue == null
                 ? null
-                : formatCell(l, row, devValue, device: true),
+                : formatCell(l, row, devValue, device: true, units: units),
             device: device,
             // How ours was made (its source line and band) is on the detail.
             onTap: () => showWearableDetail(c,
@@ -381,7 +391,9 @@ class WearableCell extends StatelessWidget {
         : _OneNumber(
             label: label,
             value: formatCell(l, row, value,
-                method: method, device: cls == MetricClass.device),
+                method: method,
+                device: cls == MetricClass.device,
+                units: units),
             estimated: cls == MetricClass.estimated,
             provisional: cell['provisional'] == true,
             source: sourceLine(l, cls, method, device),
@@ -529,6 +541,7 @@ class WearableDetail extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = _l(c);
+    final units = unitsOf(c);
     final cls = _classOf(cell);
     final method = cell['method'] as String?;
     final value = cell['value'] as num?;
@@ -545,11 +558,12 @@ class WearableDetail extends StatelessWidget {
                   style: F.head.copyWith(color: p.ink)),
               if (value != null && cls != MetricClass.device) ...[
                 const SizedBox(height: S.x4),
-                _Value(formatCell(l, row, value, method: method)),
+                _Value(formatCell(l, row, value, method: method, units: units)),
                 const SizedBox(height: S.x1),
                 Text(sourceLine(l, cls, method, device),
                     style: F.cap.copyWith(color: p.ink3)),
-                if (bandText(l, row, cell['band'] as num?) case final b?) ...[
+                if (bandText(l, row, cell['band'] as num?, units: units)
+                    case final b?) ...[
                   const SizedBox(height: S.x1),
                   Text(b, style: F.cap.copyWith(color: p.ink3)),
                 ],
@@ -561,7 +575,8 @@ class WearableDetail extends StatelessWidget {
               devValue == null
                   ? Text(l.wearableDetailNoDeviceValue(device),
                       style: F.body.copyWith(color: p.ink3))
-                  : _Value(formatCell(l, row, devValue, device: true)),
+                  : _Value(
+                      formatCell(l, row, devValue, device: true, units: units)),
             ]),
       ),
     );

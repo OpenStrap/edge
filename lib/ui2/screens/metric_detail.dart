@@ -421,8 +421,10 @@ const _specs = <String, MetricSpec>{
               'units, so they are not charted together.',
     suppressFix: 'Shown tonight on Vitals',
     method: 'The night\'s mean raw sensor reading, expressed as distance from '
-        'your own recent nights. There is no conversion to degrees anywhere in '
-        'the path.',
+        'your own recent nights. The charted trend is that uncalibrated ADC '
+        'distance, with no conversion to degrees. (A WHOOP 5 reads in real '
+        'degrees; its nightly deviation is shown on Vitals in your temperature '
+        'unit instead.)',
     citation: 'Relative only — uncalibrated ADC',
     requires: {InputSignal.skinTempRaw},
   ),

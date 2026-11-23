@@ -102,4 +102,35 @@ void main() {
       expect(UnitsController.seed(UnitSystem.imperial).loadStepKg(0), 0);
     });
   });
+
+  group('temperature display (storage stays °C)', () {
+    final m = UnitsController.seed(UnitSystem.metric);
+    final i = UnitsController.seed(UnitSystem.imperial);
+
+    test('unit label follows the system', () {
+      expect(m.tempUnit, '°C');
+      expect(i.tempUnit, '°F');
+    });
+
+    test('metric leaves both absolute and delta temperatures untouched', () {
+      expect(m.tempValue(33.0), 33.0);
+      expect(m.tempDeltaValue(0.5), 0.5);
+      expect(m.tempDeltaValue(-0.3), -0.3);
+    });
+
+    test('an ABSOLUTE temperature converts with the +32 offset', () {
+      // 0 °C = 32 °F, 37 °C = 98.6 °F.
+      expect(i.tempValue(0), closeTo(32.0, 1e-9));
+      expect(i.tempValue(37.0), closeTo(98.6, 1e-9));
+    });
+
+    test('a DEVIATION/delta scales by 9/5 but takes NO offset', () {
+      // The whole point: +0.5 °C deviation is +0.9 °F, not +32.9 °F.
+      expect(i.tempDeltaValue(0.5), closeTo(0.9, 1e-9));
+      expect(i.tempDeltaValue(-0.3), closeTo(-0.54, 1e-9));
+      // Sign is preserved (scaling by a positive factor).
+      expect(i.tempDeltaValue(0).sign, 0);
+      expect(i.tempDeltaValue(1).isNegative, isFalse);
+    });
+  });
 }
