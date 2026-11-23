@@ -502,6 +502,7 @@
   "readinessDetailNotAvailable": "no disponible",
   "readinessDetailContributionNotReported": "contribución no notificada",
   "readinessDetailRelativeUncalibrated": "relativa, sin calibrar",
+  "readinessDetailFromDeviceReadings": "de las propias lecturas de tu dispositivo",
   "readinessDetailWithinSpread": "sí, dentro de tu rango habitual",
   "readinessDetailWeightPercent": "{pct}% de peso",
   "dayStepsTitle": "Pasos",

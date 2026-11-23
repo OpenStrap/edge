@@ -1933,7 +1933,12 @@ import 'vendor_sleep.dart';
 // beside the gen5 chip counter: the day's steps are the larger of it and the
 // windowed band/phone sum, never their total. Wearable days only; a band day
 // has no active-wearable count.
-const int kAlgoVersion = 130;
+// 130 → 131 (no analytics change): the readiness breakdown (glass-box) ranks
+// a PE-1 night's HRV too. A night with no beat RMSSD but the device's own
+// readings (`ln_rmssd_dev`) feeds exp(ln_rmssd_dev) as the HRV row, against
+// the same device family's earlier nights only, tagged source device_rmssd.
+// Cross-day only; a band night has no `ln_rmssd_dev`, so nothing else moves.
+const int kAlgoVersion = 131;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2315,6 +2320,7 @@ bool pinnableNight({required int wakeSec, int? onsetSec}) {
 const _crossDayVendorScoreKeys = [
   'rhr',
   'rmssd',
+  'rmssd_dev',
   'readiness',
   'resp_rate',
   'skin_temp_z',
@@ -9026,6 +9032,9 @@ class DerivationEngine {
       'date': date,
       'rhr': col('rhr') ?? sc('rhr'),
       'rmssd': col('rmssd') ?? sc('rmssd'),
+      // PE-1: the device's own night RMSSD (ms), for the breakdown's HRV row
+      // on a night with no beats. Only admitted families ever bank it.
+      if (sc('ln_rmssd_dev') case final ln?) 'rmssd_dev': math.exp(ln),
       'readiness': col('readiness') ?? sc('readiness'),
       'resp_rate': sc('resp_rate'),
       'skin_temp_z': sc('skin_temp_z'),

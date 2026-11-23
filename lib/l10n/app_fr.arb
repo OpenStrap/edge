@@ -500,6 +500,7 @@
   "readinessDetailNotAvailable": "non disponible",
   "readinessDetailContributionNotReported": "contribution non indiquée",
   "readinessDetailRelativeUncalibrated": "relative, non calibrée",
+  "readinessDetailFromDeviceReadings": "d’après les propres mesures de votre appareil",
   "readinessDetailWithinSpread": "dans votre écart habituel",
   "readinessDetailWeightPercent": "{pct} % de poids",
   "dayStepsTitle": "Pas",

@@ -1050,6 +1050,7 @@
   "readinessDetailNotAvailable": "недоступно",
   "readinessDetailContributionNotReported": "вклад не указан",
   "readinessDetailRelativeUncalibrated": "относительное, без калибровки",
+  "readinessDetailFromDeviceReadings": "по собственным измерениям устройства",
   "readinessDetailWithinSpread": "да, в пределах обычного диапазона",
   "readinessDetailOutsideRange": "нет, вне обычного диапазона",
   "readinessDetailLiftingScore": "повышает оценку",

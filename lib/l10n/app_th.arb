@@ -2264,6 +2264,7 @@
     "description": "Breakdown row tag: input was used but its numeric contribution was not reported."
   },
   "readinessDetailRelativeUncalibrated": "ค่าเชิงสัมพัทธ์ ยังไม่ปรับเทียบ",
+  "readinessDetailFromDeviceReadings": "จากค่าที่อุปกรณ์ของคุณวัดเอง",
   "@readinessDetailRelativeUncalibrated": {
     "description": "Breakdown row tag on the temperature input: it is a relative, uncalibrated sensor deviation."
   },

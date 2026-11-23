@@ -282,8 +282,20 @@ Map<String, dynamic> buildCrossDayBundle(
   // rmssd higher-better; rhr/resp lower-better; skin_temp_z lower-ABS better
   // (so we orient temp by its absolute deviation, lower=better).
   final gbInputs = <ana.GlassBoxInput>[];
+  // PE-1: a night with no beat RMSSD but the device's own readings (the
+  // readiness headline's HRV input then) ranks that night value against the
+  // same DEVICE family's earlier nights only: two wearables can share a
+  // method family, and their RMSSD figures are not one quantity.
+  final family = n == 0 ? null : days[n - 1]['skin_temp_family'];
+  final rmssdDevOwn = <double?>[
+    for (final d in days)
+      d['skin_temp_family'] == family ? _numOrNull(d['rmssd_dev']) : null,
+  ];
   final gbRmssd = _glassInput('hrv', rmssdOwn, ana.wHrv, lowerIsBetter: false);
-  if (gbRmssd != null) gbInputs.add(gbRmssd);
+  final gbRmssdDev = gbRmssd == null
+      ? _glassInput('hrv', rmssdDevOwn, ana.wHrv, lowerIsBetter: false)
+      : null;
+  if (gbRmssd ?? gbRmssdDev case final hrv?) gbInputs.add(hrv);
   final gbRhr =
       _glassInput('rhr', rhrOwn, ana.wRhr, lowerIsBetter: true, quantum: 1);
   if (gbRhr != null) gbInputs.add(gbRhr);
@@ -676,7 +688,8 @@ Map<String, dynamic> buildCrossDayBundle(
     // nights" without re-deriving it from the note.
     'circadian_coverage': circadian.coverage,
     'sleep_debt': sleepDebt.toJson((v) => v.toJson()),
-    'readiness_glassbox': glassBox.toJson((v) => v.toJson()),
+    'readiness_glassbox': _tagDeviceHrv(
+        glassBox.toJson((v) => v.toJson()), gbRmssdDev != null),
     'brv': brv.toJson((v) => v.toJson()),
     // ── Coaching + fitness (forward-looking, today) ──
     'sleep_coach': <String, dynamic>{
@@ -1032,6 +1045,18 @@ Map<String, dynamic> _pctOfYou(List<double?> series, ana.Better better) {
 /// Build a GlassBoxInput for the LAST value vs the all-but-last history. Returns
 /// null when there is no value tonight (so the input is simply absent — the
 /// package reweights over the inputs that ARE present, never zero-filling).
+/// Marks the breakdown's HRV row `source: device_rmssd` when it was the
+/// device's own readings, so the row can say whose number it ranked.
+Map<String, dynamic> _tagDeviceHrv(Map<String, dynamic> gb, bool device) {
+  final rows = (gb['value'] is Map) ? (gb['value'] as Map)['breakdown'] : null;
+  if (device && rows is List) {
+    for (final r in rows) {
+      if (r is Map && r['label'] == 'hrv') r['source'] = 'device_rmssd';
+    }
+  }
+  return gb;
+}
+
 ana.GlassBoxInput? _glassInput(
   String label,
   List<double?> series,

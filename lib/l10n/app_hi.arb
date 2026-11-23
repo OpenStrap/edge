@@ -500,6 +500,7 @@
   "readinessDetailNotAvailable": "उपलब्ध नहीं",
   "readinessDetailContributionNotReported": "योगदान की रिपोर्ट नहीं मिली",
   "readinessDetailRelativeUncalibrated": "सापेक्ष, अंशांकित नहीं",
+  "readinessDetailFromDeviceReadings": "आपके डिवाइस की अपनी रीडिंग से",
   "readinessDetailWithinSpread": "आपकी सामान्य सीमा के भीतर",
   "readinessDetailWeightPercent": "{pct}% भार",
   "dayStepsTitle": "कदम",

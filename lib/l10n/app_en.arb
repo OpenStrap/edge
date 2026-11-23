@@ -2531,6 +2531,10 @@
   "@readinessDetailRelativeUncalibrated": {
     "description": "Breakdown row tag on the temperature input: it is a relative, uncalibrated sensor deviation."
   },
+  "readinessDetailFromDeviceReadings": "from your device's own readings",
+  "@readinessDetailFromDeviceReadings": {
+    "description": "Breakdown row tag on the HRV input when it was the wearable's own RMSSD readings, not beat-derived."
+  },
   "readinessDetailWithinSpread": "yes, within your usual range",
   "@readinessDetailWithinSpread": {
     "description": "Breakdown row tag: the input's change was within the user's usual spread (below the smallest-worthwhile-change threshold)."

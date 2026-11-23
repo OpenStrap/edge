@@ -1036,4 +1036,47 @@ void _wiredFamilies() {
       expect(pct(b, 'rmssd')['n'], 49);
     });
   });
+
+  group('PE-1: a device-HRV night has an HRV row', () {
+    const methods = {'helio_strap': 'hr_1min', 'other': 'hr_1min'};
+
+    // 20 nights of another hr_1min wearable whose device RMSSD runs ~30 ms
+    // higher, then 20 helio nights. No night has beat RMSSD.
+    List<Map<String, dynamic>> nights() {
+      final days = _synthDays(40);
+      for (var i = 0; i < days.length; i++) {
+        final helio = i >= 20;
+        days[i]['skin_temp_family'] = helio ? 'helio_strap' : 'other';
+        days[i]['rmssd'] = null;
+        days[i]['rmssd_dev'] = (helio ? 40.0 : 70.0) + ((i % 5) - 2) * 2.0;
+      }
+      days.last['rmssd_dev'] = 40.0;
+      return days;
+    }
+
+    Map hrvRow(Map<String, dynamic> b) =>
+        ((((b['readiness_glassbox'] as Map)['value'] as Map)['breakdown']
+                as List)
+            .cast<Map>())
+            .firstWhere((m) => m['label'] == 'hrv');
+
+    test('ranked against the same device only, tagged as its readings', () {
+      final row = hrvRow(
+          buildCrossDayBundle(nights(), const {}, methodFamilies: methods));
+      expect(row['source'], 'device_rmssd');
+      // Tonight is helio's median. Against the other wearable's ~70 ms it
+      // would rank at the bottom.
+      expect(row['percentile_of_you'], greaterThan(40));
+    });
+
+    test('beats win: a night with beat RMSSD is not tagged', () {
+      final days = nights();
+      for (final d in days) {
+        d['rmssd'] = 45.0 + ((days.indexOf(d) % 5) - 2);
+      }
+      final row = hrvRow(
+          buildCrossDayBundle(days, const {}, methodFamilies: methods));
+      expect(row.containsKey('source'), isFalse);
+    });
+  });
 }

@@ -534,6 +534,7 @@
   "readinessDetailNotAvailable": "nicht verfügbar",
   "readinessDetailContributionNotReported": "Beitrag nicht angegeben",
   "readinessDetailRelativeUncalibrated": "relativ, unkalibriert",
+  "readinessDetailFromDeviceReadings": "aus den eigenen Messwerten deines Geräts",
   "readinessDetailWithinSpread": "innerhalb deiner üblichen Spanne",
   "readinessDetailOutsideRange": "nein, außerhalb deines üblichen Bereichs",
   "readinessDetailLiftingScore": "hebt deinen Score",

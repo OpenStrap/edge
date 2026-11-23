@@ -500,6 +500,7 @@
   "readinessDetailNotAvailable": "不可用",
   "readinessDetailContributionNotReported": "未报告贡献值",
   "readinessDetailRelativeUncalibrated": "相对值，未校准",
+  "readinessDetailFromDeviceReadings": "来自设备自身的读数",
   "readinessDetailWithinSpread": "在你的常规波动范围内",
   "readinessDetailWeightPercent": "权重 {pct}%",
   "dayStepsTitle": "步数",

@@ -75,4 +75,16 @@ void main() {
         edge: wake, imported: {'2026-09-01'})!;
     expect(own['rhr'], 62.0);
   });
+
+  test("PE-1: the device's night RMSSD rides along in ms, only when banked", () {
+    final p = payload();
+    (p['scalars'] as Map)['ln_rmssd_dev'] = 3.5;
+    final r = rec(row('2026-09-02', finalized: 1), p, edge: wake)!;
+    expect(r['rmssd_dev'], closeTo(33.115, 0.001));
+    expect(rec(row('2026-09-02', finalized: 1), payload(), edge: wake)!
+        .containsKey('rmssd_dev'), isFalse);
+    final imp = rec(row('2026-09-01', finalized: 1), p,
+        edge: wake, imported: {'2026-09-01'})!;
+    expect(imp['rmssd_dev'], isNull);
+  });
 }
