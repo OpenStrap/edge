@@ -254,3 +254,77 @@ class MiScaleAdapter extends BandAdapter {
         attribution: entry.label,
       );
 }
+
+/// The Amazfit Scale (see `amazfit_scale.dart` in `protocol`): set its clock
+/// in UTC, then collect finished weighings from its live records until it
+/// goes quiet. LIVE ONLY: the stored history and its acknowledgement (which
+/// is presumed to delete it) are never touched, and [GattBandLink] refuses
+/// every write but the clock. No user is selected on the scale; whether it
+/// sends a weighing without one is not established.
+///
+/// EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one.
+class AmazfitScaleAdapter extends BandAdapter {
+  @override
+  BandEntry get entry => kAmazfitScale;
+  final int Function() nowSeconds;
+  final Duration firstWait, quiet, budget;
+
+  AmazfitScaleAdapter({
+    int Function()? nowSeconds,
+    this.firstWait = const Duration(seconds: 20),
+    this.quiet = const Duration(seconds: 5),
+    this.budget = const Duration(seconds: 40),
+  }) : nowSeconds = nowSeconds ??
+            (() => DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
+  @override
+  Map<InputSignal, Duration> get signals => const {};
+
+  @override
+  Stream<BandEvent> run(BandLink link) async* {
+    final clock = Stopwatch()..start();
+    final got = <(int, Uint8List)>[];
+    final arrived = StreamController<void>();
+    final sub = link.notify(kAmazfitScaleMeasureChar).listen((r) {
+      got.add((r.$1, Uint8List.fromList(r.$2)));
+      arrived.add(null);
+    });
+    try {
+      final now =
+          DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000, isUtc: true);
+      final ok =
+          await link.write(kAmazfitScaleClockChar, miScaleClockValue(now));
+      link.log('amazfit scale: set clock: $ok');
+      await collectUntilQuiet(arrived.stream, firstWait, quiet,
+          clock: clock, until: budget);
+    } finally {
+      await sub.cancel();
+      unawaited(arrived.close());
+    }
+    if (got.isEmpty) return;
+    yield SampleBatch(const [], raw: [for (final (_, b) in got) b]);
+
+    // One weight per stamp: a weighing may be repeated across records.
+    final weights = <int, (DateTime, double)>{};
+    final nowSec = nowSeconds();
+    for (final (atSec, b) in got) {
+      for (final r in parseAmazfitScaleRecords(b)) {
+        if (r.kg < kWeightMinKg || r.kg > kWeightMaxKg) continue;
+        final at = wallClockOr(r.at, atSec, nowSec, utc: true);
+        weights.putIfAbsent(at.millisecondsSinceEpoch, () => (at, r.kg));
+      }
+    }
+    if (weights.isEmpty) return;
+    yield VendorScalars([
+      for (final (at, kg) in weights.values)
+        Observation(
+          at: at,
+          sourceKind: ObservationSource.vendor,
+          key: 'weight',
+          value: double.parse(kg.toStringAsFixed(2)),
+          unit: 'kg',
+          attribution: entry.label,
+        ),
+    ]);
+  }
+}

@@ -15,7 +15,8 @@ void main() {
         if (e.role == DeviceRole.sensor) e.id,
     };
     expect(sensors,
-        {'ble_hrs', 'polar_pmd', 'thermometer', 'miscale_bc', 'miscale2'});
+        {'ble_hrs', 'polar_pmd', 'thermometer', 'miscale_bc', 'miscale2',
+          'amazfit_scale'});
   });
 
   test('every other entry is a band, including both WHOOPs', () {

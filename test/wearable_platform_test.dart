@@ -71,6 +71,7 @@ void main() {
       'thermometer': DeviceCategory.healthMeasurement,
       'miscale_bc': DeviceCategory.healthMeasurement,
       'miscale2': DeviceCategory.healthMeasurement,
+      'amazfit_scale': DeviceCategory.healthMeasurement,
     });
     expect(categoryOf('nothing-we-speak'), isNull);
   });

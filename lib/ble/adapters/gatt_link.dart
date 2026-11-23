@@ -291,6 +291,14 @@ class GattBandLink implements BandLink {
       log('REFUSED: a Mi scale history write other than request, send, stop.');
       return Future.value(false);
     }
+    // An Amazfit Scale takes only its clock: its history acknowledgement is
+    // presumed to delete the stored weighings, and its settings channel can
+    // drop the users bound to it.
+    if (entry.id == kAmazfitScale.id &&
+        !gattUuidMatches(characteristicUuid, Guid(kAmazfitScaleClockChar))) {
+      log('REFUSED: an Amazfit Scale write other than its clock.');
+      return Future.value(false);
+    }
     // A Coros link is read-only. Its vendor channel takes unauthenticated
     // commands (a factory reset, a Bluetooth-address rotation), and nothing
     // here has a reason to write to the watch, so every write is refused

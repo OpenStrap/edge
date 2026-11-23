@@ -32,6 +32,7 @@ const Map<String, String> kPinnedOfficialHost = <String, String>{
   'garmin': 'support.garmin.com',
   'miscale_bc': 'www.mi.com', // Mi Body Composition Scale row
   'miscale2': 'www.mi.com', // Mi Smart Scale 2 row
+  'amazfit_scale': 'support.amazfit.com',
 };
 
 /// Exact reviewed URLs where a wrong page was found in review.
@@ -100,4 +101,5 @@ const Set<String> kPairingFollowUp = <String>{
   'thermometer',
   'miscale_bc',
   'miscale2',
+  'amazfit_scale',
 };
