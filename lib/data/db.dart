@@ -10909,6 +10909,14 @@ class LocalDb {
                 'FROM $_rawArchiveLegacy WHERE device_id = ?' : ''})',
         [wearableDeviceId, if (legacyArchive) wearableDeviceId],
       );
+      // Its own daily step count is the day's steps when it counted more
+      // ([deviceDaySteps]), and a sync can bring a new count with no new HR.
+      await add(
+        'wearable_steps',
+        "SELECT ts_ms, value FROM observation WHERE device_id = ? "
+            "AND date = ? AND key = 'steps' ORDER BY ts_ms",
+        [wearableDeviceId, dayId],
+      );
     }
     await add(
       'baselines',
