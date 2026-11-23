@@ -157,7 +157,9 @@ void main() {
       expect(await DerivationEngine().runDays(profile, {dayId}, force: true), 0);
       await LocalDb.setCursor(wearableEnabledCursor(kAmazfitGts2.id), '1');
       for (var i = 0; i < 2; i++) {
-        expect(await DerivationEngine().runDays(profile, dayIds, force: true), 4);
+        // The first pass also re-scores the day owed a quiet level (+1).
+        expect(await DerivationEngine().runDays(profile, dayIds, force: true),
+            i == 0 ? 5 : 4);
       }
       final cells = (await dayCells(dayId))!;
       String cls(String row) => cells[row]!['class'] as String;
