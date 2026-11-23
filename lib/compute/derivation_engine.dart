@@ -2179,7 +2179,10 @@ const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // REPIN: protocol main @ fbadb5b (#84 realtime packet decoder, #85 image
 // update payload builders). NO kAlgoVersion bump: neither is read by any
 // derivation; WHOOP output unchanged (freeze goldens).
-const String kProtocolPin = 'fbadb5bd055965d9400e266d6cf42748992ba950';
+// REPIN: protocol feat/zepp-family @ d74cbc8 (Huami2021 transport for the
+// Helio Strap, additions only on top of fbadb5b). Its decoders feed the
+// Helio adapter at ingest; WHOOP output unchanged (freeze goldens).
+const String kProtocolPin = 'd74cbc86d3b2cfb22444f638bdf5a76649f96878';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

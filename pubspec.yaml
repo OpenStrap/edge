@@ -269,7 +269,11 @@ dependencies:
       # truncation semantics, removal of deprecated gen5 APIs). #81 sits on top
       # of #82, so it cannot be pinned alone.
       # protocol main @ #85 merge (image update payload builders).
-      ref: fbadb5bd055965d9400e266d6cf42748992ba950
+      # REPIN: protocol feat/zepp-family @ d74cbc8, one commit on top of
+      # fbadb5b: the Huami2021 transport the Helio Strap needs (chunked
+      # transport, auth, fetch, record decoders). Additions only; WHOOP decode
+      # untouched. Re-point at the merge commit once it lands on protocol main.
+      ref: d74cbc86d3b2cfb22444f638bdf5a76649f96878
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
