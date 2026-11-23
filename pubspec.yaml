@@ -276,8 +276,8 @@ dependencies:
       # REPIN: protocol feat/zepp-family @ f2398ab, PR #86's head: its review
       # fixes to the same transport (chunk counter wrap, stale first chunk,
       # short bodies, activity record stride/count, protobuf bounds, nap
-      # stage edge). Also carries #86's legacy-Huami and scale decoders,
-      # unread here.
+      # stage edge). Also carries #86's 8-byte legacy-Huami minutes and the
+      # Amazfit Scale records, read by the Mi Band 4-6 / Amazfit entries.
       # REPIN: protocol feat/zepp-family @ e4ccba2, #86's head: an activity
       # round whose announced count doesn't fit 4- or 8-byte records now
       # decodes to nothing instead of a byte-length guess.
