@@ -82,8 +82,9 @@ void main() {
       () async {
     await LocalDb.setCursor(wearableEnabledCursor(_family), '1');
     for (var i = 0; i < 2; i++) {
-      expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+      // The first pass also re-scores the day owed a quiet level (+1).
+      expect(await DerivationEngine().runDays(_profile, _dayIds, force: true),
+          i == 0 ? 5 : 4);
     }
     final cells = (await dayCells(_dayId))!;
     String cls(String row) => cells[row]!['class'] as String;
