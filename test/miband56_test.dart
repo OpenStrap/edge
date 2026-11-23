@@ -51,8 +51,11 @@ void main() {
         ];
         expect(claims, [id], reason: n);
       }
-      expect(kAskPickerSensors, isNot(contains(kMiBand5)));
-      expect(kAskPickerSensors, isNot(contains(kMiBand6)));
+      for (final e in [kMiBand5, kMiBand6]) {
+        expect(kAskPickerSensors.indexOf(e),
+            inInclusiveRange(0, kAskPickerSensors.indexOf(kHelioStrap) - 1),
+            reason: 'listed, before the strap so FEE1 still reads as it');
+      }
     });
 
     test('links, typed-key pairing, signals', () {

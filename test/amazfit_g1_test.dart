@@ -70,6 +70,7 @@ void main() {
   test('links, typed-key pairing, signals, watch kind', () {
     for (final e in _watches) {
       expect(e.kind, DeviceKind.watch);
+      expect(kAskPickerSensors, contains(e));
       expect(MiBand234Link.forId(e.id)?.entry, e);
       expect(miBandTypedKeyPairFor(e.id), isNotNull);
       expect(kAdapterSignals[e.id],
