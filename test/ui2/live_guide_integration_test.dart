@@ -8,7 +8,8 @@
 // 1 -> 3). Cross-cutting claims: skeletonizes the REAL screen, the real target tap advances the run, wrong navigation shows the off-path card, Exit leaves
 // the app where the user is.
 import '../support/live_guide_focus.dart';
-import '../support/guide_r7_scenes.dart'; import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
+import '../support/guide_r7_scenes.dart'; import 'package:flutter/material.dart'; import 'package:openstrap_edge/sync/paired_device.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell; import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/state/prefs.dart'; import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart' show DayStrainDetail;
@@ -45,7 +46,8 @@ void main() { setUpAll(() async { sqfliteFfiInit(); databaseFactory = databaseFa
     await settleLiveGuide(t); expect(find.byType(HelpScreen), findsOneWidget); expect(find.byKey(HelpScreen.guideRowKey('heart-rate-zones')), findsOneWidget); });
   testWidgets('alarm starts on the real Sleep content and stays matched after revealing its lazy target', (t) async {
     // why: a Sleep title must not be ambiguous with the shell's Sleep button, and revealing Alarm can dispose that title in the lazy list.
-    final app = await pumpLiveGuideApp(t); await app.runner.start(_guide('alarm-schedule'), band: null); await _reveal(t); await _reveal(t);
+    // The alarm buzzes the band, so its door only shows with one paired.
+    final app = await pumpLiveGuideApp(t, paired: PairedDevice('guide', 'guide-band', generation: 'gen4')); await app.runner.start(_guide('alarm-schedule'), band: null); await _reveal(t); await _reveal(t);
     expect(_step(app), 0); expect(_run(app).currentStep!.id, 'open-alarm'); expect(liveGuideFocus, findsOneWidget);
     final target = _overlay(t).targetRect!; expect(target.overlaps(t.getRect(_label(_l(t).settingsAlarmRowTitle))), isTrue);
     expect(target.top, greaterThanOrEqualTo(0)); expect(target.bottom, lessThanOrEqualTo(844)); expect(t.takeException(), isNull); });

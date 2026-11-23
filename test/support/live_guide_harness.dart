@@ -11,7 +11,7 @@ import 'package:openstrap_edge/app.dart' show AppMainShell; import 'package:open
 import 'package:openstrap_edge/state/locale_controller.dart'; import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/data/db.dart'; import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart'; import 'package:openstrap_edge/models/activity_suggestion.dart';
-import 'package:openstrap_edge/state/app_state.dart'; import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/sync/paired_device.dart'; import 'package:openstrap_edge/state/app_state.dart'; import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/state/units_controller.dart'; import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/guides/guide_dim.dart'; import 'package:openstrap_edge/ui2/guides/guide_runner.dart';
 import 'package:openstrap_edge/ui2/theme.dart'; import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
@@ -82,6 +82,7 @@ bool isKnownNextOverflow(FlutterErrorDetails details) { final text = details.toS
 /// Shared-preferences storage is empty and loaded, so the shell opens on Today.
 Future<LiveGuideApp> pumpLiveGuideApp( WidgetTester t, { Widget? home, Locale locale = const Locale('en'), double textScale = 1,
   Size size = const Size(390, 844), GuideRunner? runner, LocalRepository? repo, BleEngine? engine, Brightness brightness = Brightness.light,
+  PairedDevice? paired,
   double devicePixelRatio = 1, GlobalKey? captureKey, CoachConfig? coachConfig, }) async { SharedPreferences.setMockInitialValues(const {}); await Prefs.ensureLoaded();
   // Prefs caches its own instance across tests, while setMockInitialValues replaces the plugin singleton. Seed its synchronous tab read explicitly.
   Prefs.setInt(Prefs.shellTabV2, 0); t.view.physicalSize = size * devicePixelRatio; t.view.devicePixelRatio = devicePixelRatio; addTearDown(t.view.reset);
@@ -89,7 +90,7 @@ Future<LiveGuideApp> pumpLiveGuideApp( WidgetTester t, { Widget? home, Locale lo
   if (repo is GuideFakeRepo || repo == null) { await t.runAsync(() async { final ts = GuideFakeRepo._at(12, 0); await (await LocalDb.instance).rawInsert(
         'INSERT OR REPLACE INTO decoded_onehz (device_id, ts_ms, rec_ts, counter, hr) VALUES (?, ?, ?, ?, ?)', ['', ts * 1000, ts, ts % 100000, 60], ); }); }
   final key = GlobalKey<NavigatorState>(); final guideRunner = runner ?? GuideRunner(navigatorKey: key);
-  final state = AppState.forTesting(engine: engine); state.repo = repo ?? GuideFakeRepo();
+  final state = AppState.forTesting(engine: engine); state.repo = repo ?? GuideFakeRepo(); if (paired != null) state.paired = paired;
   final app = LiveGuideApp(state, guideRunner, runner?.navigatorKey ?? key); addTearDown(app.dispose);
   await t.pumpWidget(MultiProvider( providers: [ if (coachConfig != null) ChangeNotifierProvider<CoachConfig>.value(value: coachConfig), ChangeNotifierProvider<AppState>.value(value: state),
       ChangeNotifierProvider<LocaleController>(create: (_) => LocaleController.seed(locale.languageCode)),
