@@ -1523,6 +1523,12 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
   // device, so the same id; already declared above, listed so the plist
   // test keeps it declared for this entry too. Unverified on a strap (R6).
   'helio_strap': 0x0157,
+  // Mi Band 7 and the GTR 3 / GTS 3 watches: the same maker, the same id.
+  // Unverified on any of them (R6).
+  'zeppos_l66': 0x0157,
+  'zeppos_verona': 0x0157,
+  'zeppos_madrid': 0x0157,
+  'zeppos_zurich': 0x0157,
 };
 
 /// iOS picker names for sensors whose service another sensor shares (FEE1):
