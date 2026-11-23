@@ -362,7 +362,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementCoefficientOfVariationOfPerc71989,
     "Cole–Kripke wake spine + HRV overlay" =>
       l.supplementColeKripkeWakeSpineHRVcd5f37,
-    "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess." =>
+    "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess. A paired wearable's own daily count is the day's steps when it counted more than these, used whole and never added to them." =>
       l.supplementCountedNeverModelledAStepc66896,
     "Creatinine" => l.supplementCreatinined3029a,
     "Your daily recovery score" =>

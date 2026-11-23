@@ -247,7 +247,9 @@ const _specs = <String, MetricSpec>{
         'once, so a session never takes the day from the sensor that carried '
         'the rest of it. There is no 1 Hz estimate — walking cadence sits above what '
         'one sample a second can resolve, so a day with no counter behind it '
-        'reports no steps rather than a guess.',
+        'reports no steps rather than a guess. A paired wearable\'s own daily '
+        'count is the day\'s steps when it counted more than these, used '
+        'whole and never added to them.',
     citation: 'AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)',
     // Deliberately EMPTY — see final-plan §4.6. Steps are resolved by
     // `live_coverage_policy.dart`, which ranks by SPAN not device and credits
