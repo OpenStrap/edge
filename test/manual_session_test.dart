@@ -717,5 +717,18 @@ void main() {
       );
       expect(s.maxHr, 175);
     });
+
+    test('lost contact on a 1 Hz stream is not read as a coarser stream', () {
+      // HR only at 0, 1 and 600 s of a 1 Hz stream: three worn seconds.
+      final t = [for (var i = 0; i <= 600; i++) 9000 + i];
+      final b = [for (var i = 0; i <= 600; i++) i == 0 || i == 1 || i == 600 ? 150 : 0];
+      final s = computeManualSessionStats(
+        hrTs: t,
+        hrBpm: b,
+        profile: const Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm'),
+        hrMax: 190,
+      );
+      expect(s.zoneMinutes.fold<double>(0, (a, b) => a + b), closeTo(0.05, 1e-9));
+    });
   });
 }
