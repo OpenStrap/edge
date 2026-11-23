@@ -228,18 +228,24 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
           const SizedBox(height: 2),
           Text(
               'We collect crash reports and anonymous usage counts, only to fix '
-              'technical problems. No health data, band data or personal '
-              'information is ever included. You can turn this off anytime in '
-              'Settings.',
+              'technical problems. No health data or personal information is '
+              'included, just your phone model, OS and app version, plus the '
+              "band's battery level and connection status. You can turn this "
+              'off anytime in Settings.',
               style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           BigButton('Got it', color: C.indigo, onTap: _done),
           const SizedBox(height: S.x2),
           Center(
             child: Pressable(
-              onTap: () {
-                c.read<AppState>().setTelemetryConsent(false);
-                _done();
+              onTap: () async {
+                final app = c.read<AppState>();
+                try {
+                  await app.setTelemetryConsent(false);
+                } catch (_) {
+                  return; // collection is already off; keep the card so it can be retried
+                }
+                if (mounted) _done();
               },
               semanticLabel: 'Turn off diagnostics',
               child: Text('Turn off',

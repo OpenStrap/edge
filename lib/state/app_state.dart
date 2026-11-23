@@ -1370,10 +1370,12 @@ class AppState extends ChangeNotifier {
   Future<void> setTelemetryConsent(bool on) async {
     telemetryConsent = on;
     consentChosen = true;
+    // Apply before persisting: an opt-out must stop collection now, even if the
+    // preference write below fails.
+    TelemetryService.instance.applyConsent(on);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kTelemetryConsent, on);
     await prefs.setBool(_kConsentChosen, true);
-    TelemetryService.instance.applyConsent(on);
     notifyListeners();
     // Flush only after the terms version is learned, so the first batch is
     // stamped with the live version, not the compiled-in placeholder.

@@ -2397,6 +2397,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         ],
         const SizedBox(height: S.x3),
         const DetectedActivitiesCard(),
+        const TelemetryNotice(),
         if (_loading)
           const Center(child: CircularProgressIndicator())
         else if (_failed)
