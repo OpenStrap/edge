@@ -3,11 +3,14 @@
 // 4- or 8-byte minute records. Histories run through the real link into the
 // real engine.
 
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show BluetoothDevice, Guid;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart' show ReplayBandLink;
 import 'package:openstrap_edge/ble/adapters/miband234.dart';
 import 'package:openstrap_edge/ble/helio_strap_link.dart' show zeppOsTypedKeyPairFor;
+import 'package:openstrap_edge/ble/hrs_link.dart' show HrsLink;
 import 'package:openstrap_edge/ble/miband_link.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/inputs/canonical.dart';
@@ -66,6 +69,30 @@ void main() {
     for (final n in ['amazfit gtr 2', 'amazfit gts 2 mini', 'amazfit bip u pro']) {
       expect(claims(n).where((id) => id.startsWith('huami_')), isEmpty,
           reason: n);
+    }
+  });
+
+  test('a FEE1 advertisement names its own entry, not Mi Band 2/3', () {
+    const names = {
+      'Mi Smart Band 4': 'huami_cinco',
+      'Mi Smart Band 5': 'huami_kongming',
+      'Mi Smart Band 6': 'huami_pangu',
+      'Amazfit GTS 2': 'huami_newton',
+      'Amazfit GTR': 'huami_falcon',
+      'Xiaomi Smart Band 7': 'zeppos_l66',
+      'Amazfit GTR 3': 'zeppos_verona',
+      'Mi Band 3': 'miband234',
+    };
+    for (final MapEntry(key: name, value: id) in names.entries) {
+      final c = HrsLink.candidateFromAd(
+        entries: kBandRegistry,
+        device: BluetoothDevice.fromId('AA:BB:CC:DD:EE:31'),
+        serviceUuids: [Guid(kHuami234Service)],
+        advName: name,
+        platformName: '',
+        rssi: -50,
+      );
+      expect(c?.entryId, id, reason: name);
     }
   });
 
