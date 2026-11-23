@@ -94,8 +94,9 @@ void main() {
       // Twice: strain is priced on the prior days' quiet-waking levels,
       // which the first pass writes.
       for (var i = 0; i < 2; i++) {
+        // The first pass also re-scores the day owed a quiet level (+1).
         expect(await DerivationEngine().runDays(_profile, _dayIds, force: true),
-            4);
+            i == 0 ? 5 : 4);
       }
       final cells = (await dayCells(_dayId))!;
       String? cls(String row) => cells[row]?['class'] as String?;

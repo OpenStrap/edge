@@ -93,8 +93,10 @@ void main() {
       () async {
     await LocalDb.setCursor(wearableEnabledCursor('helio_strap'), '1');
     for (var i = 0; i < 2; i++) {
+      // The first pass also re-scores the day owed a quiet level (+1).
       expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), 4);
+          await DerivationEngine().runDays(_profile, _dayIds, force: true),
+          i == 0 ? 5 : 4);
     }
     final cells = (await dayCells(_dayId))!;
     String cls(String row) => cells[row]!['class'] as String;
