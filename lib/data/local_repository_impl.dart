@@ -26,6 +26,7 @@ import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
 import '../compute/inputs/canonical.dart'
     show deviceFlagOn, withoutWearableEstimates;
+import '../compute/inputs/garmin_inputs.dart' show kHrCadenceSec;
 import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
@@ -3158,6 +3159,13 @@ class LocalRepositoryImpl extends LocalRepository {
   /// calories come from the whole-day substrate independently. So there is no
   /// analytics output to invalidate here and no `kAlgoVersion` bump to make;
   /// the next ordinary derive picks up the exclusion on its own.
+  /// Each HR row's own sampling interval, by the source that stored it: a
+  /// wearable's minute (or 5-minute) HR, 1 s for the band and a strap. A
+  /// window can hold both, so one interval for the whole window is wrong.
+  static List<int> _cadencesOf(List<Map<String, dynamic>> rows) => [
+        for (final r in rows) kHrCadenceSec[r['source']] ?? 1,
+      ];
+
   Future<Map<String, dynamic>> _writeManualSession({
     required int startTs,
     required int endTs,
@@ -3204,6 +3212,8 @@ class LocalRepositoryImpl extends LocalRepository {
     final stats = computeManualSessionStats(
       hrTs: hrTs,
       hrBpm: hrBpm,
+      hrCadenceSec: _cadencesOf(hrRows),
+      endSec: endTs,
       profile: profile,
       hrMax: _profileMaxHr(deviceFamily)?.toDouble(),
       restingHr: restingHr,
@@ -3340,6 +3350,8 @@ class LocalRepositoryImpl extends LocalRepository {
       final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
+        hrCadenceSec: _cadencesOf(hrRows),
+        endSec: endTs,
         profile: profile,
         hrMax: hrMaxForSession,
         restingHr: restingHrForSession,

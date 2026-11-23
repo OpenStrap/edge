@@ -230,18 +230,24 @@ List<double> hrPerMinute(List<int> hrTs, List<int> hrBpm) {
 /// never zone time. Null: one second a sample. [cadenceSec], when given,
 /// replaces the median as the cap: the caller's stream cadence measured
 /// BEFORE off-skin samples were dropped, so a contact gap cannot widen it.
+/// [capsSec] (parallel to [hrTs]) replaces both with each sample's OWN
+/// source cadence, for a window that mixes a minute-HR wearable with a 1 Hz
+/// sensor. [endSec] clips the last sample's span at the window's end (never
+/// under 1 s, so a 1 Hz stream counts as before).
 List<double> zoneMinutesFor(
   List<int> hrBpm,
   double zoneMaxHr, {
   ana.HeartRateZoneSet? zoneSet,
   List<int>? hrTs,
   int? cadenceSec,
+  List<int>? capsSec,
+  int? endSec,
 }) {
   final set = zoneSet ??
       (zoneMaxHr > 0 ? ana.HeartRateZones.zonesFromMaxHr(zoneMaxHr) : null);
   if (hrBpm.isEmpty || set == null) return const [];
   final span = hrTs != null && hrTs.length == hrBpm.length
-      ? sampleSpansSec(hrTs, capSec: cadenceSec)
+      ? sampleSpansSec(hrTs, capSec: cadenceSec, capsSec: capsSec, endSec: endSec)
       : null;
   final secs = List<int>.filled(5, 0);
   for (var i = 0; i < hrBpm.length; i++) {
@@ -259,7 +265,18 @@ List<double> zoneMinutesFor(
 /// Seconds each sample of ascending [ts] stands for: the gap to the next,
 /// capped at the median gap (or [capSec]); the last takes the cap. 1
 /// everywhere on a gapless 1 Hz stream.
-List<int> sampleSpansSec(List<int> ts, {int? capSec}) {
+List<int> sampleSpansSec(List<int> ts,
+    {int? capSec, List<int>? capsSec, int? endSec}) {
+  if (capsSec != null && capsSec.length == ts.length) {
+    return [
+      for (var i = 0; i < ts.length; i++)
+        i + 1 < ts.length
+            ? (ts[i + 1] - ts[i]).clamp(1, capsSec[i] < 1 ? 1 : capsSec[i])
+            : endSec == null
+                ? (capsSec[i] < 1 ? 1 : capsSec[i])
+                : (endSec - ts[i]).clamp(1, capsSec[i] < 1 ? 1 : capsSec[i]),
+    ];
+  }
   if (ts.length < 2) return List<int>.filled(ts.length, capSec ?? 1);
   final median = capSec ?? medianGapSec(ts);
   return [
@@ -364,6 +381,8 @@ ManualSessionStats computeManualSessionStats({
   ana.HeartRateZoneSet? zoneSet,
   double? quietHrr,
   bool quietSettled = true,
+  List<int>? hrCadenceSec,
+  int? endSec,
 }) {
   if (hrTs.isEmpty || hrTs.length != hrBpm.length) {
     return const ManualSessionStats();
@@ -376,10 +395,14 @@ ManualSessionStats computeManualSessionStats({
   // avgHr, strain and the zone bands had all correctly ignored.
   final wornTs = <int>[];
   final worn = <int>[];
+  final caps = hrCadenceSec != null && hrCadenceSec.length == hrTs.length
+      ? <int>[]
+      : null;
   for (var i = 0; i < hrBpm.length; i++) {
     if (hrBpm[i] > 0) {
       wornTs.add(hrTs[i]);
       worn.add(hrBpm[i]);
+      caps?.add(hrCadenceSec![i]);
     }
   }
   if (worn.isEmpty) return const ManualSessionStats();
@@ -402,7 +425,7 @@ ManualSessionStats computeManualSessionStats({
   // on a wearable storing one (already averaged) HR a minute, which would
   // report a five-minute median as the peak. A stream sampled at least as
   // coarsely as the window takes no further smoothing.
-  final step = sampleSpansSec(wornTs, capSec: cadence)
+  final step = sampleSpansSec(wornTs, capSec: cadence, capsSec: caps)
       .fold<int>(0, (a, b) => b > a ? b : a);
   final peak = smoothedMaxHr(worn,
           age: age?.round(), window: step >= kHrSmoothWindow ? 1 : kHrSmoothWindow) ??
@@ -450,7 +473,11 @@ ManualSessionStats computeManualSessionStats({
     calories: calories,
     // 0 is `zoneMinutesFor`'s own "no ceiling" input → an empty split.
     zoneMinutes: zoneMinutesFor(worn, hrMax ?? 0,
-        zoneSet: zoneSet, hrTs: wornTs, cadenceSec: cadence),
+        zoneSet: zoneSet,
+        hrTs: wornTs,
+        cadenceSec: cadence,
+        capsSec: caps,
+        endSec: endSec),
     hrSampleCount: worn.length,
   );
 }

@@ -730,5 +730,21 @@ void main() {
       );
       expect(s.zoneMinutes.fold<double>(0, (a, b) => a + b), closeTo(0.05, 1e-9));
     });
+
+    test('a window mixing minute HR and a 1 Hz strap weights each by its own source', () {
+      // 20 minutes of wearable minute HR, then 10 minutes of a 1 Hz strap.
+      final t = [for (var i = 0; i < 20; i++) i * 60, for (var i = 0; i < 600; i++) 1200 + i];
+      final b = List<int>.filled(t.length, 150);
+      final caps = [for (var i = 0; i < 20; i++) 60, for (var i = 0; i < 600; i++) 1];
+      final z = zoneMinutesFor(b, 190, hrTs: t, capsSec: caps, endSec: 1800);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(30, 0.05));
+    });
+
+    test("the window's end clips the last sample's span", () {
+      // A one-minute window read inclusively: samples at 0 and 60.
+      final z = zoneMinutesFor([150, 150], 190,
+          hrTs: [0, 60], capsSec: [60, 60], endSec: 60);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(61 / 60, 0.01));
+    });
   });
 }

@@ -125,6 +125,8 @@ void main() {
     final run0 = SyntheticDay.sec(_truth.runStart);
     final hr = await LocalDb.hrSamplesInRange(run0, run0 + 40 * 60);
     expect(hr.length, inInclusiveRange(39, 41));
+    expect(hr.first['source'], 'helio_strap',
+        reason: "each row says whose cadence it is (the session's per-row weights)");
     final stats = computeManualSessionStats(
       hrTs: [for (final r in hr) (r['rec_ts'] as num).toInt()],
       hrBpm: [for (final r in hr) (r['hr'] as num).toInt()],
