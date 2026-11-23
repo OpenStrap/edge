@@ -1731,6 +1731,16 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
   // device, so the same id; already declared above, listed so the plist
   // test keeps it declared for this entry too. Unverified on a strap (R6).
   'helio_strap': 0x0157,
+  // Mi Band 4 to 6 and the first Amazfit watches: the same maker, the same
+  // id. Unverified on any of them (R6).
+  'huami_cinco': 0x0157,
+  'huami_kongming': 0x0157,
+  'huami_pangu': 0x0157,
+  'huami_tonlesap': 0x0157,
+  'huami_como': 0x0157,
+  'huami_kestrel': 0x0157,
+  'huami_newton': 0x0157,
+  'huami_falcon': 0x0157,
   // Mi Band 7 and the GTR 3 / GTS 3 watches: the same maker, the same id.
   // Unverified on any of them (R6).
   'zeppos_l66': 0x0157,
