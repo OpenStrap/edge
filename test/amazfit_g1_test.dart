@@ -7,11 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart' show ReplayBandLink;
 import 'package:openstrap_edge/ble/adapters/miband234.dart';
+import 'package:openstrap_edge/ble/helio_strap_link.dart' show zeppOsTypedKeyPairFor;
 import 'package:openstrap_edge/ble/miband_link.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/inputs/canonical.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/ui2/profile/devices.dart' show kPairableSensors;
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -64,6 +66,21 @@ void main() {
     for (final n in ['amazfit gtr 2', 'amazfit gts 2 mini', 'amazfit bip u pro']) {
       expect(claims(n).where((id) => id.startsWith('huami_')), isEmpty,
           reason: n);
+    }
+  });
+
+  test('every key-only device offers no plain pair, so its screen asks for '
+      'the one key', () {
+    final keyOnly = [
+      for (final s in kPairableSensors)
+        if (zeppOsTypedKeyPairFor(s.entry.id) != null ||
+            miBandTypedKeyPairFor(s.entry.id) != null)
+          s,
+    ];
+    // helio, 4 zepp os, mi band 4-6, 5 watches
+    expect(keyOnly, hasLength(13));
+    for (final s in keyOnly) {
+      expect(s.pick, isNull, reason: s.entry.id);
     }
   });
 
