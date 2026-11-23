@@ -57,6 +57,7 @@ import '../ble/ultrahuman_link.dart' show UltrahumanLink;
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
+import '../compute/inputs/garmin_inputs.dart' show isWearableFamily;
 import '../compute/inputs/canonical.dart'
     show
         activeWearable,
@@ -2566,11 +2567,14 @@ class AppState extends ChangeNotifier {
       if (!recoveryNightSettled(
         dayId: dayId,
         payload: payload,
-        // The band's edge, or the active wearable's on an install whose
-        // night came off it: with only the band's (0 there) a wearable night
-        // settled only through the 12 h give-up.
-        dataEdgeSec: math.max(await LocalDb.lastDecodedRecTs() ?? 0,
-            await wearableLastTs() ?? 0),
+        // The edge of the device the night came off: the active wearable's
+        // for a wearable night (the band's is 0 there, so it settled only
+        // through the 12 h give-up), the band's otherwise. Never the larger
+        // of the two: a wearable synced to 08:00 would certify a band night
+        // whose own data stops at its 06:00 wake.
+        dataEdgeSec: isWearableFamily(payload?['device_family'] as String?)
+            ? await wearableLastTs() ?? 0
+            : await LocalDb.lastDecodedRecTs() ?? 0,
         nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       )) {
         return;
