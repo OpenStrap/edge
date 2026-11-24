@@ -1374,9 +1374,12 @@ class AppState extends ChangeNotifier {
     // preference write below fails.
     TelemetryService.instance.applyConsent(on);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kTelemetryConsent, on);
-    await prefs.setBool(_kConsentChosen, true);
+    final saved = await prefs.setBool(_kTelemetryConsent, on) &&
+        await prefs.setBool(_kConsentChosen, true);
     notifyListeners();
+    // Collection is already switched as asked above; a rejected write must not
+    // look like a saved choice (the absent key means ON after a restart).
+    if (!saved) throw StateError('telemetry consent was not saved');
     // Flush only after the terms version is learned, so the first batch is
     // stamped with the live version, not the compiled-in placeholder.
     unawaited(_postConsent('telemetry', on).whenComplete(() {

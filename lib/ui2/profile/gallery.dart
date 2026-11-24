@@ -862,6 +862,7 @@ Map<String, Widget> extraCases() => {
       // an actual first run starts from, since an unset dismissed/last-shown
       // key reads as "eligible, never shown yet".
       'community_nudge': const CommunityNudge(),
+      'telemetry_notice': const TelemetryNotice(always: true),
       'surface': Builder(
         builder: (c) => Surface(
           child: Text(

@@ -264,7 +264,9 @@ class _MoreSettingsState extends State<MoreSettings>
           : app.requestPhoneSteps(),
       onToggleSleepHmm: () =>
           app.setSleepHmmStages(!app.sleepHmmStagesEnabled),
-      onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
+      onToggleTelemetry: () => app
+          .setTelemetryConsent(!app.telemetryConsent)
+          .catchError((_) {}), // collection already follows the tap; only the save failed
       onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),
       onToggleHealthSync: () => _toggleHealthSync(app),
@@ -886,7 +888,7 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.bug, C.orange,
                       l?.settingsCrashReportsRowTitle ?? 'Crash reports',
                       sub: l?.settingsCrashReportsRowSub ??
-                          'Anonymous crash reports and usage counts. No health data',
+                          'Crash reports and usage counts, tied to a random install ID. No health data',
                       value: telemetry ? on : off,
                       onTap: onToggleTelemetry),
                   SetRow(LucideIcons.messageSquareWarning, C.orange,

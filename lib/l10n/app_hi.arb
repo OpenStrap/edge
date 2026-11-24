@@ -2372,7 +2372,7 @@
   "settingsTaskerShortcutsRowSub": "बाहर जाने वाले इवेंट के लिए केवल Android। iOS बैंड को बजा सकता है लेकिन उससे ट्रिगर नहीं हो सकता",
   "settingsGroupPrivacy": "गोपनीयता",
   "settingsCrashReportsRowTitle": "क्रैश रिपोर्ट",
-  "settingsCrashReportsRowSub": "गुमनाम क्रैश रिपोर्ट और उपयोग की गिनती। कोई स्वास्थ्य डेटा नहीं",
+  "settingsCrashReportsRowSub": "क्रैश रिपोर्ट और उपयोग की गिनती, एक यादृच्छिक इंस्टॉल ID से जुड़ी। कोई स्वास्थ्य डेटा नहीं",
   "settingsBarcodeLookupRowTitle": "बारकोड ऑनलाइन देखें",
   "settingsBarcodeLookupRowSub": "स्कैन किया गया बारकोड openfoodfacts.org पर भेजता है। इसके साथ आपके बारे में कुछ भी नहीं जाता",
   "settingsContributeHealthDataRowTitle": "मेरा स्वास्थ्य डेटा योगदान करें",

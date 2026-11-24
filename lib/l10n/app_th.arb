@@ -11736,7 +11736,7 @@
   "@settingsCrashReportsRowTitle": {
     "description": "Settings row title toggling crash telemetry"
   },
-  "settingsCrashReportsRowSub": "รายงานข้อขัดข้องและสถิติการใช้งานแบบไม่ระบุตัวตน ไม่มีข้อมูลสุขภาพ",
+  "settingsCrashReportsRowSub": "รายงานข้อขัดข้องและสถิติการใช้งาน ผูกกับรหัสการติดตั้งแบบสุ่ม ไม่มีข้อมูลสุขภาพ",
   "@settingsCrashReportsRowSub": {
     "description": "Settings row subtitle for the crash-reports toggle"
   },

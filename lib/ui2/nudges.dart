@@ -185,7 +185,9 @@ class _AskCard extends StatelessWidget {
 /// One-time notice that anonymous diagnostics are on by default. Shown once per
 /// install while diagnostics are still on; "Got it" or "Turn off" ends it.
 class TelemetryNotice extends StatefulWidget {
-  const TelemetryNotice({super.key});
+  /// Gallery only: render regardless of consent and dismissal.
+  final bool always;
+  const TelemetryNotice({super.key, this.always = false});
 
   @override
   State<TelemetryNotice> createState() => _TelemetryNoticeState();
@@ -195,6 +197,15 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
   static const _seenKey = 'nudge.telemetry.dismissed';
   bool _seen = Prefs.getBool(_seenKey, false);
 
+  // No AppState above (tests, previews) means nothing to disclose.
+  static bool _consentOn(BuildContext c) {
+    try {
+      return c.select<AppState, bool>((a) => a.telemetryConsent);
+    } on ProviderNotFoundException {
+      return false;
+    }
+  }
+
   void _done() {
     Prefs.setBool(_seenKey, true);
     setState(() => _seen = true);
@@ -202,7 +213,7 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
 
   @override
   Widget build(BuildContext c) {
-    if (_seen || !c.select<AppState, bool>((a) => a.telemetryConsent)) {
+    if (!widget.always && (_seen || !_consentOn(c))) {
       return const SizedBox.shrink();
     }
     final p = P.of(c);
@@ -220,18 +231,19 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
             Icon(LucideIcons.shieldCheck, size: 18, color: p.on(C.indigo)),
             const SizedBox(width: S.x2),
             Expanded(
-              child: Text('Anonymous diagnostics are on',
+              child: Text('Diagnostics are on',
                   style: F.body
                       .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
             ),
           ]),
           const SizedBox(height: 2),
           Text(
-              'We collect crash reports and anonymous usage counts, only to fix '
-              'technical problems. No health data or personal information is '
-              'included, just your phone model, OS and app version, plus the '
-              "band's battery level and connection status. You can turn this "
-              'off anytime in Settings.',
+              'We collect crash reports and usage counts, tied to a random '
+              'install ID rather than your name, only to fix technical '
+              'problems. No health data or personal information is included, '
+              "just your phone model, OS and app version, plus the band's "
+              'battery level and connection status. You can turn this off '
+              'anytime in Settings.',
               style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           BigButton('Got it', color: C.indigo, onTap: _done),
