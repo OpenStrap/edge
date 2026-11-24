@@ -90,6 +90,27 @@ Future<String?> pairHelioStrapWithTypedKey(
   // generation and pass every check once that reset ends.
   if (ResetGate.active) return kHelioPairResetText;
   final resetGen = ResetGate.generation;
+  // ONE pairing at a time, from the paired-row read through the key and row
+  // writes (the handshake included): two at once both read an empty store,
+  // both mint an id, and the second write of the one key strands the
+  // first strap's row with a key it does not match. The secondary-link
+  // slot admits two links, so it does not serialize this.
+  final previous = _helioPairing;
+  final mine = Completer<void>();
+  _helioPairing = mine.future;
+  try {
+    await previous;
+    return await _pairHelioStrapHeld(device, hex, key, resetGen);
+  } finally {
+    mine.complete();
+  }
+}
+
+/// The tail of the Helio pairing queue ([pairHelioStrapWithTypedKey]).
+Future<void> _helioPairing = Future<void>.value();
+
+Future<String?> _pairHelioStrapHeld(
+    BluetoothDevice device, String hex, Uint8List key, int resetGen) async {
   final priorRow = await HelioStrapLink.pairedHelioStrapRow();
   // Only the SAME strap keeps its id: a different strap under the old one's
   // history id would write its readings over the old strap's at matching
