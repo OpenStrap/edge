@@ -881,6 +881,9 @@ Future<String?> Function(BluetoothDevice, String)? miBandTypedKeyPairFor(
 /// STILL HARDWARE-UNVERIFIED (R6).
 Future<String?> _pairCryptMiBandWithTypedKey(
     BluetoothDevice device, String raw, BandEntry entry) async {
+  // Before the first await: a "delete everything" that finishes during the
+  // reads below must still be seen.
+  final resetGen = ResetGate.generation;
   final hex = raw.trim().replaceFirst(RegExp('^0x', caseSensitive: false), '');
   if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(hex)) {
     return 'That is not a valid key: it must be exactly 32 hex characters.';
@@ -903,23 +906,6 @@ Future<String?> _pairCryptMiBandWithTypedKey(
   } catch (e) {
     return 'The phone’s keychain is locked. Unlock the phone and try again.';
   }
-  Future<void> restoreKey() async {
-    try {
-      if (priorHex == null) {
-        await _secure.delete(
-            key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
-      } else {
-        await _secure.write(
-            key: _keyItem(deviceId), value: priorHex,
-            iOptions: _kApple, mOptions: _kMacos);
-      }
-    } catch (_) {}
-  }
-
-  // A "delete everything" landing while this waits on the slot or the
-  // handshake must not find a fresh key and device row behind it.
-  final resetGen = ResetGate.generation;
-  const resetText = 'Pairing was interrupted by a reset. Pair the band again.';
   return withSecondaryLinkSlot<String?>(
     timeout: const Duration(seconds: 30),
     onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
@@ -946,37 +932,18 @@ Future<String?> _pairCryptMiBandWithTypedKey(
               ? 'The band didn’t answer. Make sure it’s close by and try again.'
               : 'The band rejected this key. Double-check it and try again.';
         }
-        // ponytail: check-then-write, like the Zepp OS pairing: a reset
-        // landing between the check and the writes still slips past.
-        if (ResetGate.changedSince(resetGen)) return resetText;
-        try {
-          await _secure.write(
-              key: _keyItem(deviceId), value: hex.toLowerCase(),
-              iOptions: _kApple, mOptions: _kMacos);
-        } catch (e) {
-          return 'The phone’s keychain is locked. Unlock the phone and try again.';
-        }
-        if (ResetGate.changedSince(resetGen)) {
-          // The wipe ran during the write: take the key out, never put an
-          // old one back (the wipe's own delete may already have run).
-          try {
-            await _secure.delete(
-                key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
-          } catch (_) {}
-          return resetText;
-        }
-        try {
-          await LocalDb.upsertDevice(
+        return commitMiBandTypedKey(
+          resetGen: resetGen,
+          deviceId: deviceId,
+          hex: hex,
+          priorHex: priorHex,
+          upsert: () => LocalDb.upsertDevice(
             id: deviceId,
             adapterId: entry.id,
             remoteId: device.remoteId.str,
             label: cleanDeviceLabel(device.platformName) ?? entry.label,
-          );
-        } catch (e) {
-          await restoreKey();
-          return 'Could not save the band: $e';
-        }
-        return null;
+          ),
+        );
       } catch (e) {
         return 'Could not connect: $e';
       } finally {
@@ -987,4 +954,66 @@ Future<String?> _pairCryptMiBandWithTypedKey(
       }
     },
   );
+}
+
+/// Stores an accepted typed key and its `device` row, or nothing. A reset
+/// ([ResetGate], generation [resetGen]) seen before, during or after either
+/// write leaves neither behind: after the key write the key is deleted (never
+/// the old one put back, the wipe may already have run); after the row write
+/// both are deleted, since the row may have landed after the wipe. A row
+/// write that fails with no reset puts [priorHex] back. Null on success.
+@visibleForTesting
+Future<String?> commitMiBandTypedKey({
+  required int resetGen,
+  required String deviceId,
+  required String hex,
+  required String? priorHex,
+  required Future<void> Function() upsert,
+}) async {
+  const resetText = 'Pairing was interrupted by a reset. Pair the band again.';
+  final item = _keyItem(deviceId);
+  Future<void> dropKey() async {
+    try {
+      await _secure.delete(key: item, iOptions: _kApple, mOptions: _kMacos);
+    } catch (_) {}
+  }
+
+  if (ResetGate.changedSince(resetGen)) return resetText;
+  try {
+    await _secure.write(
+        key: item, value: hex.toLowerCase(),
+        iOptions: _kApple, mOptions: _kMacos);
+  } catch (e) {
+    return 'The phone’s keychain is locked. Unlock the phone and try again.';
+  }
+  if (ResetGate.changedSince(resetGen)) {
+    await dropKey();
+    return resetText;
+  }
+  try {
+    await upsert();
+  } catch (e) {
+    if (ResetGate.changedSince(resetGen)) {
+      await dropKey();
+      return resetText;
+    }
+    try {
+      if (priorHex == null) {
+        await dropKey();
+      } else {
+        await _secure.write(
+            key: item, value: priorHex, iOptions: _kApple, mOptions: _kMacos);
+      }
+    } catch (_) {}
+    return 'Could not save the band: $e';
+  }
+  if (ResetGate.changedSince(resetGen)) {
+    // The row may have landed after the wipe: take both back out.
+    try {
+      await LocalDb.deleteDevice(deviceId);
+    } catch (_) {}
+    await dropKey();
+    return resetText;
+  }
+  return null;
 }
