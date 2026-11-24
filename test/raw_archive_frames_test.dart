@@ -372,6 +372,31 @@ void main() {
     expect(await sig(), isNot(before));
   });
 
+  test('an in-place rewrite that keeps every total still moves the signature',
+      () async {
+    final db = await LocalDb.instance;
+    const t = 1750000000;
+    for (final (i, hr) in [(0, 60), (1, 180)]) {
+      await db.rawInsert(
+          'INSERT OR REPLACE INTO decoded_onehz (device_id, ts_ms, rec_ts, counter, hr) '
+          'VALUES (?, ?, ?, ?, ?)',
+          ['w-1', (t + i) * 1000, t + i, t + i, hr]);
+    }
+    Future<String?> sig() => LocalDb.dayInputSignature(
+          dayId: '2025-06-15',
+          prevDayId: '2025-06-14',
+          nextDayId: '2025-06-16',
+          fromSec: 1749900000,
+          toSec: 1750100000,
+          wearableDeviceId: null,
+        );
+    final before = await sig();
+    // Same count, same rowids, same TOTAL(hr): only the revision moves.
+    await db.rawUpdate('UPDATE decoded_onehz SET hr = 120 WHERE rec_ts IN (?, ?)',
+        [t, t + 1]);
+    expect(await sig(), isNot(before));
+  });
+
   test('a backup of the new layout restores every frame', () async {
     await _fresh('raw_frames_backup_src.db');
     final frames = [_frameHex(1), 'Not-Hex', _frameHex(2)];

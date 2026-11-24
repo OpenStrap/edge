@@ -10813,6 +10813,17 @@ class LocalDb {
           'FROM decoded_onehz WHERE rec_ts BETWEEN ? AND ?',
       [fromSec, toSec],
     );
+    // The neutral path updates a second IN PLACE (per-field merge), which
+    // can keep the count, the rowids and every column total ([60,180] ->
+    // [120,120]); the triggers' per-bucket revision counters cannot.
+    if (await has('input_rev')) {
+      await add(
+        'input_rev',
+        'SELECT bucket, rev FROM input_rev WHERE bucket BETWEEN ? AND ? '
+            'ORDER BY bucket',
+        [fromSec ~/ 900, toSec ~/ 900],
+      );
+    }
     await add(
       'rr',
       'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), TOTAL(rr_ms), '
