@@ -63,7 +63,9 @@ import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
 import '../../ble/ios_ble_restore.dart';
-import '../../ble/helio_strap_link.dart' show pairHelioStrapWithTypedKey;
+import '../../ble/helio_strap_link.dart'
+    show zeppOsTypedKeyPairFor;
+import '../../ble/miband_link.dart' show miBandTypedKeyPairFor;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -480,7 +482,10 @@ class _PairSensorScreenState extends State<PairSensorScreen>
           onPicked: sensor.pick,
           onPickedWithKey: switch (band.id) {
             final id when id == kOura.id => pairOuraRingWithTypedKey,
-            final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
+            final id when zeppOsTypedKeyPairFor(id) != null =>
+              zeppOsTypedKeyPairFor(id),
+            final id when miBandTypedKeyPairFor(id) != null =>
+              miBandTypedKeyPairFor(id),
             _ => null,
           },
         ),

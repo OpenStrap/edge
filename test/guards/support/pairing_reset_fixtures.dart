@@ -14,12 +14,25 @@ const Map<String, String> kPinnedOfficialHost = <String, String>{
   'ultrahuman': 'www.ultrahuman.com',
   'coros': 'support.coros.com',
   'miband234': 'www.mi.com',
+  'huami_cinco': 'www.mi.com', // Mi Smart Band 4, same reviewed host as the other Xiaomi rows
+  'huami_kongming': 'www.mi.com', // Mi Smart Band 5
+  'huami_pangu': 'www.mi.com', // Mi Smart Band 6
+  'huami_tonlesap': 'support.amazfit.com',
+  'huami_como': 'support.amazfit.com',
+  'huami_kestrel': 'support.amazfit.com',
+  'huami_newton': 'support.amazfit.com',
+  'huami_falcon': 'support.amazfit.com',
   'helio_strap': 'support.amazfit.com',
+  'zeppos_l66': 'www.mi.com', // Xiaomi / Mi Smart Band 7, same reviewed host as the other Xiaomi rows
+  'zeppos_verona': 'support.amazfit.com', // Amazfit GTR 3, same reviewed host as the Helio row
+  'zeppos_madrid': 'support.amazfit.com', // Amazfit GTR 3 Pro
+  'zeppos_zurich': 'support.amazfit.com', // Amazfit GTS 3
   'pebble': 'help.repebble.com',
   'colmi': 'www.colmi.com',
   'garmin': 'support.garmin.com',
   'miscale_bc': 'www.mi.com', // Mi Body Composition Scale row
   'miscale2': 'www.mi.com', // Mi Smart Scale 2 row
+  'amazfit_scale': 'support.amazfit.com',
 };
 
 /// Exact reviewed URLs where a wrong page was found in review.
@@ -69,11 +82,24 @@ const Set<String> kPairingFollowUp = <String>{
   'coros',
   'ultrahuman',
   'miband234',
+  'huami_cinco',
+  'huami_kongming',
+  'huami_pangu',
+  'huami_tonlesap',
+  'huami_como',
+  'huami_kestrel',
+  'huami_newton',
+  'huami_falcon',
   'helio_strap',
+  'zeppos_l66',
+  'zeppos_verona',
+  'zeppos_madrid',
+  'zeppos_zurich',
   'pebble',
   'colmi',
   'garmin',
   'thermometer',
   'miscale_bc',
   'miscale2',
+  'amazfit_scale',
 };

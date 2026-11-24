@@ -74,13 +74,35 @@ Future<bool> _awaitAdapterOn() async {
 /// would fork one physical strap into N identities with the earlier one's
 /// history orphaned under an id nothing reads.
 Future<String?> pairHelioStrapWithTypedKey(
-    BluetoothDevice device, String raw) async {
+        BluetoothDevice device, String raw) =>
+    _pairZeppOsWithTypedKey(device, raw, kHelioStrap);
+
+/// The typed-key pairing function for [adapterId] when it is one of this
+/// family's devices (Helio Strap, Mi Band 7, the Zepp OS watches), else
+/// null. Same handshake and verify-then-store rules for each, under the
+/// device's own key slot and its own `device` row.
+Future<String?> Function(BluetoothDevice, String)? zeppOsTypedKeyPairFor(
+    String adapterId) {
+  final link = HelioStrapLink.forId(adapterId);
+  if (link == null) return null;
+  return (device, raw) => _pairZeppOsWithTypedKey(device, raw, link.entry);
+}
+
+Future<String?> _pairZeppOsWithTypedKey(
+    BluetoothDevice device, String raw, BandEntry entry) async {
   final hex = raw.trim().replaceFirst(RegExp('^0x', caseSensitive: false), '');
   if (hex.length != 32 || !RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(hex)) {
-    return 'That is not a strap key: it must be exactly 32 hex characters.';
+    return 'That is not a valid key: it must be exactly 32 hex characters.';
   }
   final key = Uint8List.fromList(
       [for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
+  final keySlot = zeppOsKeySlot(entry);
+  final tag = '[${entry.id} pair]';
+  final other = otherEntryNamed(entry, device.platformName);
+  if (other != null) {
+    return 'That is a ${other.label}, not a ${entry.label}. Pair it from its '
+        'own entry.';
+  }
 
   // Read BEFORE the first await: a "delete everything" that lands while
   // this reads the old row, the keychain, waits on the slot or runs the
@@ -90,98 +112,113 @@ Future<String?> pairHelioStrapWithTypedKey(
   // generation and pass every check once that reset ends.
   if (ResetGate.active) return kHelioPairResetText;
   final resetGen = ResetGate.generation;
-  final priorRow = await HelioStrapLink.pairedHelioStrapRow();
-  // Only the SAME strap keeps its id: a different strap under the old one's
-  // history id would write its readings over the old strap's at matching
-  // seconds. The app holds one strap key, so a second strap is refused until
-  // the first is forgotten.
-  if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
-    return 'Another Helio Strap is already paired. Forget it on its device '
-        'page first, then pair this one.';
-  }
-  final rnd = Random.secure();
-  final deviceId = (priorRow?['id'] as String?) ??
-      'helio-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+  return _zeppOsPairLock(() async {
+    final priorRow = await pairedRowOf(entry.id);
+    // Only the SAME device keeps its id: a different one under the old one's
+    // history id would write its readings over the old one's at matching
+    // seconds. The app holds one key per family, so a second device is refused
+    // until the first is forgotten.
+    if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
+      final name = entry.id == kHelioStrap.id ? 'Helio Strap' : entry.label;
+      return 'Another $name is already paired. Forget it on its device '
+          'page first, then pair this one.';
+    }
+    final rnd = Random.secure();
+    final idPrefix = entry.id == kHelioStrap.id ? 'helio' : entry.id;
+    final deviceId = (priorRow?['id'] as String?) ??
+        '$idPrefix-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
 
-  // What the keychain held before this attempt touched it, so a failure
-  // AFTER the write below (the device-row upsert throwing, say) can be
-  // rolled back to it rather than leave an unproven key sitting where a
-  // working one used to be — same discipline `oura_link.dart`'s pairing
-  // function uses, for the same reason.
-  String? priorHex;
-  try {
-    priorHex = await _pairSecure.read(
-      key: kHelioStrapSecureStorageKey,
-      iOptions: kHelioStrapIosKeyOptions,
-      mOptions: kHelioStrapMacosKeyOptions,
-    );
-  } catch (e) {
-    return 'The phone’s keychain is locked. Unlock the phone and try again.';
-  }
+    // What the keychain held before this attempt touched it, so a failure
+    // AFTER the write below (the device-row upsert throwing, say) can be
+    // rolled back to it rather than leave an unproven key sitting where a
+    // working one used to be — same discipline `oura_link.dart`'s pairing
+    // function uses, for the same reason.
+    String? priorHex;
+    try {
+      priorHex = await _pairSecure.read(
+        key: keySlot,
+        iOptions: kHelioStrapIosKeyOptions,
+        mOptions: kHelioStrapMacosKeyOptions,
+      );
+    } catch (e) {
+      return 'The phone’s keychain is locked. Unlock the phone and try again.';
+    }
 
-  return withSecondaryLinkSlot<String?>(
-    timeout: const Duration(seconds: 30),
-    onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
-        'now. Try pairing again in a moment.',
-    () async {
-      GattBandLink? link;
-      try {
-        // NOT a key verdict: Bluetooth being off says nothing about the key
-        // typed — it ends the attempt and is reported as itself, matching
-        // `oura_link.dart`'s own pairing function.
-        if (!await _awaitAdapterOn()) {
-          return 'Bluetooth is off. Turn it on and try again.';
-        }
-        await device.connect(timeout: const Duration(seconds: 20));
-        final services = await device.discoverServices();
-        link = GattBandLink(
-          entry: kHelioStrap,
-          services: services,
-          onLog: (m) => debugPrint('[helio_strap pair] $m'),
-        );
-        final missing =
-            link.missingCharacteristics(kHelioStrap.requiredCharacteristics);
-        if (missing.isNotEmpty) {
-          return 'This strap is missing something this app needs — it may '
-              'not be a Helio Strap, or its firmware answered differently '
-              'than expected.';
-        }
-
-        final result = await runHelioHandshake(link, key,
-            timeout: const Duration(seconds: 10));
-        if (result is HelioHandshakeFailed) {
-          return switch (result.reason) {
-            'wrong_key' => 'The strap rejected this key. Double-check it '
-                'and try again.',
-            'timeout' => 'The strap didn’t answer. Make sure it’s close by '
-                'and try again.',
-            _ => 'Pairing failed (${result.reason}).',
-          };
-        }
-
-        return await persistHelioPairing(
-          deviceId: deviceId,
-          remoteId: device.remoteId.str,
-          hex: hex,
-          priorHex: priorHex,
-          resetGen: resetGen,
-        );
-      } catch (e) {
-        return 'Could not connect: $e';
-      } finally {
-        // Drop the link and DISCONNECT before the slot is released — same
-        // ordering `HelioStrapLink._sync` and `ColmiLink._sync` both use,
-        // and for the same reason: held in an OUTER finally (after this
-        // closure returns) this would run after the slot had already been
-        // released, letting the next queued link connect while this one
-        // was still disconnecting.
-        await link?.close();
+    return withSecondaryLinkSlot<String?>(
+      timeout: const Duration(seconds: 30),
+      onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
+          'now. Try pairing again in a moment.',
+      () async {
+        GattBandLink? link;
         try {
-          await device.disconnect();
-        } catch (_) {/* already gone */}
-      }
-    },
-  );
+          // NOT a key verdict: Bluetooth being off says nothing about the key
+          // typed — it ends the attempt and is reported as itself, matching
+          // `oura_link.dart`'s own pairing function.
+          if (!await _awaitAdapterOn()) {
+            return 'Bluetooth is off. Turn it on and try again.';
+          }
+          await device.connect(timeout: const Duration(seconds: 20));
+          final services = await device.discoverServices();
+          link = GattBandLink(
+            entry: entry,
+            services: services,
+            onLog: (m) => debugPrint('$tag $m'),
+          );
+          final missing =
+              link.missingCharacteristics(entry.requiredCharacteristics);
+          if (missing.isNotEmpty) {
+            return 'This device is missing something this app needs — it may '
+                'not be a ${entry.label}, or its firmware answered differently '
+                'than expected.';
+          }
+
+          final result = await runHelioHandshake(link, key,
+              timeout: const Duration(seconds: 10));
+          if (result is HelioHandshakeFailed) {
+            return switch (result.reason) {
+              'wrong_key' => 'The device rejected this key. Double-check it '
+                  'and try again.',
+              'timeout' => 'The device didn’t answer. Make sure it’s close by '
+                  'and try again.',
+              _ => 'Pairing failed (${result.reason}).',
+            };
+          }
+
+          return await persistHelioPairing(
+            deviceId: deviceId,
+            remoteId: device.remoteId.str,
+            hex: hex,
+            priorHex: priorHex,
+            resetGen: resetGen,
+            entry: entry,
+          );
+        } catch (e) {
+          return 'Could not connect: $e';
+        } finally {
+          // Drop the link and DISCONNECT before the slot is released — same
+          // ordering `HelioStrapLink._sync` and `ColmiLink._sync` both use,
+          // and for the same reason: held in an OUTER finally (after this
+          // closure returns) this would run after the slot had already been
+          // released, letting the next queued link connect while this one
+          // was still disconnecting.
+          await link?.close();
+          try {
+            await device.disconnect();
+          } catch (_) {/* already gone */}
+        }
+      },
+    );
+  });
+}
+
+/// One Zepp OS pairing at a time: a second waits for the first to commit,
+/// so it reads the row and the key the first wrote.
+// ponytail: one lock for every Zepp OS family, per-family if that ever waits.
+Future<void> _zeppOsPairLockTail = Future<void>.value();
+Future<T> _zeppOsPairLock<T>(Future<T> Function() body) {
+  final run = _zeppOsPairLockTail.then((_) => body());
+  _zeppOsPairLockTail = run.then((_) {}, onError: (_) {});
+  return run;
 }
 
 /// The text a pairing interrupted by "delete everything" ends with.
@@ -212,11 +249,13 @@ Future<String?> persistHelioPairing({
   required String hex,
   required String? priorHex,
   required int resetGen,
+  BandEntry entry = kHelioStrap,
 }) async {
+  final keySlot = zeppOsKeySlot(entry);
   Future<bool> dropKey() async {
     try {
       await _pairSecure.delete(
-        key: kHelioStrapSecureStorageKey,
+        key: keySlot,
         iOptions: kHelioStrapIosKeyOptions,
         mOptions: kHelioStrapMacosKeyOptions,
       );
@@ -229,7 +268,7 @@ Future<String?> persistHelioPairing({
   if (ResetGate.changedSince(resetGen)) return kHelioPairResetText;
   try {
     await _pairSecure.write(
-      key: kHelioStrapSecureStorageKey,
+      key: keySlot,
       value: hex,
       iOptions: kHelioStrapIosKeyOptions,
       mOptions: kHelioStrapMacosKeyOptions,
@@ -243,9 +282,9 @@ Future<String?> persistHelioPairing({
   try {
     await LocalDb.upsertDevice(
       id: deviceId,
-      adapterId: kHelioStrap.id,
+      adapterId: entry.id,
       remoteId: remoteId,
-      label: kHelioStrap.label,
+      label: entry.label,
     );
   } catch (e) {
     // The row never landed. Restore what the keychain held before this
@@ -257,7 +296,7 @@ Future<String?> persistHelioPairing({
     } else {
       try {
         await _pairSecure.write(
-          key: kHelioStrapSecureStorageKey,
+          key: keySlot,
           value: priorHex,
           iOptions: kHelioStrapIosKeyOptions,
           mOptions: kHelioStrapMacosKeyOptions,
@@ -280,30 +319,59 @@ Future<String?> persistHelioPairing({
   return null;
 }
 
-/// The live link to a paired Helio Strap. One instance; a second concurrent
-/// strap is not a thing anyone asked for (same call as `ColmiLink`).
+/// The live link to one paired device of this protocol family. One instance
+/// per device family ([instance] for the Helio Strap, [miBand7] for the
+/// Xiaomi / Mi Smart Band 7); a second concurrent device of the same family
+/// is not a thing anyone asked for (same call as `ColmiLink`).
 class HelioStrapLink {
-  HelioStrapLink._();
-  static final HelioStrapLink instance = HelioStrapLink._();
+  HelioStrapLink._(this.entry);
+  static final HelioStrapLink instance = HelioStrapLink._(kHelioStrap);
+  static final HelioStrapLink miBand7 = HelioStrapLink._(kMiBand7);
+  static final HelioStrapLink gtr3 = HelioStrapLink._(kAmazfitGtr3);
+  static final HelioStrapLink gtr3Pro = HelioStrapLink._(kAmazfitGtr3Pro);
+  static final HelioStrapLink gts3 = HelioStrapLink._(kAmazfitGts3);
+
+  /// Every link of this family, so app-wide stop / background sync loop over
+  /// them instead of naming each device.
+  static final List<HelioStrapLink> all = [instance, miBand7, gtr3, gtr3Pro, gts3];
+
+  /// The link driving [adapterId], or null when it is not this family.
+  static HelioStrapLink? forId(Object? adapterId) {
+    for (final l in all) {
+      if (l.entry.id == adapterId) return l;
+    }
+    return null;
+  }
+
+  /// The family this link drives.
+  final BandEntry entry;
+
+  String get _tag => '[${entry.id}]';
 
   /// The `device` row for the paired strap, or null.
   static Future<Map<String, Object?>?> pairedHelioStrapRow() =>
-      pairedRowOf(kHelioStrap.id);
+      instance.pairedRow();
 
-  /// Forget a paired strap: stop any live session, drop its `device` row.
+  /// The `device` row for this link's paired device, or null.
+  Future<Map<String, Object?>?> pairedRow() => pairedRowOf(entry.id);
+
+  /// Forget a paired strap — [forget] on the Helio link.
+  static Future<bool> forgetStrap(String id) => instance.forget(id);
+
+  /// Forget a paired device: stop any live session, drop its `device` row.
   /// No stored pairing-key row to drop here — the auth key lives in secure
-  /// storage, keyed by device id-independent constant, same as the adapter
-  /// reads it (`_kSecureStorageKey` in `helio_strap.dart`); dropping the
-  /// `device` row is the whole story for this link, same as `ColmiLink`.
-  static Future<bool> forgetStrap(String id) async {
+  /// storage under this family's slot (`zeppOsKeySlot` in
+  /// `helio_strap.dart`); dropping the `device` row is the whole story for
+  /// this link, same as `ColmiLink`.
+  Future<bool> forget(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
-      debugPrint('[helio_strap] refusing to forget the primary band from here.');
+      debugPrint('$_tag refusing to forget the primary band from here.');
       return false;
     }
     // Before the first await: a sync still reading the row has no
     // `_deviceId` yet for the check below to match.
-    instance._forgets++;
-    if (instance._deviceId == id) await instance.stop();
+    _forgets++;
+    if (_deviceId == id) await stop();
     await LocalDb.deleteDevice(id);
     // The key outlives nothing once its device row is gone — a re-pair
     // mints a fresh key anyway (first bind always goes through the real
@@ -312,7 +380,7 @@ class HelioStrapLink {
     // forever. Same cleanup `OuraLink.forgetRing` does for its own key.
     try {
       await _pairSecure.delete(
-        key: kHelioStrapSecureStorageKey,
+        key: zeppOsKeySlot(entry),
         iOptions: kHelioStrapIosKeyOptions,
         mOptions: kHelioStrapMacosKeyOptions,
       );
@@ -320,21 +388,24 @@ class HelioStrapLink {
     return true;
   }
 
-  /// "Delete everything": drop the strap's pairing key, whatever device it
-  /// was for. False when the keychain refused, so the reset can say a key
-  /// was left behind.
+  /// "Delete everything": drop every Zepp OS family's pairing key (the
+  /// strap's and each device's own slot), whatever device it was for. False
+  /// when the keychain refused any, so the reset can say a key was left.
   static Future<bool> dropStoredKey() async {
-    try {
-      await _pairSecure.delete(
-        key: kHelioStrapSecureStorageKey,
-        iOptions: kHelioStrapIosKeyOptions,
-        mOptions: kHelioStrapMacosKeyOptions,
-      );
-      return true;
-    } catch (e) {
-      debugPrint('[helio_strap] could not drop the stored key: $e');
-      return false;
+    var complete = true;
+    for (final l in all) {
+      try {
+        await _pairSecure.delete(
+          key: zeppOsKeySlot(l.entry),
+          iOptions: kHelioStrapIosKeyOptions,
+          mOptions: kHelioStrapMacosKeyOptions,
+        );
+      } catch (e) {
+        complete = false;
+        debugPrint('[${l.entry.id}] could not drop the stored key: $e');
+      }
     }
+    return complete;
   }
 
   BluetoothDevice? _device;
@@ -381,13 +452,13 @@ class HelioStrapLink {
     final resetGen = ResetGate.generation;
     final forgets = _forgets;
     lastSyncFailed = false;
-    final row = await pairedHelioStrapRow();
+    final row = await pairedRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
     final remoteId = row['remote_id'] as String?;
     if (deviceId == null || remoteId == null || remoteId.isEmpty) return false;
     if (deviceId == LocalDb.kPrimaryDeviceId) {
-      debugPrint('[helio_strap] refusing to sync: the strap row claims the '
+      debugPrint('$_tag refusing to sync: the strap row claims the '
           'primary device id — re-pair it with a minted id.');
       return false;
     }
@@ -433,15 +504,15 @@ class HelioStrapLink {
             return false;
           }
           final link = GattBandLink(
-            entry: kHelioStrap,
+            entry: entry,
             services: services,
-            onLog: (m) => debugPrint('[helio_strap] $m'),
+            onLog: (m) => debugPrint('$_tag $m'),
           );
           _link = link;
           final missing = link
-              .missingCharacteristics(kHelioStrap.requiredCharacteristics);
+              .missingCharacteristics(entry.requiredCharacteristics);
           if (missing.isNotEmpty) {
-            debugPrint('[helio_strap] ${kHelioStrap.label}: missing required '
+            debugPrint('$_tag ${entry.label}: missing required '
                 'characteristic(s) '
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
@@ -450,9 +521,9 @@ class HelioStrapLink {
           _anchorSec = anchor;
           final h = host = BandHost(
             resetGeneration: resetGen,
-            adapter: HelioStrapAdapter(nowSeconds: () => anchor),
+            adapter: HelioStrapAdapter(entry: entry, nowSeconds: () => anchor),
             deviceId: deviceId,
-            onLog: (m) => debugPrint('[helio_strap] $m'),
+            onLog: (m) => debugPrint('$_tag $m'),
             onNote: _handleNote,
             buildArchive: _buildArchiveRow,
           );
@@ -473,7 +544,7 @@ class HelioStrapLink {
         return !lastSyncFailed && !host.sessionFailed;
       });
     } catch (e) {
-      debugPrint('[helio_strap] sync failed: $e');
+      debugPrint('$_tag sync failed: $e');
       return false;
     }
   }
@@ -532,7 +603,7 @@ class HelioStrapLink {
       // Deliberately not in `LocalDb.redrivableArchiveReasons` — that list
       // replays a row's `hex` through the WHOOP R24 chain, which would run
       // the wrong decoder over a Helio frame.
-      reason: 'helio_strap_0x${bytes[0].toRadixString(16).padLeft(2, '0')}',
+      reason: '${entry.id}_0x${bytes[0].toRadixString(16).padLeft(2, '0')}',
     );
   }
 
@@ -561,13 +632,14 @@ class HelioStrapLink {
     _anchorSec = now();
     final host = BandHost(
       adapter: HelioStrapAdapter(
+        entry: entry,
         nowSeconds: now,
         authKeyReader: authKeyReader,
         firstReplyTimeout: firstReplyTimeout,
         quietTimeout: quietTimeout,
       ),
       deviceId: deviceId,
-      onLog: (m) => debugPrint('[helio_strap] $m'),
+      onLog: (m) => debugPrint('$_tag $m'),
       onNote: _handleNote,
       buildArchive: _buildArchiveRow,
       nowSeconds: now,

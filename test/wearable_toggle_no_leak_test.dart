@@ -26,9 +26,21 @@ const List<String> _families = [
   'garmin',
   'pebble',
   'miband234',
+  'huami_cinco',
+  'huami_kongming',
+  'huami_pangu',
+  'huami_tonlesap',
+  'huami_como',
+  'huami_kestrel',
+  'huami_newton',
+  'huami_falcon',
   'colmi',
   'oura',
   'helio_strap',
+  'zeppos_l66',
+  'zeppos_verona',
+  'zeppos_madrid',
+  'zeppos_zurich',
 ];
 
 void main() {

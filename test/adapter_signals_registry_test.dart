@@ -40,12 +40,33 @@ void main() {
       'garmin': const GarminAdapter().signals,
       'ultrahuman': UltrahumanAdapter().signals,
       'miband234': MiBand234Adapter(key: const [0]).signals,
+      'huami_cinco':
+          MiBand234Adapter(key: const [0], entry: kMiBand4).signals,
+      'huami_kongming':
+          MiBand234Adapter(key: const [0], entry: kMiBand5).signals,
+      'huami_pangu':
+          MiBand234Adapter(key: const [0], entry: kMiBand6).signals,
+      'huami_tonlesap':
+          MiBand234Adapter(key: const [0], entry: kAmazfitBipS).signals,
+      'huami_como':
+          MiBand234Adapter(key: const [0], entry: kAmazfitBipU).signals,
+      'huami_kestrel':
+          MiBand234Adapter(key: const [0], entry: kAmazfitGts).signals,
+      'huami_newton':
+          MiBand234Adapter(key: const [0], entry: kAmazfitGts2).signals,
+      'huami_falcon':
+          MiBand234Adapter(key: const [0], entry: kAmazfitGtr).signals,
       'pebble': kPebbleAdapter.signals,
       'colmi': kColmiAdapter.signals,
       'helio_strap': kHelioStrapAdapter.signals,
+      'zeppos_l66': kMiBand7Adapter.signals,
+      'zeppos_verona': HelioStrapAdapter(entry: kAmazfitGtr3).signals,
+      'zeppos_madrid': HelioStrapAdapter(entry: kAmazfitGtr3Pro).signals,
+      'zeppos_zurich': HelioStrapAdapter(entry: kAmazfitGts3).signals,
       'thermometer': ThermometerAdapter().signals,
       'miscale_bc': MiScaleAdapter(kMiScaleComposition).signals,
       'miscale2': MiScaleAdapter(kMiScale2).signals,
+      'amazfit_scale': AmazfitScaleAdapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,

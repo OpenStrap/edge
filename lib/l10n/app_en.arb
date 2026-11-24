@@ -1404,7 +1404,7 @@
   "@devicePickerBlurbCoros": {
     "description": "Category row subtitle for a Coros sports watch."
   },
-  "devicePickerBlurbMiband234": "Mi Band 2 or 3: heart rate, steps and sleep. Unpair it from Mi Fit or Zepp first, or reset it. Tap the band if it buzzes. Mi Band 4 isn’t supported.",
+  "devicePickerBlurbMiband234": "Mi Band 2 or 3: heart rate, steps and sleep. Unpair it from Mi Fit or Zepp first, or reset it. Tap the band if it buzzes.",
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
   },

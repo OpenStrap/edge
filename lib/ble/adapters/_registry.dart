@@ -1020,6 +1020,180 @@ const BandEntry kMiBand234 = BandEntry.notify(
   scanByName: true,
 );
 
+/// Mi Smart Band 4 (codename Cinco). The same legacy Huami protocol as
+/// [kMiBand234] (auth on its char `0009`, the same paged minute history),
+/// with two differences the adapter keys off this entry: the auth runs with
+/// crypt flag `0x80`, and the band never accepts a key from this app, so
+/// the user types the one its vendor pairing issued (like the Helio Strap).
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one
+/// (ASSUMPTIONS R6). In [kAskPickerSensors] under the shared-FEE1 risk
+/// written up there.
+const BandEntry kMiBand4 = BandEntry.notify(
+  id: 'huami_cinco',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Mi Smart Band 4',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand4,
+  scanByName: true,
+);
+
+/// The names Mi Band 4 advertises: its retail name and its codename.
+bool _looksLikeMiBand4(String lowercaseName) =>
+    const {'mi smart band 4', 'cinco'}.contains(lowercaseName);
+
+/// Mi Smart Band 5 (codename Kongming): [kMiBand4]'s protocol, auth and
+/// typed vendor key, with 8-byte minute records instead of 4 (the first four
+/// bytes are the same). EXPERIMENTAL (ASSUMPTIONS R6), not in the iOS picker.
+const BandEntry kMiBand5 = BandEntry.notify(
+  id: 'huami_kongming',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Mi Smart Band 5',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand5,
+  scanByName: true,
+);
+
+/// Mi Smart Band 6 (codename Pangu): see [kMiBand5].
+const BandEntry kMiBand6 = BandEntry.notify(
+  id: 'huami_pangu',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Mi Smart Band 6',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand6,
+  scanByName: true,
+);
+
+bool _looksLikeMiBand5(String n) =>
+    const {'mi smart band 5', 'kongming'}.contains(n);
+bool _looksLikeMiBand6(String n) =>
+    const {'mi smart band 6', 'pangu'}.contains(n);
+
+/// Amazfit Bip S (codename Tonlesap). A first-generation Amazfit watch on the
+/// legacy Huami protocol: [kMiBand4]'s crypt-flagged handshake and typed
+/// vendor key, 4-byte minute records. EXPERIMENTAL (ASSUMPTIONS R6), nobody
+/// on this project owns one. Watches on newer firmware may answer only the
+/// chunked protocol instead; that is untested.
+const BandEntry kAmazfitBipS = BandEntry.notify(
+  id: 'huami_tonlesap',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit Bip S',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeBipS,
+  scanByName: true,
+);
+
+/// Amazfit Bip U (codename Como): see [kAmazfitBipS], 8-byte records.
+const BandEntry kAmazfitBipU = BandEntry.notify(
+  id: 'huami_como',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit Bip U',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeBipU,
+  scanByName: true,
+);
+
+/// Amazfit GTS (codename Kestrel): see [kAmazfitBipS], 4-byte records.
+const BandEntry kAmazfitGts = BandEntry.notify(
+  id: 'huami_kestrel',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTS',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGts,
+  scanByName: true,
+);
+
+/// Amazfit GTS 2 (codename Newton): see [kAmazfitBipS], 8-byte records.
+const BandEntry kAmazfitGts2 = BandEntry.notify(
+  id: 'huami_newton',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTS 2',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGts2,
+  scanByName: true,
+);
+
+/// Amazfit GTR (codename Falcon): see [kAmazfitBipS], 4-byte records.
+const BandEntry kAmazfitGtr = BandEntry.notify(
+  id: 'huami_falcon',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTR',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[kHuami234AuthChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGtr,
+  scanByName: true,
+);
+
+// Exact names only: "amazfit gts" must not claim "amazfit gts 2", nor
+// "amazfit gtr" a GTR 2 or 3.
+bool _looksLikeBipS(String n) => n == 'amazfit bip s';
+bool _looksLikeBipU(String n) => n == 'amazfit bip u';
+bool _looksLikeGts(String n) =>
+    const {'amazfit gts', 'amazfit kestrel'}.contains(n);
+bool _looksLikeGts2(String n) => const {'amazfit gts 2', 'newton'}.contains(n);
+bool _looksLikeGtr(String n) => n == 'amazfit gtr';
+
 /// The names Mi Band 2 and Mi Band 3 advertise.
 bool _looksLikeMiBand23(String lowercaseName) => const {
       'mi band 2',
@@ -1078,6 +1252,115 @@ const BandEntry kHelioStrap = BandEntry.notify(
 /// BLE advertised-name match table.
 bool _looksLikeHelioStrap(String lowercaseName) =>
     lowercaseName.contains('helio strap');
+
+/// Xiaomi / Mi Smart Band 7 (codename L66). Same Huami2021/ZeppOS protocol as
+/// [kHelioStrap] (same auth endpoint and handshake, same chunk and fetch
+/// channels), so [HelioStrapAdapter] drives it with this entry. Keyed by
+/// codename, not brand: one id covers every regional SKU sold under it.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). Its HRV
+/// records are banked raw, never decoded into numbers, until a real band
+/// shows their unit (see the adapter's HRV gate).
+const BandEntry kMiBand7 = BandEntry.notify(
+  id: 'zeppos_l66',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://www.mi.com/global/support/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Xiaomi Smart Band 7',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: <String>[
+    kHuami2021ChunkWriteChar,
+    kHuami2021ChunkNotifyChar,
+    kHuami2021FetchControlChar,
+    kHuami2021FetchDataChar,
+  ],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeMiBand7,
+  scanByName: true,
+);
+
+/// The names the band advertises: the retail names, the bare codename, or
+/// the retail name plus a 4-character suffix. "Xiaomi Smart Band 7 Pro" is a
+/// different device and must not match (its suffix is 3 characters).
+bool _looksLikeMiBand7(String lowercaseName) =>
+    lowercaseName == 'l66' ||
+    lowercaseName == 'mi smart band 7' ||
+    RegExp(r'^xiaomi smart band 7( [0-9a-z]{4})?$').hasMatch(lowercaseName);
+
+/// One Zepp OS watch on the Helio engine, keyed by codename. Same protocol,
+/// channels and caveats as [kMiBand7]: EXPERIMENTAL (ASSUMPTIONS R6), nobody
+/// on this project owns one, HRV banked raw, not decoded.
+const BandEntry kAmazfitGtr3 = BandEntry.notify(
+  id: 'zeppos_verona',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTR 3',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: _kZeppOsChars,
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGtr3,
+  scanByName: true,
+);
+
+/// See [kAmazfitGtr3].
+const BandEntry kAmazfitGtr3Pro = BandEntry.notify(
+  id: 'zeppos_madrid',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTR 3 Pro',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: _kZeppOsChars,
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGtr3Pro,
+  scanByName: true,
+);
+
+/// See [kAmazfitGtr3].
+const BandEntry kAmazfitGts3 = BandEntry.notify(
+  id: 'zeppos_zurich',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit GTS 3',
+  service: kHuami234Service,
+  // Its name plus FEE1 names it ahead of Mi Band 2/3's plain FEE1 match.
+  scanHints: <String>[kHuami234Service],
+  characteristics: _kZeppOsChars,
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeGts3,
+  scanByName: true,
+);
+
+const List<String> _kZeppOsChars = <String>[
+  kHuami2021ChunkWriteChar,
+  kHuami2021ChunkNotifyChar,
+  kHuami2021FetchControlChar,
+  kHuami2021FetchDataChar,
+];
+
+/// Exact names only: each codename's retail names plus the codename itself.
+/// "amazfit gtr 3" must never claim a GTR 3 Pro.
+bool _looksLikeGtr3(String n) =>
+    const {'verona', 'amazfit gtr 3', 'amazfit gtr 3e'}.contains(n);
+bool _looksLikeGtr3Pro(String n) =>
+    const {'madrid', 'madrid w', 'madridw', 'amazfit gtr 3 pro'}.contains(n);
+bool _looksLikeGts3(String n) =>
+    const {'zurich', 'amazfit gts 3', 'amazfit gts 3e'}.contains(n);
 
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
 /// PPoGATT carries the inner protocol, whose health data logging the adapter
@@ -1255,6 +1538,27 @@ const BandEntry kMiScale2 = BandEntry.notify(
 
 bool _looksLikeMiScale2(String lowercaseName) => lowercaseName == 'mi scale2';
 
+/// Amazfit Scale: plain GATT on FEE0, no auth (see `amazfit_scale.dart` in
+/// `protocol`). Live weighings only, as `weight` observations like the Mi
+/// scales'; its stored history is never read or acknowledged.
+/// EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one.
+const BandEntry kAmazfitScale = BandEntry.notify(
+  id: 'amazfit_scale',
+  role: DeviceRole.sensor,
+  kind: DeviceKind.scale,
+  resetSteps: ResetSteps.unverified(officialUrl: 'https://support.amazfit.com/'),
+  category: DeviceCategory.healthMeasurement,
+  label: 'Amazfit Scale',
+  service: kAmazfitScaleService,
+  characteristics: <String>[kAmazfitScaleMeasureChar, kAmazfitScaleClockChar],
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeAmazfitScale,
+  scanByName: true,
+);
+
+bool _looksLikeAmazfitScale(String lowercaseName) =>
+    lowercaseName == 'amazfit scale';
+
 /// The entry whose [BandEntry.nameMatcher] claims [lowercaseName] while
 /// [advertisedUuids] (canonical 128-bit lowercase) carries one of that same
 /// entry's [BandEntry.scanHints], or null. Name and hint together name the
@@ -1289,13 +1593,26 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kCoros,
   kUltrahuman,
   kMiBand234,
+  kMiBand4,
+  kMiBand5,
+  kMiBand6,
+  kAmazfitBipS,
+  kAmazfitBipU,
+  kAmazfitGts,
+  kAmazfitGts2,
+  kAmazfitGtr,
   kHelioStrap,
+  kMiBand7,
+  kAmazfitGtr3,
+  kAmazfitGtr3Pro,
+  kAmazfitGts3,
   kPebble,
   kColmi,
   kGarmin,
   kThermometer,
   kMiScaleComposition,
   kMiScale2,
+  kAmazfitScale,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -1346,6 +1663,18 @@ final List<BandEntry> kFramedBands =
 /// advertisement can be read for a `bluetoothCompanyIdentifier` or
 /// manufacturer-data blob that differs from Mi Band's.
 ///
+/// [kMiBand7], [kAmazfitGtr3], [kAmazfitGtr3Pro] and [kAmazfitGts3] are
+/// listed under the same owner-accepted risk (owner decision 2026-11-23):
+/// more FEE1 devices, told apart only by the names they advertise. They sit
+/// before [kHelioStrap] so the FEE1 label the picker shows stays the strap's.
+///
+/// [kMiBand4] is listed under the same owner-accepted risk (owner decision
+/// 2026-11-23): one more FEE1 device, told apart only by the name it
+/// advertises. [kMiBand5], [kMiBand6] and the first Amazfit watches
+/// ([kAmazfitBipS] to [kAmazfitGtr]) follow it on the same reasoning. They
+/// sit before [kHelioStrap] so the FEE1 label the picker
+/// shows stays the strap's.
+///
 /// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
 /// [kMiScale2] are listed although they break the rule above: the band is
 /// not known to advertise FEE1, the Colmi ring is not known to advertise its
@@ -1357,18 +1686,35 @@ final List<BandEntry> kFramedBands =
 /// be found at all. They stay listed because outside this list they have no
 /// iOS 18+ path whatever, and none of their UUIDs is shared with another
 /// entry, so the picker cannot hand back another sensor's approval.
+///
+/// [kAmazfitScale] is listed on the same terms as the Mi scales: whether it
+/// advertises FEE0 in its service list (rather than only as service data)
+/// is untested; FEE0 is no other listed entry's service.
 const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kBleHrs,
   kOura,
   kColmi,
   kUltrahuman,
   kMiBand234,
+  kMiBand4,
+  kMiBand5,
+  kMiBand6,
+  kAmazfitBipS,
+  kAmazfitBipU,
+  kAmazfitGts,
+  kAmazfitGts2,
+  kAmazfitGtr,
+  kMiBand7,
+  kAmazfitGtr3,
+  kAmazfitGtr3Pro,
+  kAmazfitGts3,
   kHelioStrap,
   kPebble,
   kGarmin,
   kThermometer,
   kMiScaleComposition,
   kMiScale2,
+  kAmazfitScale,
 ];
 
 /// A service UUID as Core Bluetooth spells it: a Bluetooth-base UUID
@@ -1409,6 +1755,22 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
   // device, so the same id; already declared above, listed so the plist
   // test keeps it declared for this entry too. Unverified on a strap (R6).
   'helio_strap': 0x0157,
+  // Mi Band 4 to 6 and the first Amazfit watches: the same maker, the same
+  // id. Unverified on any of them (R6).
+  'huami_cinco': 0x0157,
+  'huami_kongming': 0x0157,
+  'huami_pangu': 0x0157,
+  'huami_tonlesap': 0x0157,
+  'huami_como': 0x0157,
+  'huami_kestrel': 0x0157,
+  'huami_newton': 0x0157,
+  'huami_falcon': 0x0157,
+  // Mi Band 7 and the GTR 3 / GTS 3 watches: the same maker, the same id.
+  // Unverified on any of them (R6).
+  'zeppos_l66': 0x0157,
+  'zeppos_verona': 0x0157,
+  'zeppos_madrid': 0x0157,
+  'zeppos_zurich': 0x0157,
 };
 
 /// iOS picker names for sensors whose service another sensor shares (FEE1):
@@ -1416,7 +1778,35 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
 /// declared under `NSAccessorySetupBluetoothNames` in Info.plist.
 const Map<String, String> kAskSharedServiceNames = <String, String>{
   'helio_strap': 'Helio Strap',
+  // A substring, so a shorter one also lists the longer names (Amazfit GTS
+  // shows a GTS 2 too); pairing refuses a device whose advertised name
+  // another entry claims, so a wrong pick stops there.
+  'huami_cinco': 'Mi Smart Band 4',
+  'huami_kongming': 'Mi Smart Band 5',
+  'huami_pangu': 'Mi Smart Band 6',
+  'huami_tonlesap': 'Amazfit Bip S',
+  'huami_como': 'Amazfit Bip U',
+  'huami_kestrel': 'Amazfit GTS',
+  'huami_newton': 'Amazfit GTS 2',
+  'huami_falcon': 'Amazfit GTR',
+  'zeppos_l66': 'Smart Band 7',
+  'zeppos_verona': 'Amazfit GTR 3',
+  'zeppos_madrid': 'Amazfit GTR 3 Pro',
+  'zeppos_zurich': 'Amazfit GTS 3',
 };
+
+/// The registry entry other than [entry] whose name matcher claims
+/// [advertisedName], or null. Pairing refuses such a device: the iOS sheet
+/// filters by name substring, so an "Amazfit GTS" sheet can hand back a
+/// GTS 2, which speaks the same handshake with a different record size.
+BandEntry? otherEntryNamed(BandEntry entry, String advertisedName) {
+  final n = advertisedName.trim().toLowerCase();
+  if (n.isEmpty || (entry.nameMatcher?.call(n) ?? false)) return null;
+  for (final e in kBandRegistry) {
+    if (e.id != entry.id && (e.nameMatcher?.call(n) ?? false)) return e;
+  }
+  return null;
+}
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed
 /// a [BandProfile] rather than an entry.
@@ -1493,6 +1883,47 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.steps: Duration(days: 1),
     InputSignal.deviceStages: Duration(minutes: 1),
   },
+  // Mi Band 4: the same adapter and the same records as Mi Band 2/3.
+  'huami_cinco': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_kongming': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_pangu': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_tonlesap': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_como': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_kestrel': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_newton': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'huami_falcon': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
   'pebble': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(days: 1),
@@ -1520,9 +1951,39 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceStages: Duration.zero,
     InputSignal.vendorScalars: Duration.zero,
   },
+  // Mirrors `kZeppOsSignals` in `helio_strap.dart`. Only what this band is
+  // known to carry: no skin-temperature sensor, and its HRV records are
+  // banked raw, not decoded (unit unconfirmed without hardware).
+  'zeppos_l66': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  // The Zepp OS watches: the same declaration as Mi Band 7, for the same
+  // reasons (no skin-temperature channel, HRV not decoded).
+  'zeppos_verona': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  'zeppos_madrid': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
+  'zeppos_zurich': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
   'thermometer': <InputSignal, Duration>{},
   'miscale_bc': <InputSignal, Duration>{},
   'miscale2': <InputSignal, Duration>{},
+  'amazfit_scale': <InputSignal, Duration>{},
   'garmin': {
     InputSignal.hrSparse: Duration(minutes: 1),
     InputSignal.steps: Duration(days: 1),

@@ -973,8 +973,9 @@ class HrsLink {
       await UltrahumanLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kMiBand234.id) {
-      await MiBand234Link.forgetBand(id);
+    final miBand = MiBand234Link.forId(row?['adapter_id']);
+    if (miBand != null) {
+      await miBand.forget(id);
       return;
     }
     if (row?['adapter_id'] == kPebble.id) {
@@ -985,8 +986,9 @@ class HrsLink {
       await ColmiLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kHelioStrap.id) {
-      await HelioStrapLink.forgetStrap(id);
+    final zeppOs = HelioStrapLink.forId(row?['adapter_id']);
+    if (zeppOs != null) {
+      await zeppOs.forget(id);
       return;
     }
     final session = SessionLink.forId(row?['adapter_id'] as String?);

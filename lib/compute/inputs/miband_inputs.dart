@@ -24,6 +24,38 @@ import 'pebble_inputs.dart' show rhrOnlyReadiness;
 /// The adapter id the host stamps on this band's `decoded_onehz` rows.
 const String kMiBandFamily = 'miband234';
 
+/// Mi Band 4: the same protocol and the same records as Mi Band 2/3 (HR in
+/// its minute record, its own per-minute sleep kind, daily steps), so the
+/// same column serves it.
+const String kMiBand4Family = 'huami_cinco';
+
+/// Mi Band 5 and 6: the same minute record in an 8-byte slot (the first
+/// four bytes read the same), so the same column serves them too.
+const String kMiBand5Family = 'huami_kongming';
+const String kMiBand6Family = 'huami_pangu';
+
+/// The first Amazfit watches on the same engine (Bip S, Bip U, GTS, GTS 2,
+/// GTR): the same minute record, 4 or 8 bytes, so the same column.
+const Set<String> kAmazfitG1Families = {
+  'huami_tonlesap',
+  'huami_como',
+  'huami_kestrel',
+  'huami_newton',
+  'huami_falcon',
+};
+
+/// Every family [kMiBandColumn] serves.
+const Set<String> kMiBandFamilies = {
+  kMiBandFamily,
+  kMiBand4Family,
+  kMiBand5Family,
+  kMiBand6Family,
+  ...kAmazfitG1Families,
+};
+
+/// Whether [family] is one of [kMiBandFamilies].
+bool isMiBandFamily(Object? family) => kMiBandFamilies.contains(family);
+
 /// Mi Band 2/3's column of the metric x device table (PLAN §3b), as served.
 final Map<String, Cell> kMiBandColumn = {
   // Ours is the HR-led window off its one-a-minute HR (in bed); the band's

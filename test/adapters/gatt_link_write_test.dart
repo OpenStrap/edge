@@ -168,6 +168,27 @@ void main() {
     }
   });
 
+  test('an Amazfit Scale takes only its clock write: the history ack and '
+      'every other write are refused before the radio', () async {
+    final link =
+        GattBandLink(entry: kAmazfitScale, services: const [], onLog: (_) {});
+    final reached = <List<int>>[];
+    link.debugWriteHook = (v) async {
+      reached.add(v);
+      return true;
+    };
+    for (final (char, v) in [
+      ('00000018-0000-3512-2118-0009af100700', [0x04, 0, 0, 0, 0, 0, 0]),
+      (kAmazfitScaleMeasureChar, [0x01, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6]),
+      ('00000016-0000-3512-2118-0009af100700', [0x01]),
+    ]) {
+      expect(await link.write(char, v), isFalse, reason: char);
+    }
+    expect(await link.write(kAmazfitScaleClockChar, [0xEA, 7, 1, 1, 0, 0, 0, 5, 0, 0]),
+        isTrue);
+    expect(reached, hasLength(1));
+  });
+
   test('read() on a characteristic the peripheral does not expose returns '
       'null rather than throwing', () async {
     final link = _link();

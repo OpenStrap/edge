@@ -25,12 +25,17 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
-import 'adapters/_registry.dart' show kMiScale2, kMiScaleComposition;
+import 'adapters/_registry.dart'
+    show kAmazfitScale, kMiScale2, kMiScaleComposition;
 import 'ble_state.dart' show withScanLock;
 import 'session_link.dart';
 
-/// The adapters this watches: the Mi scales (the thermometer is unverified).
-final Set<String> kAutoSyncAdapters = {kMiScaleComposition.id, kMiScale2.id};
+/// The adapters this watches: the scales (the thermometer is unverified).
+final Set<String> kAutoSyncAdapters = {
+  kMiScaleComposition.id,
+  kMiScale2.id,
+  kAmazfitScale.id,
+};
 
 class ScalePresenceWatcher {
   ScalePresenceWatcher({

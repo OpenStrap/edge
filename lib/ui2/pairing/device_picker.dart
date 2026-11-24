@@ -47,7 +47,9 @@ import '../../ble/ble_state.dart'
         classifyBleBlocker,
         kMaxConcurrentSecondaryLinks;
 import '../../ble/hrs_link.dart';
-import '../../ble/helio_strap_link.dart' show pairHelioStrapWithTypedKey;
+import '../../ble/helio_strap_link.dart'
+    show zeppOsTypedKeyPairFor;
+import '../../ble/miband_link.dart' show miBandTypedKeyPairFor;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -338,10 +340,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
                   'sensors alongside your band. Remove one to add another.');
     }
     if (!mounted) return const PairOutcome.failed('');
-    // The strap pairs only with the key its vendor app issued, and a plain
-    // pair would save a row with none (every sync then ends at once). A
-    // nearby tap opens its key screen instead.
-    if (sensor.entry.id == kHelioStrap.id) {
+    // These pair only with the key their vendor app issued (the Helio Strap,
+    // the Zepp OS devices, Mi Band 4-6 and the first Amazfit watches), and a
+    // plain pair would save a row with none (every sync then ends at once).
+    // A nearby tap opens their key screen instead.
+    if (zeppOsTypedKeyPairFor(sensor.entry.id) != null ||
+        miBandTypedKeyPairFor(sensor.entry.id) != null) {
       await HrsLink.stopScanIfRunning(this);
       final r =
           await _openEntry(sensor.entry, returnOnPair: true, selected: cand);
@@ -429,7 +433,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
         // its typed-key function is the only way it pairs.
         onPickedWithKey: switch (sensor.entry.id) {
           final id when id == kOura.id => pairOuraRingWithTypedKey,
-          final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
+          final id when zeppOsTypedKeyPairFor(id) != null =>
+            zeppOsTypedKeyPairFor(id),
+          final id when miBandTypedKeyPairFor(id) != null =>
+            miBandTypedKeyPairFor(id),
           _ => null,
         },
         ),
@@ -937,8 +944,7 @@ String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
           'Reads the ring directly — no account, no key exchange.',
       'miband234' => l?.devicePickerBlurbMiband234 ??
           'Mi Band 2 or 3: heart rate, steps and sleep. Unpair it from Mi '
-              'Fit or Zepp first, or reset it. Tap the band if it buzzes. Mi '
-              'Band 4 isn’t supported.',
+              'Fit or Zepp first, or reset it. Tap the band if it buzzes.',
       'pebble' => l?.devicePickerBlurbPebble ??
           'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
               'rate on a Pebble 2 (the SE has no heart-rate sensor).',

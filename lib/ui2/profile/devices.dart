@@ -52,8 +52,22 @@ import '../../ble/adapters/_registry.dart'
         kCoros,
         kGarmin,
         kHelioStrap,
+        kMiBand7,
+        kAmazfitGtr3,
+        kAmazfitGtr3Pro,
+        kAmazfitGts3,
         kMiBand234,
+        kMiBand4,
+        kMiBand5,
+        kMiBand6,
+        kAmazfitBipS,
+        kAmazfitBipU,
+        kAmazfitGts,
+        kAmazfitGts2,
+        kAmazfitGtr,
+        DeviceKind,
         kMiScale2,
+        kAmazfitScale,
         kMiScaleComposition,
         kOura,
         kPebble,
@@ -945,8 +959,9 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'coros' => LucideIcons.timer,
       'ultrahuman' => LucideIcons.circle,
       'thermometer' => LucideIcons.thermometer,
-      'miscale_bc' || 'miscale2' => LucideIcons.scale,
-      'garmin' || 'miband234' || 'pebble' => LucideIcons.watch,
+      'miscale_bc' || 'miscale2' || 'amazfit_scale' => LucideIcons.scale,
+      'garmin' || 'pebble' => LucideIcons.watch,
+      final id when MiBand234Link.forId(id) != null => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -1193,6 +1208,14 @@ class MyDevices extends StatelessWidget {
   }
 }
 
+/// The pairing blurb every Zepp OS watch shares; [what] names the model.
+String _zeppOsWatchBlurb(String what) =>
+    '$what. First pairing still has to go through the Zepp app, which is '
+    'where the watch\'s key comes from. Paste that key below to pair it here '
+    'instead. Syncs heart rate, steps, sleep and workouts; the watch\'s own '
+    'stress and SpO2 figures are labelled as Amazfit\'s. HRV is not read '
+    'yet. Experimental.';
+
 /// Every sensor that can be paired from this screen — a second device
 /// alongside the band, never a replacement for it.
 ///
@@ -1248,6 +1271,13 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     pick: null,
   ),
   (
+    entry: kAmazfitScale,
+    blurb: 'The Amazfit Scale. Saves each settled weight. Step on it with '
+        'the app open; weights it stored while the phone was away stay on '
+        'the scale. Experimental.',
+    pick: null,
+  ),
+  (
     entry: kCoros,
     blurb: 'A Coros sports watch. Reads battery, model/serial/firmware and '
         'live heart rate. Disconnect it from the COROS app first; newer '
@@ -1285,10 +1315,37 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'still bound to Mi Fit or Zepp will refuse to pair. Unpair it from '
         'that app first, or use a factory-reset unit. If the band buzzes '
         'while pairing, tap it to confirm. Syncs its stored heart '
-        'rate, steps and sleep. (Mi Band 4 needs the vendor pairing and is '
-        'not supported.)',
+        'rate, steps and sleep. (Mi Band 4 has its own entry below.)',
     pick: pairMiBand234,
   ),
+  (
+    entry: kMiBand4,
+    blurb: 'A Mi Smart Band 4. First pairing still has to go through Zepp '
+        'Life or Mi Fit, which is where the band\'s key comes from; this '
+        'app can\'t install one on it. Paste that key below to pair it here '
+        'instead. Syncs its stored heart rate, steps and sleep. '
+        'Experimental.',
+    // Null: typed key only, like the Helio Strap.
+    pick: null,
+  ),
+  for (final e in [
+    kMiBand5,
+    kMiBand6,
+    kAmazfitBipS,
+    kAmazfitBipU,
+    kAmazfitGts,
+    kAmazfitGts2,
+    kAmazfitGtr,
+  ])
+    (
+      entry: e,
+      blurb: 'A ${e.label}. First pairing still has to go through '
+          '${e.kind == DeviceKind.watch ? 'Zepp' : 'Zepp Life or Mi Fit'}, '
+          'which is where its key comes from; this app can\'t install one on '
+          'it. Paste that key below to pair it here instead. Syncs its stored '
+          'heart rate, steps and sleep. Experimental.',
+      pick: null,
+    ),
   (
     entry: kHelioStrap,
     blurb: 'An Amazfit Helio Strap. First pairing still has to go through '
@@ -1300,6 +1357,31 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     // Null: this device has no keyless path at all — unlike Oura or Mi
     // Band, there is no "mint our own key" option, so only the typed-key
     // field (wired via `onPickedWithKey` in the pairing screens) applies.
+    pick: null,
+  ),
+  (
+    entry: kMiBand7,
+    blurb: 'A Xiaomi Smart Band 7 (Mi Smart Band 7). First pairing still has '
+        'to go through Zepp Life, which is where the band\'s key comes from. '
+        'Paste that key below to pair it here instead. Syncs heart rate, '
+        'steps, sleep and workouts; the band\'s own stress and SpO2 figures '
+        'are labelled as Xiaomi\'s. HRV is not read yet. Experimental.',
+    // Null for the same reason as the Helio Strap: typed key only.
+    pick: null,
+  ),
+  (
+    entry: kAmazfitGtr3,
+    blurb: _zeppOsWatchBlurb('An Amazfit GTR 3 or GTR 3e'),
+    pick: null,
+  ),
+  (
+    entry: kAmazfitGtr3Pro,
+    blurb: _zeppOsWatchBlurb('An Amazfit GTR 3 Pro'),
+    pick: null,
+  ),
+  (
+    entry: kAmazfitGts3,
+    blurb: _zeppOsWatchBlurb('An Amazfit GTS 3 or GTS 3e'),
     pick: null,
   ),
   (
@@ -1363,7 +1445,9 @@ bool sensorCapReached(Iterable<Map<String, Object?>> deviceRows,
           ((r['remote_id'] as String?) ?? '').isNotEmpty)
       .toList();
   final sameAdapterRewrites = adapterId != null &&
-      (anyOfAdapter || adapterId == kOura.id || adapterId == kMiBand234.id);
+      (anyOfAdapter ||
+          adapterId == kOura.id ||
+          MiBand234Link.forId(adapterId) != null);
   for (final r in secondary) {
     if (repairingId != null && r['id'] == repairingId) return false;
     if (sameAdapterRewrites && r['adapter_id'] == adapterId) return false;
@@ -2143,11 +2227,13 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'coros' => () => _syncCorosWatch(c),
         'garmin' => () => _syncGarminWatch(c),
         'ultrahuman' => () => _syncUltrahumanRing(c),
-        'miband234' => () => _syncMiband(c),
+        final f when MiBand234Link.forId(f) != null =>
+          () => _syncMiband(c, MiBand234Link.forId(f)),
         'pebble' => () => _syncPebble(c),
         'colmi' => () => _syncColmiRing(c),
-        'helio_strap' => () => _syncSensor(c, HelioStrapLink.instance.sync),
-        'thermometer' || 'miscale_bc' || 'miscale2' =>
+        final f when HelioStrapLink.forId(f) != null =>
+          () => _syncSensor(c, HelioStrapLink.forId(f)!.sync),
+        'thermometer' || 'miscale_bc' || 'miscale2' || 'amazfit_scale' =>
           () => _syncSensor(c, SessionLink.forId(s.family)!.sync),
         _ => null,
       },
@@ -2281,17 +2367,18 @@ Future<void> _syncUltrahumanRing(BuildContext c) async {
 /// [_syncRing]: a bounded-window snapshot (no cursor, see
 /// `MiBand234Link`'s own header), so "synced" here means "connected and
 /// collected what the window allowed", not "drained everything".
-Future<void> _syncMiband(BuildContext c) async {
+Future<void> _syncMiband(BuildContext c,
+    [MiBand234Link? band]) async {
+  final link = band ?? MiBand234Link.instance;
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(
       SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
-  final ok = await MiBand234Link.instance.sync();
+  final ok = await link.sync();
   if (!c.mounted) return;
   // A rejected key needs a re-pair, which no amount of moving closer fixes.
   final keyRejected = !ok &&
-      MiBand234Link.instance.lastSyncFailure ==
-          MiBand234SyncFailure.keyRejected;
+      link.lastSyncFailure == MiBand234SyncFailure.keyRejected;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')

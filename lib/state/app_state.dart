@@ -1748,7 +1748,7 @@ class AppState extends ChangeNotifier {
       } catch (e) {
         _log('[reset] coach chat delete failed: $e');
       }
-      // The ring's, Mi Band's and Helio Strap's pairing keys. iOS keeps keychain
+      // The ring's, Mi Band's and Zepp OS devices' pairing keys. iOS keeps keychain
       // items across an uninstall, and a ring still holding the old key needs
       // a factory reset before it pairs again. A delete of a key that was
       // never written is a no-op, so every non-primary id is tried for both,
@@ -1756,7 +1756,7 @@ class AppState extends ChangeNotifier {
       final keysDropped = [
         await OuraLink.dropStoredKeys(secondaryIds),
         await MiBand234Link.dropStoredKeys(secondaryIds),
-        // One fixed item, not keyed by device: the strap's key.
+        // Fixed items, not keyed by device: every Zepp OS family's key.
         await HelioStrapLink.dropStoredKey(),
       ];
       resetLeftPairingKeys = keysDropped.contains(false);
@@ -1877,8 +1877,12 @@ class AppState extends ChangeNotifier {
     await bounded('ultrahuman', UltrahumanLink.instance.stop);
     await bounded('colmi', ColmiLink.instance.stop);
     await bounded('garmin', GarminLink.instance.stop);
-    await bounded('miband234', MiBand234Link.instance.stop);
-    await bounded('helio_strap', HelioStrapLink.instance.stop);
+    for (final l in MiBand234Link.all) {
+      await bounded(l.entry.id, l.stop);
+    }
+    for (final l in HelioStrapLink.all) {
+      await bounded(l.entry.id, l.stop);
+    }
     await bounded('pebble', PebbleLink.instance.stop);
     await bounded('coros', CorosLink.instance.stop);
     for (final link in SessionLink.all) {

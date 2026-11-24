@@ -2691,7 +2691,7 @@
   "pairSensorStoredOnSync": "Los registros se guardan al sincronizar",
   "pairSensorStoredOnReading": "Las lecturas se guardan al tomarlas",
   "pairSensorPairingMiband234": "Emparejando… Si la pulsera vibra, tócala para confirmar.",
-  "devicePickerBlurbMiband234": "Mi Band 2 o 3: frecuencia cardíaca, pasos y sueño. Desvincúlala primero de Mi Fit o Zepp, o restablécela. Toca la pulsera si vibra. La Mi Band 4 no es compatible.",
+  "devicePickerBlurbMiband234": "Mi Band 2 o 3: frecuencia cardíaca, pasos y sueño. Desvincúlala primero de Mi Fit o Zepp, o restablécela. Toca la pulsera si vibra.",
   "devicePickerBlurbUltrahuman": "Lee el anillo directamente: sin cuenta ni intercambio de claves.",
   "devicePickerBlurbPebble": "Solo Pebble 2 o Pebble 2 SE. Sincroniza pasos y sueño, y la frecuencia cardiaca en un Pebble 2 (el SE no tiene sensor de frecuencia cardiaca).",
   "pairSensorKeyReplacesTitle": "Vincular sustituye la clave de la app de Oura",

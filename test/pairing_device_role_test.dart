@@ -15,7 +15,8 @@ void main() {
         if (e.role == DeviceRole.sensor) e.id,
     };
     expect(sensors,
-        {'ble_hrs', 'polar_pmd', 'thermometer', 'miscale_bc', 'miscale2'});
+        {'ble_hrs', 'polar_pmd', 'thermometer', 'miscale_bc', 'miscale2',
+          'amazfit_scale'});
   });
 
   test('every other entry is a band, including both WHOOPs', () {
@@ -27,7 +28,12 @@ void main() {
         if (e.role == DeviceRole.band) e.id,
     };
     expect(bands, {
-      'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'helio_strap',
+      'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'huami_cinco',
+      'huami_kongming', 'huami_pangu',
+      'huami_tonlesap', 'huami_como', 'huami_kestrel',
+      'huami_newton', 'huami_falcon',
+      'helio_strap',
+      'zeppos_l66', 'zeppos_verona', 'zeppos_madrid', 'zeppos_zurich',
       'pebble', 'colmi', 'garmin',
     });
   });

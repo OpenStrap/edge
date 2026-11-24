@@ -33,6 +33,17 @@ const String kGarminFamily = 'garmin';
 /// served by the declaration-built [sparseColumn].
 const String kHelioFamily = 'helio_strap';
 
+/// Xiaomi / Mi Smart Band 7 (codename L66), on the Helio engine. Served by
+/// [sparseColumn] the same way; its HRV is never decoded, so it is not a
+/// device-RMSSD family.
+const String kMiBand7Family = 'zeppos_l66';
+
+/// The Zepp OS watches on the same engine (GTR 3, GTR 3 Pro, GTS 3), served
+/// the same way and for the same reason not device-RMSSD families.
+const String kGtr3Family = 'zeppos_verona';
+const String kGtr3ProFamily = 'zeppos_madrid';
+const String kGts3Family = 'zeppos_zurich';
+
 /// The widest gap, in seconds, between two readings still taken as one 1 Hz
 /// run (a strap's seconds laid over a wearable's day): a dropped second or
 /// two. A reading further off is a wearable's own and stands for its minutes.
@@ -48,8 +59,20 @@ const int kOneHzRunGapSec = 3;
 const Map<String, int> kHrCadenceSec = {
   kGarminFamily: 60,
   kHelioFamily: 60,
+  kMiBand7Family: 60,
+  kGtr3Family: 60,
+  kGtr3ProFamily: 60,
+  kGts3Family: 60,
   kPebbleFamily: 60,
   kMiBandFamily: 60,
+  kMiBand4Family: 60,
+  kMiBand5Family: 60,
+  kMiBand6Family: 60,
+  'huami_tonlesap': 60,
+  'huami_como': 60,
+  'huami_kestrel': 60,
+  'huami_newton': 60,
+  'huami_falcon': 60,
   kUltrahumanFamily: 300,
   kColmiFamily: 300,
   kOuraFamily: 300,
@@ -65,8 +88,20 @@ const Map<String, String> kMethodFamily = {
   'gen5': 'hr_1hz',
   kGarminFamily: 'hr_1min',
   kHelioFamily: 'hr_1min',
+  kMiBand7Family: 'hr_1min',
+  kGtr3Family: 'hr_1min',
+  kGtr3ProFamily: 'hr_1min',
+  kGts3Family: 'hr_1min',
   kPebbleFamily: 'hr_1min',
   kMiBandFamily: 'hr_1min',
+  kMiBand4Family: 'hr_1min',
+  kMiBand5Family: 'hr_1min',
+  kMiBand6Family: 'hr_1min',
+  'huami_tonlesap': 'hr_1min',
+  'huami_como': 'hr_1min',
+  'huami_kestrel': 'hr_1min',
+  'huami_newton': 'hr_1min',
+  'huami_falcon': 'hr_1min',
   kUltrahumanFamily: 'hr_5min',
   kColmiFamily: 'hr_5min',
   kOuraFamily: 'hr_5min',

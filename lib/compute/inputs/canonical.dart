@@ -1305,7 +1305,7 @@ void tagEnvelopes(Map? clinical, String? family) {
 Map<String, Cell>? columnFor(String? adapterId) => switch (adapterId) {
   kGarminFamily => kGarminColumn,
   kPebbleFamily => kPebbleColumn,
-  kMiBandFamily => kMiBandColumn,
+  final String f when isMiBandFamily(f) => kMiBandColumn,
   kUltrahumanFamily => kUltrahumanColumn,
   kColmiFamily => kColmiColumn,
   kOuraFamily => kOuraColumn,
@@ -1409,7 +1409,7 @@ Future<Map<String, Map<String, Object?>>?> dayCells(String date) async {
   // banks rows for every sleep block it records, daytime ones included, so
   // the same holds for it.
   if (wearable.$2 == kOuraFamily ||
-      ((wearable.$2 == kGarminFamily || wearable.$2 == kMiBandFamily) &&
+      ((wearable.$2 == kGarminFamily || isMiBandFamily(wearable.$2)) &&
           stored.isNotEmpty)) {
     for (final s in const ['deep', 'light', 'rem', 'wake']) {
       deviceValues.remove('${s}_min');
@@ -1781,7 +1781,7 @@ Future<List<Map<String, Object?>>> timelineObservations(
 Future<String?> _stagesPerFile(Object? id) async {
   if (id is! String) return null;
   final family = (await LocalDb.deviceRow(id))?['adapter_id'];
-  return family == kGarminFamily || family == kMiBandFamily
+  return family == kGarminFamily || isMiBandFamily(family)
       ? family as String
       : null;
 }

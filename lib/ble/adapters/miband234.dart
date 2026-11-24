@@ -73,9 +73,14 @@ const List<List<int>> kMiBand234ChallengeRequests = <List<int>>[
   <int>[0x02, 0x00],
 ];
 
-/// Answer the challenge with its encryption under the key.
-List<int> miBand234AuthAnswer(List<int> encrypted) =>
-    <int>[0x03, 0x00, ...encrypted];
+/// Answer the challenge with its encryption under the key. [cryptFlags] is
+/// OR-ed into the opcode: 0 for Mi Band 2/3, 0x80 for Mi Band 4.
+List<int> miBand234AuthAnswer(List<int> encrypted, {int cryptFlags = 0}) =>
+    <int>[0x03 | cryptFlags, 0x00, ...encrypted];
+
+/// Mi Band 4's challenge request: opcode 0x02 with crypt flag 0x80, auth
+/// flags 0x00, then `02 01 00`.
+const List<int> miBand4ChallengeRequest = <int>[0x82, 0x00, 0x02, 0x01, 0x00];
 
 /// Status 0x02 in an auth reply: the band was in the wrong state for the
 /// command, which a retry can clear; 0x04 and others are a refusal.
@@ -139,6 +144,7 @@ class MiBand234Adapter extends BandAdapter {
 
   MiBand234Adapter({
     required this.key,
+    this.entry = kMiBand234,
     this.needsKeyWrite = false,
     this.replyTimeout = const Duration(seconds: 5),
     this.confirmTimeout = const Duration(seconds: 30),
@@ -150,11 +156,46 @@ class MiBand234Adapter extends BandAdapter {
 
   static const int kMiBandFirstFetchDays = 7;
 
+  /// [kMiBand234] or one of the crypt-flagged entries on the same protocol
+  /// (Mi Band 4-6, the first Amazfit watches): those authenticate with crypt
+  /// flag 0x80 and never take a key from this app.
   @override
-  BandEntry get entry => kMiBand234;
+  final BandEntry entry;
+
+  /// The crypt flag OR-ed into the challenge and answer opcodes: 0x80 on
+  /// everything but Mi Band 2/3 (Mi Band 4-6 and the first Amazfit watches).
+  int get _cryptFlags => entry.id == kMiBand234.id ? 0x00 : 0x80;
+
+  /// Bytes per stored minute: 8 on Mi Band 5/6, Bip U and GTS 2, else 4.
+  int get _recordSize => {
+        kMiBand5.id,
+        kMiBand6.id,
+        kAmazfitBipU.id,
+        kAmazfitGts2.id,
+      }.contains(entry.id)
+          ? 8
+          : 4;
 
   @override
   Map<InputSignal, Duration> get signals => kMiBand234Signals;
+
+  /// The handshake alone, for a pairing screen proving a typed key: null when
+  /// the band accepted [key], else the refusing status (null status: no
+  /// answer). Reads and writes the auth characteristic only; nothing on the
+  /// band changes.
+  Future<({int? status})?> authenticateOnly(BandLink link) async {
+    final inbox = _Inbox<Uint8List>();
+    final sub = link.notify(kHuami234AuthChar).listen(
+          (rec) => inbox.add(Uint8List.fromList(rec.$2)),
+          onDone: inbox.close,
+          onError: (Object _) => inbox.close(),
+        );
+    try {
+      return await _authenticate(link, inbox);
+    } finally {
+      await sub.cancel();
+    }
+  }
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
@@ -187,7 +228,10 @@ class MiBand234Adapter extends BandAdapter {
   Future<({int? status})?> _authenticate(
       BandLink link, _Inbox<Uint8List> inbox) async {
     const unanswered = (status: null);
-    if (needsKeyWrite) {
+    final crypt = _cryptFlags;
+    // A crypt-flagged band (Mi Band 4) never takes a key from this app: its
+    // key comes from the vendor pairing, so there is nothing to install.
+    if (needsKeyWrite && crypt == 0) {
       if (!await link.write(kHuami234AuthChar, miBand234KeyInstall(key))) {
         return unanswered;
       }
@@ -202,10 +246,14 @@ class MiBand234Adapter extends BandAdapter {
       }
     }
     Uint8List? challengeFrame;
-    for (final request in kMiBand234ChallengeRequests) {
+    // Replies echo the opcode with the crypt flag set, so they are matched
+    // on its low nibble.
+    for (final request in crypt == 0
+        ? kMiBand234ChallengeRequests
+        : <List<int>>[miBand4ChallengeRequest]) {
       if (!await link.write(kHuami234AuthChar, request)) return unanswered;
       challengeFrame = await inbox.firstWhere(
-        (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x02,
+        (f) => f.length >= 3 && f[0] == 0x10 && (f[1] & 0x0f) == 0x02,
         replyTimeout,
       );
       if (challengeFrame != null &&
@@ -221,11 +269,12 @@ class MiBand234Adapter extends BandAdapter {
     }
     final answer =
         miBand234AuthResponse(key, challengeFrame.sublist(3, 19));
-    if (!await link.write(kHuami234AuthChar, miBand234AuthAnswer(answer))) {
+    if (!await link.write(
+        kHuami234AuthChar, miBand234AuthAnswer(answer, cryptFlags: crypt))) {
       return unanswered;
     }
     final result = await inbox.firstWhere(
-      (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x03,
+      (f) => f.length >= 3 && f[0] == 0x10 && (f[1] & 0x0f) == 0x03,
       replyTimeout,
     );
     if (result == null || result[2] != 0x01) {
@@ -337,15 +386,17 @@ extension on MiBand234Adapter {
         if (!await link.write(kHuamiActivityControlChar, kHuamiActivityFetchData)) {
           break;
         }
-        // The header counts 4-byte minute samples, not bytes.
-        final want = start.count * 4;
+        // The header counts minute samples, not bytes.
+        final recordSize = _recordSize;
+        final want = start.count * recordSize;
         final buf = HuamiActivityBuffer();
         var raw = <Uint8List>[];
         final previousKind = minutes.isEmpty ? 1 : minutes.last.kind;
         // How many of this round's minutes are already banked.
         var banked = 0;
         List<HuamiMinute> decoded() => buf
-            .minutes(start.startSec, previousKind: previousKind)
+            .minutes(start.startSec,
+                previousKind: previousKind, recordSize: recordSize)
             .take(start.count)
             .toList();
         // Ends with all the announced samples, or shortly after the band's
@@ -368,11 +419,12 @@ extension on MiBand234Adapter {
           // A first sync answers one fetch with up to a week in one round:
           // bank it a day at a time, so a session the sync window (or a
           // drop) cuts mid-round still keeps, and resumes after, what came.
-          if (buf.ok && buf.bytes.length ~/ 4 - banked >= _kBankEveryMinutes) {
+          if (buf.ok &&
+              buf.bytes.length ~/ recordSize - banked >= _kBankEveryMinutes) {
             final got = decoded();
             minutes.addAll(got.skip(banked));
             for (final e in _bank(got.skip(banked), raw, minutes, sessionSince,
-                nowSec)) {
+                nowSec, entry.id)) {
               yield e;
             }
             banked = got.length;
@@ -394,7 +446,8 @@ extension on MiBand234Adapter {
         if (got.length > banked) {
           minutes.addAll(got.skip(banked));
           for (final e
-              in _bank(got.skip(banked), raw, minutes, sessionSince, nowSec)) {
+              in _bank(
+                  got.skip(banked), raw, minutes, sessionSince, nowSec, entry.id)) {
             yield e;
           }
         } else if (raw.isNotEmpty) {
@@ -420,7 +473,7 @@ extension on MiBand234Adapter {
 /// session would move the cursor past days whose steps and sleep never
 /// landed. The link holds the cursor behind these vendor writes.
 Iterable<BandEvent> _bank(Iterable<HuamiMinute> got, List<Uint8List> raw,
-    List<HuamiMinute> all, int sessionSince, int nowSec) sync* {
+    List<HuamiMinute> all, int sessionSince, int nowSec, String source) sync* {
   yield SampleBatch([
     for (final m in got)
       if (m.hr != null && m.hr! >= 25 && m.hr! <= 230 && m.tsSec <= nowSec)
@@ -429,7 +482,7 @@ Iterable<BandEvent> _bank(Iterable<HuamiMinute> got, List<Uint8List> raw,
   final epochs = <VendorEpoch>[];
   final (nights, openSec) = _nights(all, sessionSince, epochs);
   final rows = <Observation>[..._dailySteps(all, sessionSince), ...nights];
-  if (epochs.isNotEmpty) yield VendorHypnogram(kMiBand234.id, epochs);
+  if (epochs.isNotEmpty) yield VendorHypnogram(source, epochs);
   if (rows.isNotEmpty) yield VendorScalars(rows);
   // From the start of the first day not read whole (the next one when the
   // last minute seen is 23:59), or of the day holding the awake minute before

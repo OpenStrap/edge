@@ -66,11 +66,24 @@
 		<string>86F65000-F706-58A0-95B2-1FB9261E4DC7</string>
 		<string>FEE1</string>
 		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
 		<string>FED9</string>
 		<string>6A4E2800-667B-11E3-949A-0800200C9A66</string>
 		<string>1809</string>
 		<string>181B</string>
 		<string>181D</string>
+		<string>FEE0</string>
 		<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor service
 		     above, and NOT the Bluetooth-base expansion
 		     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises that).
@@ -84,6 +97,18 @@
 	<array>
 		<string>WHOOP</string>
 		<string>Helio Strap</string>
+		<string>Mi Smart Band 4</string>
+		<string>Mi Smart Band 5</string>
+		<string>Mi Smart Band 6</string>
+		<string>Amazfit Bip S</string>
+		<string>Amazfit Bip U</string>
+		<string>Amazfit GTS</string>
+		<string>Amazfit GTS 2</string>
+		<string>Amazfit GTR</string>
+		<string>Smart Band 7</string>
+		<string>Amazfit GTR 3</string>
+		<string>Amazfit GTR 3 Pro</string>
+		<string>Amazfit GTS 3</string>
 	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>
@@ -110,6 +135,30 @@
 		<key>FEE1</key>
 		<string>Mi Band 2/3</string>
 		<key>FEE1</key>
+		<string>Mi Smart Band 4</string>
+		<key>FEE1</key>
+		<string>Mi Smart Band 5</string>
+		<key>FEE1</key>
+		<string>Mi Smart Band 6</string>
+		<key>FEE1</key>
+		<string>Amazfit Bip S</string>
+		<key>FEE1</key>
+		<string>Amazfit Bip U</string>
+		<key>FEE1</key>
+		<string>Amazfit GTS</string>
+		<key>FEE1</key>
+		<string>Amazfit GTS 2</string>
+		<key>FEE1</key>
+		<string>Amazfit GTR</string>
+		<key>FEE1</key>
+		<string>Xiaomi Smart Band 7</string>
+		<key>FEE1</key>
+		<string>Amazfit GTR 3</string>
+		<key>FEE1</key>
+		<string>Amazfit GTR 3 Pro</string>
+		<key>FEE1</key>
+		<string>Amazfit GTS 3</string>
+		<key>FEE1</key>
 		<string>Amazfit Helio Strap</string>
 		<key>FED9</key>
 		<string>Pebble</string>
@@ -121,6 +170,8 @@
 		<string>Mi Body Composition Scale</string>
 		<key>181D</key>
 		<string>Mi Smart Scale 2</string>
+		<key>FEE0</key>
+		<string>Amazfit Scale</string>
 	</dict>
 	<!-- GENERATED (see above): the declared services that belong to a SENSOR
 	     paired through its own ASK picker, not to a band. AccessorySetup.swift
@@ -142,11 +193,24 @@
 		<string>86F65000-F706-58A0-95B2-1FB9261E4DC7</string>
 		<string>FEE1</string>
 		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
+		<string>FEE1</string>
 		<string>FED9</string>
 		<string>6A4E2800-667B-11E3-949A-0800200C9A66</string>
 		<string>1809</string>
 		<string>181B</string>
 		<string>181D</string>
+		<string>FEE0</string>
 	</array>
 	<!-- The automatic-backup folder lives in the app's Documents directory.
 	     Without BOTH of these it exists but is invisible in Files, so nothing

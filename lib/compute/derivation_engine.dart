@@ -2197,6 +2197,8 @@ const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // doesn't fit 4- or 8-byte records decodes to nothing). NO kAlgoVersion bump:
 // ingest only, and the Helio adapter already passes the checked count; WHOOP
 // output unchanged.
+// The same pin's 8-byte legacy-Huami minutes and Amazfit Scale records feed
+// only the new flag-off devices at ingest: NO kAlgoVersion bump.
 const String kProtocolPin = 'e4ccba263dc94d772af122546fc93396243151fd';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
