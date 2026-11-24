@@ -2188,7 +2188,11 @@ const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // Helio adapter at ingest; WHOOP output unchanged (freeze goldens).
 // REPIN: protocol feat/zepp-family @ f2398ab (#86 head: review fixes to the
 // Huami2021 transport and decoders). Ingest only; WHOOP output unchanged.
-const String kProtocolPin = 'f2398ab77c2a4b5cf2f92b8ec6e111d40dd599ba';
+// REPIN: protocol feat/zepp-family @ e4ccba2 (an activity round whose count
+// doesn't fit 4- or 8-byte records decodes to nothing). NO kAlgoVersion bump:
+// ingest only, and the Helio adapter already passes the checked count; WHOOP
+// output unchanged.
+const String kProtocolPin = 'e4ccba263dc94d772af122546fc93396243151fd';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
