@@ -8,7 +8,13 @@
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:collection';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:openstrap_edge/ble/adapters/helio_strap.dart'
+    show kHelioStrapSecureStorageKey;
 import 'package:openstrap_edge/ble/helio_strap_link.dart';
+import 'package:openstrap_edge/sync/reset_gate.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -43,4 +49,73 @@ void main() {
     // to here.
     expect(result, isNot(contains('32 hex characters')));
   });
+
+  group('persisting an accepted key', () {
+    Future<Map<String, Object?>?> row() => LocalDb.deviceRow('helio-test');
+    Future<String?> persist({String? prior}) => persistHelioPairing(
+          deviceId: 'helio-test',
+          remoteId: 'AA:BB',
+          hex: 'ab' * 16,
+          priorHex: prior,
+          resetGen: ResetGate.generation,
+        );
+
+    setUp(() async => LocalDb.deleteDevice('helio-test'));
+
+    test('no reset: the key and the row land', () async {
+      final store = <String, String>{};
+      FlutterSecureStorage.setMockInitialValues(store);
+      expect(await persist(), isNull);
+      expect(store[kHelioStrapSecureStorageKey], 'ab' * 16);
+      expect(await row(), isNotNull);
+    });
+
+    test('a reset since the pairing began: nothing is written', () async {
+      final store = <String, String>{};
+      FlutterSecureStorage.setMockInitialValues(store);
+      final gen = ResetGate.generation;
+      ResetGate.enter();
+      ResetGate.leave();
+      expect(
+          await persistHelioPairing(
+              deviceId: 'helio-test',
+              remoteId: 'AA:BB',
+              hex: 'ab' * 16,
+              priorHex: null,
+              resetGen: gen),
+          kHelioPairResetText);
+      expect(store, isEmpty);
+      expect(await row(), isNull);
+    });
+
+    test('a reset that lands during the key write takes the key back out',
+        () async {
+      final store = _ResetOnWrite();
+      FlutterSecureStorage.setMockInitialValues(store);
+      expect(await persist(prior: 'cd' * 16), kHelioPairResetText);
+      expect(store.containsKey(kHelioStrapSecureStorageKey), isFalse,
+          reason: 'neither the new key nor the pre-reset one survives');
+      expect(await row(), isNull);
+    });
+  });
+}
+
+/// A keychain whose writes coincide with a "delete everything".
+class _ResetOnWrite extends MapBase<String, String> {
+  final _m = <String, String>{};
+  @override
+  String? operator [](Object? key) => _m[key];
+  @override
+  void operator []=(String key, String value) {
+    ResetGate.enter();
+    ResetGate.leave();
+    _m[key] = value;
+  }
+
+  @override
+  void clear() => _m.clear();
+  @override
+  Iterable<String> get keys => _m.keys;
+  @override
+  String? remove(Object? key) => _m.remove(key);
 }

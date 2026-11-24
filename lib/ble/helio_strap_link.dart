@@ -82,6 +82,11 @@ Future<String?> pairHelioStrapWithTypedKey(
   final key = Uint8List.fromList(
       [for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
 
+  // Read BEFORE the first await: a "delete everything" that lands while
+  // this reads the old row, the keychain, waits on the slot or runs the
+  // handshake must not find a fresh key and device row behind it, nor a
+  // device id minted from the wiped store.
+  final resetGen = ResetGate.generation;
   final priorRow = await HelioStrapLink.pairedHelioStrapRow();
   final rnd = Random.secure();
   final deviceId = (priorRow?['id'] as String?) ??
@@ -103,10 +108,6 @@ Future<String?> pairHelioStrapWithTypedKey(
     return 'The phone’s keychain is locked. Unlock the phone and try again.';
   }
 
-  // A "delete everything" that lands while this waits on the slot or the
-  // handshake must not find a fresh key and device row behind it.
-  final resetGen = ResetGate.generation;
-  const resetText = 'Pairing was interrupted by a reset. Pair the strap again.';
   return withSecondaryLinkSlot<String?>(
     timeout: const Duration(seconds: 30),
     onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
@@ -147,60 +148,13 @@ Future<String?> pairHelioStrapWithTypedKey(
           };
         }
 
-        // ponytail: check-then-write, so a reset landing between this check
-        // and the two writes below still slips past; a reset-held lock
-        // around pairing persistence closes it if that is ever seen.
-        if (ResetGate.changedSince(resetGen)) return resetText;
-        try {
-          await _pairSecure.write(
-            key: kHelioStrapSecureStorageKey,
-            value: hex,
-            iOptions: kHelioStrapIosKeyOptions,
-            mOptions: kHelioStrapMacosKeyOptions,
-          );
-        } catch (e) {
-          return 'The phone’s keychain is locked. Unlock the phone and try '
-              'again.';
-        }
-        if (ResetGate.changedSince(resetGen)) {
-          // The wipe ran during the keychain write: take the key back out.
-          try {
-            await _pairSecure.delete(
-              key: kHelioStrapSecureStorageKey,
-              iOptions: kHelioStrapIosKeyOptions,
-              mOptions: kHelioStrapMacosKeyOptions,
-            );
-          } catch (_) {}
-          return resetText;
-        }
-        try {
-          await LocalDb.upsertDevice(
-            id: deviceId,
-            adapterId: kHelioStrap.id,
-            remoteId: device.remoteId.str,
-            label: kHelioStrap.label,
-          );
-        } catch (e) {
-          // The row never landed — restore whatever the keychain held
-          // before this attempt rather than leave an unproven key behind
-          // with no row pointing at it.
-          if (priorHex == null) {
-            await _pairSecure.delete(
-              key: kHelioStrapSecureStorageKey,
-              iOptions: kHelioStrapIosKeyOptions,
-              mOptions: kHelioStrapMacosKeyOptions,
-            );
-          } else {
-            await _pairSecure.write(
-              key: kHelioStrapSecureStorageKey,
-              value: priorHex,
-              iOptions: kHelioStrapIosKeyOptions,
-              mOptions: kHelioStrapMacosKeyOptions,
-            );
-          }
-          return 'Could not save the pairing: $e';
-        }
-        return null;
+        return await persistHelioPairing(
+          deviceId: deviceId,
+          remoteId: device.remoteId.str,
+          hex: hex,
+          priorHex: priorHex,
+          resetGen: resetGen,
+        );
       } catch (e) {
         return 'Could not connect: $e';
       } finally {
@@ -217,6 +171,88 @@ Future<String?> pairHelioStrapWithTypedKey(
       }
     },
   );
+}
+
+/// The text a pairing interrupted by "delete everything" ends with.
+const String kHelioPairResetText =
+    'Pairing was interrupted by a reset. Pair the strap again.';
+
+/// Store a key the strap has just ACCEPTED, then its device row: the one
+/// place a pairing persists, so its reset rules are tested in one place.
+/// [resetGen] is [ResetGate.generation] read before the pairing's FIRST
+/// await. Three rules:
+///  * nothing is written once a reset has run since [resetGen];
+///  * a reset that lands during either write is undone after it (key and
+///    row deleted): a check before a write cannot see a reset that starts
+///    inside the write, a check after it can;
+///  * a failed row write restores [priorHex] only when no reset ran: after
+///    one, the wiped keychain stays wiped.
+@visibleForTesting
+Future<String?> persistHelioPairing({
+  required String deviceId,
+  required String remoteId,
+  required String hex,
+  required String? priorHex,
+  required int resetGen,
+}) async {
+  Future<void> dropKey() async {
+    try {
+      await _pairSecure.delete(
+        key: kHelioStrapSecureStorageKey,
+        iOptions: kHelioStrapIosKeyOptions,
+        mOptions: kHelioStrapMacosKeyOptions,
+      );
+    } catch (_) {/* keychain unavailable; nothing more to undo */}
+  }
+
+  if (ResetGate.changedSince(resetGen)) return kHelioPairResetText;
+  try {
+    await _pairSecure.write(
+      key: kHelioStrapSecureStorageKey,
+      value: hex,
+      iOptions: kHelioStrapIosKeyOptions,
+      mOptions: kHelioStrapMacosKeyOptions,
+    );
+  } catch (e) {
+    return 'The phone’s keychain is locked. Unlock the phone and try again.';
+  }
+  if (ResetGate.changedSince(resetGen)) {
+    await dropKey();
+    return kHelioPairResetText;
+  }
+  try {
+    await LocalDb.upsertDevice(
+      id: deviceId,
+      adapterId: kHelioStrap.id,
+      remoteId: remoteId,
+      label: kHelioStrap.label,
+    );
+  } catch (e) {
+    // The row never landed. Restore what the keychain held before this
+    // attempt, unless a reset wiped it meanwhile: then it stays wiped.
+    if (priorHex == null || ResetGate.changedSince(resetGen)) {
+      await dropKey();
+    } else {
+      try {
+        await _pairSecure.write(
+          key: kHelioStrapSecureStorageKey,
+          value: priorHex,
+          iOptions: kHelioStrapIosKeyOptions,
+          mOptions: kHelioStrapMacosKeyOptions,
+        );
+      } catch (_) {}
+    }
+    return 'Could not save the pairing: $e';
+  }
+  if (ResetGate.changedSince(resetGen)) {
+    // The wipe ran while the row was written: take both back out.
+    try {
+      await LocalDb.deleteDevice(deviceId);
+    } catch (_) {}
+    await dropKey();
+    return kHelioPairResetText;
+  }
+  return null;
 }
 
 /// The live link to a paired Helio Strap. One instance; a second concurrent
