@@ -264,9 +264,17 @@ class _MoreSettingsState extends State<MoreSettings>
           : app.requestPhoneSteps(),
       onToggleSleepHmm: () =>
           app.setSleepHmmStages(!app.sleepHmmStagesEnabled),
-      onToggleTelemetry: () => app
-          .setTelemetryConsent(!app.telemetryConsent)
-          .catchError((_) {}), // collection already follows the tap; only the save failed
+      onToggleTelemetry: () async {
+        final messenger = ScaffoldMessenger.of(c);
+        try {
+          await app.setTelemetryConsent(!app.telemetryConsent);
+        } catch (_) {
+          // Collection already follows the tap this session; only the save failed.
+          messenger.showSnackBar(const SnackBar(
+              content: Text("Couldn't save that choice. It may reset when the "
+                  'app restarts.')));
+        }
+      },
       onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),
       onToggleHealthSync: () => _toggleHealthSync(app),

@@ -196,6 +196,7 @@ class TelemetryNotice extends StatefulWidget {
 class _TelemetryNoticeState extends State<TelemetryNotice> {
   static const _seenKey = 'nudge.telemetry.dismissed';
   bool _seen = Prefs.getBool(_seenKey, false);
+  bool _saveFailed = false; // keeps the card (and its retry) up after a failed save
 
   // No AppState above (tests, previews) means nothing to disclose.
   static bool _consentOn(BuildContext c) {
@@ -213,7 +214,7 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
 
   @override
   Widget build(BuildContext c) {
-    if (!widget.always && (_seen || !_consentOn(c))) {
+    if (!widget.always && (_seen || (!_saveFailed && !_consentOn(c)))) {
       return const SizedBox.shrink();
     }
     final p = P.of(c);
@@ -245,6 +246,13 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
               'battery level and connection status. You can turn this off '
               'anytime in Settings.',
               style: F.over.copyWith(color: p.ink3)),
+          if (_saveFailed) ...[
+            const SizedBox(height: S.x2),
+            Text(
+                "Couldn't save that. Diagnostics are off for now; tap Turn off "
+                'to try again.',
+                style: F.over.copyWith(color: p.ink)),
+          ],
           const SizedBox(height: S.x3),
           BigButton('Got it', color: C.indigo, onTap: _done),
           const SizedBox(height: S.x2),
@@ -255,7 +263,10 @@ class _TelemetryNoticeState extends State<TelemetryNotice> {
                 try {
                   await app.setTelemetryConsent(false);
                 } catch (_) {
-                  return; // collection is already off; keep the card so it can be retried
+                  // Collection is already off for this session; keep the card
+                  // up so the save can be retried.
+                  if (mounted) setState(() => _saveFailed = true);
+                  return;
                 }
                 if (mounted) _done();
               },
