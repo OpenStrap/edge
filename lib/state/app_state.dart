@@ -520,9 +520,16 @@ class AppState extends ChangeNotifier {
   /// keep [isPaired]. A flag-off wearable is not a source (rule R6).
   bool get hasSource => isPaired || _wearableSource;
 
-  /// Re-reads [hasSource]'s wearable half; notifies only on a change.
+  /// Bumped by every [refreshWearableSource] and by a reset, so only the
+  /// newest read may write [_wearableSource].
+  int _wearableSourceSeq = 0;
+
+  /// Re-reads [hasSource]'s wearable half; notifies only on a change. A read
+  /// that a newer one (or a reset) overtook while it awaited writes nothing.
   Future<void> refreshWearableSource() async {
+    final seq = ++_wearableSourceSeq;
     final on = await activeWearable() != null;
+    if (seq != _wearableSourceSeq) return;
     if (on == _wearableSource) return;
     _wearableSource = on;
     if (!_disposed) notifyListeners();
@@ -1812,6 +1819,7 @@ class AppState extends ChangeNotifier {
       // The active wearable's cached source flag: left on, `hasSource` kept
       // a wiped install out of the welcome screen until the next refresh.
       _wearableSource = false;
+      _wearableSourceSeq++; // an in-flight refresh must not restore it
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
       await signOut();
