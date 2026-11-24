@@ -5843,9 +5843,9 @@
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
   },
-  "metricDetailHrvNeedsBeatsFix": "This chart is built from beat-to-beat intervals, which only a band records overnight. Your device's own HRV is on its device page",
+  "metricDetailHrvNeedsBeatsFix": "This chart is built from beat-to-beat intervals recorded overnight, which a band or a ring that records them supplies; a chest strap records only during workouts. Your device's own HRV is on its device page",
   "@metricDetailHrvNeedsBeatsFix": {
-    "description": "Empty HRV chart fix when no band is paired: the chart needs beat intervals, which a watch or ring does not provide."
+    "description": "Empty HRV chart fix when no band is paired: the chart needs overnight beat intervals (a band, or a ring that records them); a chest strap records only during workouts."
   },
   "metricDetailBreakdownLinkTitle": "Breakdown",
   "@metricDetailBreakdownLinkTitle": {

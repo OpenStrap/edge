@@ -1224,7 +1224,7 @@
   "metricDetailNoValueYetWiderRanges": "Für heute liegt noch kein Wert vor. In den längeren Zeiträumen oben findest du die Tage mit Werten.",
   "metricDetailNoValueInWindow": "Für keinen Tag in diesem Zeitraum gibt es einen Wert.",
   "metricDetailWearBandFix": "Trag dein Gerät über Nacht, damit die Aufzeichnung beginnt",
-  "metricDetailHrvNeedsBeatsFix": "Dieses Diagramm beruht auf Schlag-zu-Schlag-Intervallen, die nur ein Band über Nacht aufzeichnet. Die eigene HRV deines Geräts steht auf seiner Geräteseite",
+  "metricDetailHrvNeedsBeatsFix": "Dieses Diagramm beruht auf Schlag-zu-Schlag-Intervallen aus der Nacht, die ein Band oder ein Ring liefert, der sie aufzeichnet; ein Brustgurt zeichnet nur beim Training auf. Die eigene HRV deines Geräts steht auf seiner Geräteseite",
   "metricDetailBreakdownLinkTitle": "Aufschlüsselung",
   "metricDetailBreakdownLinkSub": "Jeder Abschnitt des Tages und was ihn gezählt hat",
   "metricDetailNerdStatsTitle": "Detailwerte",

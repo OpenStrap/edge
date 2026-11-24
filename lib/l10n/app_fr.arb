@@ -1183,7 +1183,7 @@
   "metricDetailNoValueYetWiderRanges": "Aujourd’hui n’a pas encore produit de valeur. Les plages plus larges ci-dessus contiennent les jours qui en ont produit une.",
   "metricDetailNoValueInWindow": "Aucun jour de cette plage n’a produit de valeur.",
   "metricDetailWearBandFix": "Portez votre appareil toute la nuit pour démarrer la série",
-  "metricDetailHrvNeedsBeatsFix": "Ce graphique repose sur les intervalles entre battements, que seul un bracelet enregistre la nuit. La VFC propre à votre appareil figure sur sa page d’appareil",
+  "metricDetailHrvNeedsBeatsFix": "Ce graphique repose sur les intervalles entre battements enregistrés la nuit, fournis par un bracelet ou une bague qui les enregistre ; une ceinture thoracique n’enregistre que pendant les séances. La VFC propre à votre appareil figure sur sa page d’appareil",
   "metricDetailBreakdownLinkTitle": "Détail",
   "metricDetailBreakdownLinkSub": "Chaque plage de la journée, et ce qui l’a comptée",
   "metricDetailNerdStatsTitle": "Statistiques avancées",

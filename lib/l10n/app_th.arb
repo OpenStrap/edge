@@ -5564,7 +5564,7 @@
     "description": "Empty-state body for a multi-day window with no value in it."
   },
   "metricDetailWearBandFix": "สวมอุปกรณ์ขณะนอนเพื่อเริ่มมีชุดข้อมูล",
-  "metricDetailHrvNeedsBeatsFix": "กราฟนี้สร้างจากช่วงห่างระหว่างการเต้นแต่ละครั้ง ซึ่งมีเพียงสายรัดที่บันทึกขณะนอน HRV ของอุปกรณ์คุณเองอยู่ในหน้าอุปกรณ์",
+  "metricDetailHrvNeedsBeatsFix": "กราฟนี้สร้างจากช่วงห่างระหว่างการเต้นแต่ละครั้งที่บันทึกขณะนอน ซึ่งได้จากสายรัดหรือแหวนที่บันทึกค่านี้ สายรัดหน้าอกบันทึกเฉพาะระหว่างออกกำลังกาย HRV ของอุปกรณ์คุณเองอยู่ในหน้าอุปกรณ์",
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
   },
