@@ -29,7 +29,6 @@
 // calorie figure.
 
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -294,6 +293,24 @@ List<int> sampleSpansSec(List<int> ts,
   ];
 }
 
+/// Per-minute HR for the samples whose cadence is a minute or coarser: each
+/// stands for its span's seconds, accumulated across samples so a clipped
+/// span adds a fraction of a minute rather than a whole one; a minute is
+/// emitted (at the sample that completes it) per whole 60 s.
+List<double> _sparseMinutes(List<int> hr, List<int> caps, List<int> spans) {
+  final out = <double>[];
+  var carried = 0;
+  for (var i = 0; i < hr.length; i++) {
+    if (caps[i] < 60) continue;
+    carried += spans[i];
+    while (carried >= 60) {
+      out.add(hr[i].toDouble());
+      carried -= 60;
+    }
+  }
+  return out;
+}
+
 /// The median gap of ascending [ts], at least 1 s; 1 with under two samples.
 int medianGapSec(List<int> ts) {
   if (ts.length < 2) return 1;
@@ -435,7 +452,9 @@ ManualSessionStats computeManualSessionStats({
   // Strain is priced per minute. A sample sparser than a minute (a ring's
   // 5-minute HR) stands for every minute its span covers, not just the one
   // minute bucket it falls in, or a fully covered hour of 5-minute HR scores
-  // as 12 minutes. Dense samples keep their minute means.
+  // as 12 minutes. Their seconds are carried across samples and a minute is
+  // emitted per whole 60 s, so a span the window's end clipped to 90 s is
+  // 1.5 minutes of the run, not 2. Dense samples keep their minute means.
   final perMin = spans == null
       ? hrPerMinute(wornTs, worn)
       : [
@@ -443,10 +462,7 @@ ManualSessionStats computeManualSessionStats({
             [for (var i = 0; i < worn.length; i++) if (caps![i] < 60) wornTs[i]],
             [for (var i = 0; i < worn.length; i++) if (caps![i] < 60) worn[i]],
           ),
-          for (var i = 0; i < worn.length; i++)
-            if (caps![i] >= 60)
-              for (var m = 0; m < math.max(1, (spans[i] / 60).round()); m++)
-                worn[i].toDouble(),
+          ..._sparseMinutes(worn, caps!, spans),
         ];
 
   final age = profile.ageYears?.toDouble();

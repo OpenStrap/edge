@@ -781,6 +781,26 @@ void main() {
       expect(five.strain, closeTo(one.strain!, 1e-9));
     });
 
+    test('a clipped sparse span prices its seconds, not a rounded-up minute', () {
+      const prof = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+      ManualSessionStats run(List<int> ts, int end) => computeManualSessionStats(
+            hrTs: ts,
+            hrBpm: List<int>.filled(ts.length, 150),
+            hrCadenceSec: List<int>.filled(ts.length, 300),
+            endSec: end,
+            profile: prof,
+            hrMax: 190,
+            restingHr: 55,
+            quietHrr: 0.2,
+          );
+      // 0..300 then a sample at 300 clipped to 90 s: 6.5 minutes, so 6
+      // whole minutes priced, the same as a 360 s window with one sample cut
+      // to 60 s.
+      final clipped = run([0, 300], 390);
+      final whole = run([0, 300], 360);
+      expect(clipped.strain, closeTo(whole.strain!, 1e-9));
+    });
+
     test("the window's end clips the last sample's span", () {
       // A one-minute window read inclusively: samples at 0 and 60.
       final z = zoneMinutesFor([150, 150], 190,
