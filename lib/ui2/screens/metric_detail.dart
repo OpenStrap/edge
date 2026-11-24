@@ -1015,13 +1015,13 @@ class _MetricDetailState extends State<MetricDetail> {
                 ? (kDaytimeMetricKeys.contains(widget.metricKey)
                     ? (l?.dayStrainWearBandFix ??
                         'Wear your device through the day')
-                    // This chart is beat-derived HRV. Without a band, only a
-                    // ring that records beats fills it; a watch's own HRV
-                    // shows on its device page, and a chest strap records
-                    // only during workouts, so say what does.
+                    // This chart is beat-derived HRV. Only a device that
+                    // records beats overnight fills it; many wearables report
+                    // their own HRV (on their device page) instead, and a
+                    // chest strap records only during workouts.
                     : widget.metricKey == 'hrv' && !_bandPaired(context)
                         ? (l?.metricDetailHrvNeedsBeatsFix ??
-                            "This chart is built from beat-to-beat intervals recorded overnight, which a band or a ring that records them supplies; a chest strap records only during workouts. Your device's own HRV is on its device page")
+                            'This chart needs beat-to-beat intervals recorded overnight, which only a device that records beats supplies. A chest strap records only during workouts, and many watches, rings and straps report their own HRV instead: it is on their device page')
                         : (l?.metricDetailWearBandFix ??
                             'Wear your device overnight to start the series'))
                 : '',

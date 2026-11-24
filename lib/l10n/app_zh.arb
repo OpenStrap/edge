@@ -1183,7 +1183,7 @@
   "metricDetailNoValueYetWiderRanges": "今天还没有产生数值。上方更宽的时间范围里有已产生数值的日子。",
   "metricDetailNoValueInWindow": "此时间范围内没有一天产生数值。",
   "metricDetailWearBandFix": "整夜佩戴设备以开始记录",
-  "metricDetailHrvNeedsBeatsFix": "此图表基于夜间记录的逐搏间期，由手环或能记录它们的戒指提供；胸带只在锻炼时记录。你设备自身的 HRV 显示在其设备页面",
+  "metricDetailHrvNeedsBeatsFix": "此图表需要夜间记录的逐搏间期，只有记录心跳的设备才能提供。胸带只在锻炼时记录，许多手表、戒指和腕带则报告它们自己的 HRV：它显示在设备页面",
   "metricDetailBreakdownLinkTitle": "明细",
   "metricDetailBreakdownLinkSub": "今天的每一段，以及是什么统计了它",
   "metricDetailNerdStatsTitle": "极客统计",
