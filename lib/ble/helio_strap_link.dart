@@ -107,100 +107,112 @@ Future<String?> _pairZeppOsWithTypedKey(
   // generation and pass every check once that reset ends.
   if (ResetGate.active) return kHelioPairResetText;
   final resetGen = ResetGate.generation;
-  final priorRow = await pairedRowOf(entry.id);
-  // Only the SAME device keeps its id: a different one under the old one's
-  // history id would write its readings over the old one's at matching
-  // seconds. The app holds one key per family, so a second device is refused
-  // until the first is forgotten.
-  if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
-    return 'Another ${entry.label} is already paired. Forget it on its device '
-        'page first, then pair this one.';
-  }
-  final rnd = Random.secure();
-  final idPrefix = entry.id == kHelioStrap.id ? 'helio' : entry.id;
-  final deviceId = (priorRow?['id'] as String?) ??
-      '$idPrefix-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+  return _zeppOsPairLock(() async {
+    final priorRow = await pairedRowOf(entry.id);
+    // Only the SAME device keeps its id: a different one under the old one's
+    // history id would write its readings over the old one's at matching
+    // seconds. The app holds one key per family, so a second device is refused
+    // until the first is forgotten.
+    if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
+      return 'Another ${entry.label} is already paired. Forget it on its device '
+          'page first, then pair this one.';
+    }
+    final rnd = Random.secure();
+    final idPrefix = entry.id == kHelioStrap.id ? 'helio' : entry.id;
+    final deviceId = (priorRow?['id'] as String?) ??
+        '$idPrefix-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
 
-  // What the keychain held before this attempt touched it, so a failure
-  // AFTER the write below (the device-row upsert throwing, say) can be
-  // rolled back to it rather than leave an unproven key sitting where a
-  // working one used to be — same discipline `oura_link.dart`'s pairing
-  // function uses, for the same reason.
-  String? priorHex;
-  try {
-    priorHex = await _pairSecure.read(
-      key: keySlot,
-      iOptions: kHelioStrapIosKeyOptions,
-      mOptions: kHelioStrapMacosKeyOptions,
-    );
-  } catch (e) {
-    return 'The phone’s keychain is locked. Unlock the phone and try again.';
-  }
+    // What the keychain held before this attempt touched it, so a failure
+    // AFTER the write below (the device-row upsert throwing, say) can be
+    // rolled back to it rather than leave an unproven key sitting where a
+    // working one used to be — same discipline `oura_link.dart`'s pairing
+    // function uses, for the same reason.
+    String? priorHex;
+    try {
+      priorHex = await _pairSecure.read(
+        key: keySlot,
+        iOptions: kHelioStrapIosKeyOptions,
+        mOptions: kHelioStrapMacosKeyOptions,
+      );
+    } catch (e) {
+      return 'The phone’s keychain is locked. Unlock the phone and try again.';
+    }
 
-  return withSecondaryLinkSlot<String?>(
-    timeout: const Duration(seconds: 30),
-    onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
-        'now. Try pairing again in a moment.',
-    () async {
-      GattBandLink? link;
-      try {
-        // NOT a key verdict: Bluetooth being off says nothing about the key
-        // typed — it ends the attempt and is reported as itself, matching
-        // `oura_link.dart`'s own pairing function.
-        if (!await _awaitAdapterOn()) {
-          return 'Bluetooth is off. Turn it on and try again.';
-        }
-        await device.connect(timeout: const Duration(seconds: 20));
-        final services = await device.discoverServices();
-        link = GattBandLink(
-          entry: entry,
-          services: services,
-          onLog: (m) => debugPrint('$tag $m'),
-        );
-        final missing =
-            link.missingCharacteristics(entry.requiredCharacteristics);
-        if (missing.isNotEmpty) {
-          return 'This device is missing something this app needs — it may '
-              'not be a ${entry.label}, or its firmware answered differently '
-              'than expected.';
-        }
-
-        final result = await runHelioHandshake(link, key,
-            timeout: const Duration(seconds: 10));
-        if (result is HelioHandshakeFailed) {
-          return switch (result.reason) {
-            'wrong_key' => 'The device rejected this key. Double-check it '
-                'and try again.',
-            'timeout' => 'The device didn’t answer. Make sure it’s close by '
-                'and try again.',
-            _ => 'Pairing failed (${result.reason}).',
-          };
-        }
-
-        return await persistHelioPairing(
-          deviceId: deviceId,
-          remoteId: device.remoteId.str,
-          hex: hex,
-          priorHex: priorHex,
-          resetGen: resetGen,
-          entry: entry,
-        );
-      } catch (e) {
-        return 'Could not connect: $e';
-      } finally {
-        // Drop the link and DISCONNECT before the slot is released — same
-        // ordering `HelioStrapLink._sync` and `ColmiLink._sync` both use,
-        // and for the same reason: held in an OUTER finally (after this
-        // closure returns) this would run after the slot had already been
-        // released, letting the next queued link connect while this one
-        // was still disconnecting.
-        await link?.close();
+    return withSecondaryLinkSlot<String?>(
+      timeout: const Duration(seconds: 30),
+      onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
+          'now. Try pairing again in a moment.',
+      () async {
+        GattBandLink? link;
         try {
-          await device.disconnect();
-        } catch (_) {/* already gone */}
-      }
-    },
-  );
+          // NOT a key verdict: Bluetooth being off says nothing about the key
+          // typed — it ends the attempt and is reported as itself, matching
+          // `oura_link.dart`'s own pairing function.
+          if (!await _awaitAdapterOn()) {
+            return 'Bluetooth is off. Turn it on and try again.';
+          }
+          await device.connect(timeout: const Duration(seconds: 20));
+          final services = await device.discoverServices();
+          link = GattBandLink(
+            entry: entry,
+            services: services,
+            onLog: (m) => debugPrint('$tag $m'),
+          );
+          final missing =
+              link.missingCharacteristics(entry.requiredCharacteristics);
+          if (missing.isNotEmpty) {
+            return 'This device is missing something this app needs — it may '
+                'not be a ${entry.label}, or its firmware answered differently '
+                'than expected.';
+          }
+
+          final result = await runHelioHandshake(link, key,
+              timeout: const Duration(seconds: 10));
+          if (result is HelioHandshakeFailed) {
+            return switch (result.reason) {
+              'wrong_key' => 'The device rejected this key. Double-check it '
+                  'and try again.',
+              'timeout' => 'The device didn’t answer. Make sure it’s close by '
+                  'and try again.',
+              _ => 'Pairing failed (${result.reason}).',
+            };
+          }
+
+          return await persistHelioPairing(
+            deviceId: deviceId,
+            remoteId: device.remoteId.str,
+            hex: hex,
+            priorHex: priorHex,
+            resetGen: resetGen,
+            entry: entry,
+          );
+        } catch (e) {
+          return 'Could not connect: $e';
+        } finally {
+          // Drop the link and DISCONNECT before the slot is released — same
+          // ordering `HelioStrapLink._sync` and `ColmiLink._sync` both use,
+          // and for the same reason: held in an OUTER finally (after this
+          // closure returns) this would run after the slot had already been
+          // released, letting the next queued link connect while this one
+          // was still disconnecting.
+          await link?.close();
+          try {
+            await device.disconnect();
+          } catch (_) {/* already gone */}
+        }
+      },
+    );
+  });
+}
+
+/// One Zepp OS pairing at a time: a second waits for the first to commit,
+/// so it reads the row and the key the first wrote.
+// ponytail: one lock for every Zepp OS family, per-family if that ever waits.
+Future<void> _zeppOsPairLockTail = Future<void>.value();
+Future<T> _zeppOsPairLock<T>(Future<T> Function() body) {
+  final run = _zeppOsPairLockTail.then((_) => body());
+  _zeppOsPairLockTail = run.then((_) {}, onError: (_) {});
+  return run;
 }
 
 /// The text a pairing interrupted by "delete everything" ends with.

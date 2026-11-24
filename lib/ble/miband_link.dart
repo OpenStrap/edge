@@ -896,68 +896,80 @@ Future<String?> _pairCryptMiBandWithTypedKey(
   if (key == null) {
     return 'That is not a valid key: it must be exactly 32 hex characters.';
   }
-  final rnd = Random.secure();
-  final deviceId = miBandReusableDeviceId(
-          await LocalDb.deviceRows(), device.remoteId.str,
-          adapterId: entry.id) ??
-      '${entry.id}-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
-  // What the keychain held for this row before, so a row write that fails
-  // after the key write can put it back instead of leaving a stray key.
-  String? priorHex;
-  try {
-    priorHex = await _secure.read(
-        key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
-  } catch (e) {
-    return 'The phone’s keychain is locked. Unlock the phone and try again.';
-  }
-  return withSecondaryLinkSlot<String?>(
-    timeout: const Duration(seconds: 30),
-    onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
-        'now. Try pairing again in a moment.',
-    () async {
-      GattBandLink? link;
-      try {
-        await device.connect(timeout: const Duration(seconds: 20));
-        final services = await device.discoverServices();
-        link = GattBandLink(
-          entry: entry,
-          services: services,
-          onLog: (m) => debugPrint('[${entry.id} pair] $m'),
-        );
-        if (link.missingCharacteristics(entry.requiredCharacteristics)
-            .isNotEmpty) {
-          return 'That device does not expose the service this app speaks '
-              'for a ${entry.label}.';
-        }
-        final refusal =
-            await MiBand234Adapter(entry: entry, key: key).authenticateOnly(link);
-        if (refusal != null) {
-          return refusal.status == null
-              ? 'The band didn’t answer. Make sure it’s close by and try again.'
-              : 'The band rejected this key. Double-check it and try again.';
-        }
-        return commitMiBandTypedKey(
-          resetGen: resetGen,
-          deviceId: deviceId,
-          hex: hex,
-          priorHex: priorHex,
-          upsert: () => LocalDb.upsertDevice(
-            id: deviceId,
-            adapterId: entry.id,
-            remoteId: device.remoteId.str,
-            label: cleanDeviceLabel(device.platformName) ?? entry.label,
-          ),
-        );
-      } catch (e) {
-        return 'Could not connect: $e';
-      } finally {
-        await link?.close();
+  return _miBandPairLock(() async {
+    final rnd = Random.secure();
+    final deviceId = miBandReusableDeviceId(
+            await LocalDb.deviceRows(), device.remoteId.str,
+            adapterId: entry.id) ??
+        '${entry.id}-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+    // What the keychain held for this row before, so a row write that fails
+    // after the key write can put it back instead of leaving a stray key.
+    String? priorHex;
+    try {
+      priorHex = await _secure.read(
+          key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
+    } catch (e) {
+      return 'The phone’s keychain is locked. Unlock the phone and try again.';
+    }
+    return withSecondaryLinkSlot<String?>(
+      timeout: const Duration(seconds: 30),
+      onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
+          'now. Try pairing again in a moment.',
+      () async {
+        GattBandLink? link;
         try {
-          await device.disconnect();
-        } catch (_) {/* already gone */}
-      }
-    },
-  );
+          await device.connect(timeout: const Duration(seconds: 20));
+          final services = await device.discoverServices();
+          link = GattBandLink(
+            entry: entry,
+            services: services,
+            onLog: (m) => debugPrint('[${entry.id} pair] $m'),
+          );
+          if (link.missingCharacteristics(entry.requiredCharacteristics)
+              .isNotEmpty) {
+            return 'That device does not expose the service this app speaks '
+                'for a ${entry.label}.';
+          }
+          final refusal =
+              await MiBand234Adapter(entry: entry, key: key).authenticateOnly(link);
+          if (refusal != null) {
+            return refusal.status == null
+                ? 'The band didn’t answer. Make sure it’s close by and try again.'
+                : 'The band rejected this key. Double-check it and try again.';
+          }
+          return commitMiBandTypedKey(
+            resetGen: resetGen,
+            deviceId: deviceId,
+            hex: hex,
+            priorHex: priorHex,
+            upsert: () => LocalDb.upsertDevice(
+              id: deviceId,
+              adapterId: entry.id,
+              remoteId: device.remoteId.str,
+              label: cleanDeviceLabel(device.platformName) ?? entry.label,
+            ),
+          );
+        } catch (e) {
+          return 'Could not connect: $e';
+        } finally {
+          await link?.close();
+          try {
+            await device.disconnect();
+          } catch (_) {/* already gone */}
+        }
+      },
+    );
+  });
+}
+
+/// One typed-key pairing at a time: a second waits for the first to commit,
+/// so it finds the row the first wrote and reuses its id and key as prior.
+// ponytail: one lock for every Mi Band family, per-family if that ever waits.
+Future<void> _miBandPairLockTail = Future<void>.value();
+Future<T> _miBandPairLock<T>(Future<T> Function() body) {
+  final run = _miBandPairLockTail.then((_) => body());
+  _miBandPairLockTail = run.then((_) {}, onError: (_) {});
+  return run;
 }
 
 /// Stores an accepted typed key and its `device` row, or nothing. A reset
@@ -975,11 +987,19 @@ Future<String?> commitMiBandTypedKey({
   required Future<void> Function() upsert,
 }) async {
   const resetText = 'Pairing was interrupted by a reset. Pair the band again.';
+  // The reset's undo failed: say what may be left, so the user can run
+  // "delete everything" again.
+  const leftoverText = 'Pairing was interrupted by a reset, and the band\'s '
+      'key or device entry may remain on this phone. Run "Delete everything" '
+      'again, then pair the band again.';
   final item = _keyItem(deviceId);
-  Future<void> dropKey() async {
+  Future<bool> dropKey() async {
     try {
       await _secure.delete(key: item, iOptions: _kApple, mOptions: _kMacos);
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   if (ResetGate.changedSince(resetGen)) return resetText;
@@ -991,15 +1011,13 @@ Future<String?> commitMiBandTypedKey({
     return 'The phone’s keychain is locked. Unlock the phone and try again.';
   }
   if (ResetGate.changedSince(resetGen)) {
-    await dropKey();
-    return resetText;
+    return await dropKey() ? resetText : leftoverText;
   }
   try {
     await upsert();
   } catch (e) {
     if (ResetGate.changedSince(resetGen)) {
-      await dropKey();
-      return resetText;
+      return await dropKey() ? resetText : leftoverText;
     }
     try {
       if (priorHex == null) {
@@ -1013,11 +1031,13 @@ Future<String?> commitMiBandTypedKey({
   }
   if (ResetGate.changedSince(resetGen)) {
     // The row may have landed after the wipe: take both back out.
+    // Row first: if it stays, keep its key with it and say both may remain.
     try {
       await LocalDb.deleteDevice(deviceId);
-    } catch (_) {}
-    await dropKey();
-    return resetText;
+    } catch (_) {
+      return leftoverText;
+    }
+    return await dropKey() ? resetText : leftoverText;
   }
   return null;
 }
