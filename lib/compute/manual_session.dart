@@ -295,17 +295,27 @@ List<int> sampleSpansSec(List<int> ts,
 
 /// Per-minute HR for the samples whose cadence is a minute or coarser: each
 /// stands for its span's seconds, accumulated across samples so a clipped
-/// span adds a fraction of a minute rather than a whole one; a minute is
-/// emitted (at the sample that completes it) per whole 60 s.
-List<double> _sparseMinutes(List<int> hr, List<int> caps, List<int> spans) {
+/// span adds a fraction of a minute rather than a whole one. A minute is
+/// emitted per whole 60 s, at the mean HR of the seconds it holds (a minute
+/// made of 30 s at 180 and 30 s at 80 is 130, not the HR of whichever
+/// sample completed it); a sample spanning whole minutes emits its own HR.
+List<double> sparseMinutes(List<int> hr, List<int> caps, List<int> spans) {
   final out = <double>[];
-  var carried = 0;
+  var openSec = 0; // seconds in the minute being filled
+  var openHrSec = 0; // their HR-seconds
   for (var i = 0; i < hr.length; i++) {
     if (caps[i] < 60) continue;
-    carried += spans[i];
-    while (carried >= 60) {
-      out.add(hr[i].toDouble());
-      carried -= 60;
+    var left = spans[i];
+    while (left > 0) {
+      final take = left < 60 - openSec ? left : 60 - openSec;
+      openSec += take;
+      openHrSec += hr[i] * take;
+      left -= take;
+      if (openSec == 60) {
+        out.add(openHrSec / 60);
+        openSec = 0;
+        openHrSec = 0;
+      }
     }
   }
   return out;
@@ -462,7 +472,7 @@ ManualSessionStats computeManualSessionStats({
             [for (var i = 0; i < worn.length; i++) if (caps![i] < 60) wornTs[i]],
             [for (var i = 0; i < worn.length; i++) if (caps![i] < 60) worn[i]],
           ),
-          ..._sparseMinutes(worn, caps!, spans),
+          ...sparseMinutes(worn, caps!, spans),
         ];
 
   final age = profile.ageYears?.toDouble();

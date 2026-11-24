@@ -801,6 +801,13 @@ void main() {
       expect(clipped.strain, closeTo(whole.strain!, 1e-9));
     });
 
+    test('a sparse minute is the mean HR of the seconds it holds', () {
+      // 90 s at 180 then 30 s at 80: the second minute is half of each.
+      expect(sparseMinutes([180, 80], [300, 300], [90, 30]), [180, 130]);
+      // Whole-minute spans emit their own HR.
+      expect(sparseMinutes([150, 120], [300, 300], [120, 60]), [150, 150, 120]);
+    });
+
     test("the window's end clips the last sample's span", () {
       // A one-minute window read inclusively: samples at 0 and 60.
       final z = zoneMinutesFor([150, 150], 190,
