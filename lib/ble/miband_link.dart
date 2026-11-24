@@ -957,7 +957,12 @@ Future<String?> _pairCryptMiBandWithTypedKey(
           return 'The phone’s keychain is locked. Unlock the phone and try again.';
         }
         if (ResetGate.changedSince(resetGen)) {
-          await restoreKey(); // the wipe ran during the write
+          // The wipe ran during the write: take the key out, never put an
+          // old one back (the wipe's own delete may already have run).
+          try {
+            await _secure.delete(
+                key: _keyItem(deviceId), iOptions: _kApple, mOptions: _kMacos);
+          } catch (_) {}
           return resetText;
         }
         try {
