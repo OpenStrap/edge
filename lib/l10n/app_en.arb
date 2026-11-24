@@ -5843,6 +5843,10 @@
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
   },
+  "metricDetailHrvNeedsBeatsFix": "This chart needs beat-to-beat intervals: a band, or a chest strap worn overnight",
+  "@metricDetailHrvNeedsBeatsFix": {
+    "description": "Empty HRV chart fix when no band is paired: the chart needs beat intervals, which a watch or ring does not provide."
+  },
   "metricDetailBreakdownLinkTitle": "Breakdown",
   "@metricDetailBreakdownLinkTitle": {
     "description": "Title of the doorway row from the Steps metric screen (Today only) into the day's step breakdown."

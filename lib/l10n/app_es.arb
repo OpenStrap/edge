@@ -1185,6 +1185,7 @@
   "metricDetailNoValueYetWiderRanges": "Hoy aún no ha producido un valor. Los rangos más amplios de arriba tienen los días que sí lo hicieron.",
   "metricDetailNoValueInWindow": "Ningún día de este período produjo un valor.",
   "metricDetailWearBandFix": "Usa tu dispositivo toda la noche para iniciar la serie",
+  "metricDetailHrvNeedsBeatsFix": "Este gráfico necesita intervalos latido a latido: una banda o una banda pectoral llevada durante la noche",
   "metricDetailBreakdownLinkTitle": "Desglose",
   "metricDetailBreakdownLinkSub": "Cada tramo de hoy, y qué lo contó",
   "metricDetailNerdStatsTitle": "Estadísticas técnicas",

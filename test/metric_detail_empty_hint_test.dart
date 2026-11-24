@@ -7,7 +7,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
+import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:provider/provider.dart';
 
 Future<void> _pump(WidgetTester t, String key) async {
   t.view.physicalSize = const Size(390 * 3, 1600 * 3);
@@ -56,4 +58,20 @@ void main() {
       expect(find.text(_daytime), findsNothing);
     });
   }
+
+  testWidgets('hrv with no band: the chart needs beats, not more nights',
+      (t) async {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+      value: app,
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: const MetricDetail('hrv', data: MetricData()),
+      ),
+    ));
+    await t.pumpAndSettle();
+    expect(find.textContaining('beat-to-beat intervals'), findsOneWidget);
+    expect(find.text(_overnight), findsNothing);
+  });
 }

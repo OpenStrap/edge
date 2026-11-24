@@ -1183,6 +1183,7 @@
   "metricDetailNoValueYetWiderRanges": "今天还没有产生数值。上方更宽的时间范围里有已产生数值的日子。",
   "metricDetailNoValueInWindow": "此时间范围内没有一天产生数值。",
   "metricDetailWearBandFix": "整夜佩戴设备以开始记录",
+  "metricDetailHrvNeedsBeatsFix": "此图表需要逐搏间期数据：手环，或夜间佩戴的胸带",
   "metricDetailBreakdownLinkTitle": "明细",
   "metricDetailBreakdownLinkSub": "今天的每一段，以及是什么统计了它",
   "metricDetailNerdStatsTitle": "极客统计",

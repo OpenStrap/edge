@@ -1015,8 +1015,14 @@ class _MetricDetailState extends State<MetricDetail> {
                 ? (kDaytimeMetricKeys.contains(widget.metricKey)
                     ? (l?.dayStrainWearBandFix ??
                         'Wear your device through the day')
-                    : (l?.metricDetailWearBandFix ??
-                        'Wear your device overnight to start the series'))
+                    // This chart is beat-derived HRV. Without a band, wearing
+                    // a watch or ring overnight never fills it (its own HRV
+                    // shows on its device card), so say what does.
+                    : widget.metricKey == 'hrv' && !_bandPaired(context)
+                        ? (l?.metricDetailHrvNeedsBeatsFix ??
+                            'This chart needs beat-to-beat intervals: a band, or a chest strap worn overnight')
+                        : (l?.metricDetailWearBandFix ??
+                            'Wear your device overnight to start the series'))
                 : '',
             icon: spec.icon,
           ),
@@ -2288,5 +2294,15 @@ class MonoTable extends StatelessWidget {
           ),
       ]),
     );
+  }
+}
+
+/// A band is paired, or there is no AppState above (gallery, tests: as
+/// before).
+bool _bandPaired(BuildContext c) {
+  try {
+    return c.read<AppState>().isPaired;
+  } catch (_) {
+    return true;
   }
 }

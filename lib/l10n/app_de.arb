@@ -1224,6 +1224,7 @@
   "metricDetailNoValueYetWiderRanges": "Für heute liegt noch kein Wert vor. In den längeren Zeiträumen oben findest du die Tage mit Werten.",
   "metricDetailNoValueInWindow": "Für keinen Tag in diesem Zeitraum gibt es einen Wert.",
   "metricDetailWearBandFix": "Trag dein Gerät über Nacht, damit die Aufzeichnung beginnt",
+  "metricDetailHrvNeedsBeatsFix": "Dieses Diagramm braucht Schlag-zu-Schlag-Intervalle: ein Band oder einen über Nacht getragenen Brustgurt",
   "metricDetailBreakdownLinkTitle": "Aufschlüsselung",
   "metricDetailBreakdownLinkSub": "Jeder Abschnitt des Tages und was ihn gezählt hat",
   "metricDetailNerdStatsTitle": "Detailwerte",
