@@ -8,6 +8,7 @@
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -75,11 +76,10 @@ void main() {
 
   group('persisting an accepted key', () {
     Future<Map<String, Object?>?> row() => LocalDb.deviceRow('helio-test');
-    Future<String?> persist({String? prior}) => persistHelioPairing(
+    Future<String?> persist({String remoteId = 'AA:BB'}) => persistHelioPairing(
           deviceId: 'helio-test',
-          remoteId: 'AA:BB',
+          remoteId: remoteId,
           hex: 'ab' * 16,
-          priorHex: prior,
           resetGen: ResetGate.generation,
         );
 
@@ -104,7 +104,6 @@ void main() {
               deviceId: 'helio-test',
               remoteId: 'AA:BB',
               hex: 'ab' * 16,
-              priorHex: null,
               resetGen: gen),
           kHelioPairResetText);
       expect(store, isEmpty);
@@ -121,12 +120,58 @@ void main() {
               deviceId: 'helio-test',
               remoteId: 'AA:BB',
               hex: 'ab' * 16,
-              priorHex: null,
               resetGen: ResetGate.generation,
               forgets: forgets),
           kHelioPairForgottenText);
       expect(store, isEmpty);
       expect(await row(), isNull);
+    });
+
+    test('forget and reset wait for the pairing lock; a persist after a forget is refused',
+        () async {
+      final store = <String, String>{};
+      FlutterSecureStorage.setMockInitialValues(store);
+      expect(await persist(), isNull);
+      // Something holds the lock (a persist mid-write, say).
+      final gate = Completer<void>();
+      final held = HelioStrapLink.exclusive(() => gate.future);
+      final forgets = HelioStrapLink.instance.forgetsForTest;
+      final forget = HelioStrapLink.forgetStrap('helio-test');
+      var raised = false;
+      final reset = HelioStrapLink.exclusive(() async {
+        ResetGate.enter();
+        raised = true;
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(await row(), isNotNull, reason: 'the forget waits its turn');
+      expect(raised, isFalse, reason: 'so does the reset');
+      gate.complete();
+      await held;
+      expect(await forget, isTrue);
+      await reset;
+      expect(raised, isTrue);
+      ResetGate.leave();
+      expect(await row(), isNull);
+      expect(store.containsKey(kHelioStrapSecureStorageKey), isFalse);
+      // A pairing that began before that forget (and after the reset) cannot
+      // bring the strap back.
+      expect(
+          await persistHelioPairing(
+              deviceId: 'helio-test',
+              remoteId: 'AA:BB',
+              hex: 'ab' * 16,
+              resetGen: ResetGate.generation,
+              forgets: forgets),
+          kHelioPairForgottenText);
+      expect(await row(), isNull);
+    });
+
+    test('two straps persisting: the second is refused, not folded in',
+        () async {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{});
+      expect(await persist(), isNull);
+      expect(await persist(remoteId: 'CC:DD'), contains('Another Helio Strap'));
+      expect((await row())!['remote_id'], 'AA:BB');
     });
 
     test('a reset whose key undo fails says a key may remain', () async {
@@ -139,7 +184,7 @@ void main() {
         () async {
       final store = _ResetOnWrite();
       FlutterSecureStorage.setMockInitialValues(store);
-      expect(await persist(prior: 'cd' * 16), kHelioPairResetText);
+      expect(await persist(), kHelioPairResetText);
       expect(store.containsKey(kHelioStrapSecureStorageKey), isFalse,
           reason: 'neither the new key nor the pre-reset one survives');
       expect(await row(), isNull);

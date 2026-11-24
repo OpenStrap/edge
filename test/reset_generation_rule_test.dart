@@ -227,7 +227,10 @@ void main() {
       expect(tryAt, greaterThan(enter));
       // Nothing between the start and the gate writes anything.
       final before = body.substring(0, enter);
-      expect('await '.allMatches(before).length, 2);
+      // The third await is the Helio pairing lock the gate is raised in: it
+      // only waits for a pairing's persist to finish, it writes nothing.
+      expect('await '.allMatches(before).length, 3);
+      expect(before.contains('await HelioStrapLink.exclusive('), isTrue);
       expect(before.contains('Prefs.'), isFalse);
     });
 

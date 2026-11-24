@@ -82,67 +82,25 @@ Future<String?> pairHelioStrapWithTypedKey(
   final key = Uint8List.fromList(
       [for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
 
-  // Read BEFORE the first await: a "delete everything" that lands while
-  // this reads the old row, the keychain, waits on the slot or runs the
-  // handshake must not find a fresh key and device row behind it, nor a
-  // device id minted from the wiped store.
   // A pairing begun DURING a reset would capture the already-raised
   // generation and pass every check once that reset ends.
   if (ResetGate.active) return kHelioPairResetText;
-  final resetGen = ResetGate.generation;
-  // As `sync` does, and read with the reset generation (before the queue):
-  // a forget from here on, including while this waits its turn, must
-  // outlive this pairing.
-  final forgets = HelioStrapLink.instance._forgets;
-  // ONE pairing at a time, from the paired-row read through the key and row
-  // writes (the handshake included): two at once both read an empty store,
-  // both mint an id, and the second write of the one key strands the
-  // first strap's row with a key it does not match. The secondary-link
-  // slot admits two links, so it does not serialize this.
-  final previous = _helioPairing;
-  final mine = Completer<void>();
-  _helioPairing = mine.future;
-  try {
-    await previous;
-    return await _pairHelioStrapHeld(device, hex, key, resetGen, forgets);
-  } finally {
-    mine.complete();
-  }
-}
-
-/// The tail of the Helio pairing queue ([pairHelioStrapWithTypedKey]).
-Future<void> _helioPairing = Future<void>.value();
-
-Future<String?> _pairHelioStrapHeld(BluetoothDevice device, String hex,
-    Uint8List key, int resetGen, int forgets) async {
-  final priorRow = await HelioStrapLink.pairedHelioStrapRow();
-  // Only the SAME strap keeps its id: a different strap under the old one's
-  // history id would write its readings over the old strap's at matching
-  // seconds. The app holds one strap key, so a second strap is refused until
-  // the first is forgotten.
-  if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
-    return 'Another Helio Strap is already paired. Forget it on its device '
-        'page first, then pair this one.';
-  }
-  final rnd = Random.secure();
-  final deviceId = (priorRow?['id'] as String?) ??
-      'helio-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
-
-  // What the keychain held before this attempt touched it, so a failure
-  // AFTER the write below (the device-row upsert throwing, say) can be
-  // rolled back to it rather than leave an unproven key sitting where a
-  // working one used to be — same discipline `oura_link.dart`'s pairing
-  // function uses, for the same reason.
-  String? priorHex;
-  try {
-    priorHex = await _pairSecure.read(
-      key: kHelioStrapSecureStorageKey,
-      iOptions: kHelioStrapIosKeyOptions,
-      mOptions: kHelioStrapMacosKeyOptions,
-    );
-  } catch (e) {
-    return 'The phone’s keychain is locked. Unlock the phone and try again.';
-  }
+  // ADMISSION, under [_pairingLock]: the reset generation and the
+  // forget counter are read with nothing able to move them mid-read, and a
+  // second strap is turned away before any Bluetooth is spent on it. The
+  // handshake below runs OUTSIDE the lock; [persistHelioPairing] takes it
+  // again and re-checks all of this before anything is written, so a reset
+  // or forget in between (or a second pairing that persisted first) is
+  // seen there.
+  late final int resetGen;
+  late final int forgets;
+  final refused = await _pairingLock.run(() async {
+    resetGen = ResetGate.generation;
+    forgets = HelioStrapLink.instance._forgets;
+    final priorRow = await HelioStrapLink.pairedHelioStrapRow();
+    return _anotherStrap(priorRow, device.remoteId.str);
+  });
+  if (refused != null) return refused;
 
   return withSecondaryLinkSlot<String?>(
     timeout: const Duration(seconds: 30),
@@ -185,10 +143,8 @@ Future<String?> _pairHelioStrapHeld(BluetoothDevice device, String hex,
         }
 
         return await persistHelioPairing(
-          deviceId: deviceId,
           remoteId: device.remoteId.str,
           hex: hex,
-          priorHex: priorHex,
           resetGen: resetGen,
           forgets: forgets,
         );
@@ -225,24 +181,63 @@ const String kHelioPairResetLeftoverText =
     'entry may remain on this phone. Run "Delete everything" again, then '
     'pair the strap again.';
 
-/// Store a key the strap has just ACCEPTED, then its device row: the one
-/// place a pairing persists, so its reset rules are tested in one place.
-/// [resetGen] is [ResetGate.generation] read before the pairing's FIRST
-/// await. Three rules:
-///  * nothing is written once a reset has run since [resetGen];
-///  * a reset that lands during either write is undone after it (key and
-///    row deleted): a check before a write cannot see a reset that starts
-///    inside the write, a check after it can;
-///  * a failed row write restores [priorHex] only when no reset ran: after
-///    one, the wiped keychain stays wiped.
-@visibleForTesting
+/// The one lock Helio pairing, forget and "delete everything" share. Each
+/// holds it only around its own short critical section — pairing's admission
+/// read and its key-and-row persistence, forget's row-and-key deletion, the
+/// reset's raising of [ResetGate] — never across a Bluetooth connection, a
+/// handshake or the secondary-link slot, so it cannot hold up a radio. And
+/// nothing that holds it waits on another lock (each section only reads or
+/// writes the store and the keychain), so it cannot deadlock.
+final _pairingLock = _AsyncMutex();
+
+/// A FIFO async lock: [run]s take turns, in call order.
+class _AsyncMutex {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> run<T>(Future<T> Function() op) {
+    final previous = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    return previous.then((_) => op()).whenComplete(done.complete);
+  }
+}
+
+/// A strap other than [remoteId] already paired: refuse, never fold the new
+/// strap into its history id. Null when there is none or it is the same one.
+String? _anotherStrap(Map<String, Object?>? priorRow, String remoteId) =>
+    priorRow != null && priorRow['remote_id'] != remoteId
+        ? 'Another Helio Strap is already paired. Forget it on its device '
+            'page first, then pair this one.'
+        : null;
+
+/// Store a key the strap has just ACCEPTED, then its device row, all under
+/// [_pairingLock]: a forget or reset either finished before this
+/// started (and is seen below: [resetGen] / [forgets] moved) or starts after
+/// it finished (and removes what it wrote), never in between. Under the
+/// lock it re-reads the paired row: a different strap that another pairing
+/// persisted meanwhile is refused; the same strap keeps its id; a new one
+/// gets [deviceId] (tests) or a fresh random id. The keychain's prior value
+/// is read here too, so a failed row write restores exactly what was there.
 Future<String?> persistHelioPairing({
-  required String deviceId,
+  String? deviceId,
   required String remoteId,
   required String hex,
-  required String? priorHex,
   required int resetGen,
   int? forgets,
+}) =>
+    _pairingLock.run(() => _persistHeld(
+        deviceId: deviceId,
+        remoteId: remoteId,
+        hex: hex,
+        resetGen: resetGen,
+        forgets: forgets));
+
+Future<String?> _persistHeld({
+  required String? deviceId,
+  required String remoteId,
+  required String hex,
+  required int resetGen,
+  required int? forgets,
 }) async {
   // Interrupted: a reset ran ([ResetGate]), or the strap was forgotten from
   // its device page ([HelioStrapLink.forgetStrap] bumps the counter first).
@@ -268,6 +263,25 @@ Future<String?> persistHelioPairing({
   }
 
   if (stopped()) return stopText();
+  final priorRow = await HelioStrapLink.pairedHelioStrapRow();
+  final another = _anotherStrap(priorRow, remoteId);
+  if (another != null) return another;
+  final rnd = Random.secure();
+  final id = (priorRow?['id'] as String?) ??
+      deviceId ??
+      'helio-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+  // What the keychain held before this write, so a failed row write can put
+  // it back rather than leave an unproven key where a working one was.
+  String? priorHex;
+  try {
+    priorHex = await _pairSecure.read(
+      key: kHelioStrapSecureStorageKey,
+      iOptions: kHelioStrapIosKeyOptions,
+      mOptions: kHelioStrapMacosKeyOptions,
+    );
+  } catch (e) {
+    return 'The phone’s keychain is locked. Unlock the phone and try again.';
+  }
   try {
     await _pairSecure.write(
       key: kHelioStrapSecureStorageKey,
@@ -283,7 +297,7 @@ Future<String?> persistHelioPairing({
   }
   try {
     await LocalDb.upsertDevice(
-      id: deviceId,
+      id: id,
       adapterId: kHelioStrap.id,
       remoteId: remoteId,
       label: kHelioStrap.label,
@@ -315,7 +329,7 @@ Future<String?> persistHelioPairing({
     // first. If the row stays, keep its key with it (a row with no key is
     // a strap that silently never syncs) and say both may remain.
     try {
-      await LocalDb.deleteDevice(deviceId);
+      await LocalDb.deleteDevice(id);
     } catch (_) {
       return kHelioPairResetLeftoverText;
     }
@@ -348,6 +362,14 @@ class HelioStrapLink {
     // `_deviceId` yet for the check below to match.
     instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
+    // Row and key go together under the pairing lock: a pairing persisting
+    // right now finishes first (and this then removes what it wrote), or
+    // starts after and sees the counter above moved.
+    await _pairingLock.run(() => _forgetHeld(id));
+    return true;
+  }
+
+  static Future<void> _forgetHeld(String id) async {
     await LocalDb.deleteDevice(id);
     // The key outlives nothing once its device row is gone — a re-pair
     // mints a fresh key anyway (first bind always goes through the real
@@ -361,8 +383,14 @@ class HelioStrapLink {
         mOptions: kHelioStrapMacosKeyOptions,
       );
     } catch (_) {/* keychain unavailable; the device row is gone regardless */}
-    return true;
   }
+
+  /// Runs [op] holding the lock Helio pairing and forget take around their
+  /// writes. "Delete everything" raises [ResetGate] inside it, so a pairing
+  /// mid-persist finishes first (and the wipe then removes what it wrote)
+  /// and any later one sees the generation moved. [op] must not await
+  /// anything that could itself wait on a pairing.
+  static Future<T> exclusive<T>(Future<T> Function() op) => _pairingLock.run(op);
 
   /// "Delete everything": drop the strap's pairing key, whatever device it
   /// was for. False when the keychain refused, so the reset can say a key

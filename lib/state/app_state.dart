@@ -1667,8 +1667,14 @@ class AppState extends ChangeNotifier {
           'deleted. Try again in a minute.');
     }
     // 0 · nothing further ENTERS the database either. The band is still
-    //     connected and still draining — see [_resetting].
-    ResetGate.enter();
+    //     connected and still draining — see [_resetting]. Raised inside
+    //     the Helio pairing lock: a pairing mid-persist finishes before the
+    //     gate rises (and the wipe below removes what it wrote), and one
+    //     that has not started persisting sees the generation moved. The
+    //     section is only the raise, so it waits on nothing.
+    await HelioStrapLink.exclusive(() async {
+      ResetGate.enter();
+    });
     var primaryEnded = false;
     try {
       // Wait for a running backup and remove copies while the selected folder
