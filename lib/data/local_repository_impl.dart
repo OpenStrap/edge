@@ -2496,8 +2496,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // session, so it must not replace the banked full-window avg/peak.
     final banked = {
       for (final r in rows)
-        if (r['trace_samples'] is num)
-          r['id']: (r['trace_samples'] as num).toInt(),
+        r['id']: ?_bankedSeconds(r),
     };
 
     // Per-session HR aggregates from the 1 Hz substrate (one indexed join).
@@ -2518,7 +2517,7 @@ class LocalRepositoryImpl extends LocalRepository {
         final s = stats[w['id']];
         final raw = rawBySession[w['id']];
         final b = banked[w['id']];
-        if (b != null && (s?['n'] ?? 0) < b) continue;
+        if (b != null && (s?['covered'] ?? s?['n'] ?? 0) < b) continue;
         if (s != null && (s['n'] ?? 0) != 0) {
           w['avg_hr'] = (s['avg_hr'] as num).round();
         }
@@ -2630,19 +2629,25 @@ class LocalRepositoryImpl extends LocalRepository {
       // has cut into this window and only its tail is left. Redrawing from that
       // would swap the full session for its cooldown, so serve the banked trace
       // until the substrate is at least as complete as it.
-      final banked = (row['trace_samples'] as num?)?.toInt();
-      if (hrRows.isNotEmpty && (banked == null || hrRows.length >= banked)) {
-        final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
-        final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      final banked = _bankedSeconds(row);
+      final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
+      final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      final c = _cadencesOf(hrRows);
+      // The seconds each row stands for, clipped as the scorer clips them.
+      final spans = c.any((v) => v > 1)
+          ? sampleSpansSec(ts, capsSec: c, endSec: endTs)
+          : null;
+      final covered =
+          spans == null ? hrRows.length : spans.fold<int>(0, (a, b) => a + b);
+      if (hrRows.isNotEmpty && (banked == null || covered >= banked)) {
         w.addAll(_sessionTrace(ts, hr, startTs, endTs,
             row['device_family'] as String?, await _zoneAnchors(),
             caps: _cadencesOf(hrRows)));
-        // Weighted the same way the list and the scorer weight it.
-        final c = _cadencesOf(hrRows);
-        final avg = c.any((v) => v > 1)
-            ? [for (var i = 0; i < hr.length; i++) hr[i] * c[i]]
+        // Weighted the same way the scorer and the list weight it.
+        final avg = spans != null
+            ? [for (var i = 0; i < hr.length; i++) hr[i] * spans[i]]
                     .fold<int>(0, (a, b) => a + b) /
-                c.fold<int>(0, (a, b) => a + b)
+                covered
             : hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
@@ -3187,6 +3192,19 @@ class LocalRepositoryImpl extends LocalRepository {
   /// Each HR row's own sampling interval, by the source that stored it: a
   /// wearable's minute (or 5-minute) HR, 1 s for the band and a strap. A
   /// window can hold both, so one interval for the whole window is wrong.
+  /// The seconds a session's banked trace covered: `trace_seconds` from the
+  /// trace itself, else `trace_samples` (a trace from before that field was
+  /// 1 Hz, so its sample count is its seconds). Null with no trace.
+  static int? _bankedSeconds(Map<String, dynamic> row) {
+    try {
+      final j = row['trace_json'];
+      final t = j is String && j.isNotEmpty ? jsonDecode(j) : null;
+      final sec = t is Map ? t['trace_seconds'] : null;
+      if (sec is num) return sec.toInt();
+    } catch (_) {}
+    return (row['trace_samples'] as num?)?.toInt();
+  }
+
   static List<int> _cadencesOf(List<Map<String, dynamic>> rows) => [
         for (final r in rows) kHrCadenceSec[r['source']] ?? 1,
       ];

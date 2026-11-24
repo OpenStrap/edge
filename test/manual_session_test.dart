@@ -764,6 +764,23 @@ void main() {
       expect(mixed.avgHr, closeTo(71, 1));
     });
 
+    test('an hour of 5-minute HR prices as an hour, like the same hour at 1 minute', () {
+      const prof = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+      ManualSessionStats at(int every) => computeManualSessionStats(
+            hrTs: [for (var t = 0; t < 3600; t += every) t],
+            hrBpm: [for (var t = 0; t < 3600; t += every) 150],
+            hrCadenceSec: [for (var t = 0; t < 3600; t += every) every],
+            endSec: 3600,
+            profile: prof,
+            hrMax: 190,
+            restingHr: 55,
+            quietHrr: 0.2,
+          );
+      final five = at(300), one = at(60);
+      expect(one.strain, isNotNull);
+      expect(five.strain, closeTo(one.strain!, 1e-9));
+    });
+
     test("the window's end clips the last sample's span", () {
       // A one-minute window read inclusively: samples at 0 and 60.
       final z = zoneMinutesFor([150, 150], 190,

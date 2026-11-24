@@ -54,6 +54,7 @@ import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
 import '../compute/inputs/garmin_inputs.dart' show kHrCadenceSec;
+import '../compute/manual_session.dart' show sampleSpansSec;
 import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
@@ -16273,7 +16274,8 @@ class LocalDb {
   ) async {
     final db = await instance;
     final rows = await db.rawQuery(
-      'SELECT s.id AS id, d.source AS source, d.rec_ts AS rec_ts, d.hr AS hr '
+      'SELECT s.id AS id, d.source AS source, d.rec_ts AS rec_ts, d.hr AS hr, '
+      'COALESCE(s.end_ts, s.start_ts) AS end_ts '
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
       '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) '
@@ -16315,6 +16317,15 @@ class LocalDb {
       samples[id] = hr;
       final c = [for (final r in kept) kHrCadenceSec[r['source']] ?? 1];
       if (c.any((v) => v > 1)) caps[id] = c;
+      // The seconds each row stands for: its cadence, clipped at the next
+      // kept row (a strap taking over mid-minute) and the session's end.
+      final spans = c.any((v) => v > 1)
+          ? sampleSpansSec([for (final r in kept) (r['rec_ts'] as num).toInt()],
+              capsSec: c, endSec: (rs.first['end_ts'] as num?)?.toInt())
+          : null;
+      final covered = spans == null
+          ? hr.length
+          : spans.fold<int>(0, (a, b) => a + b);
       final low = [
         for (final h in hr)
           if (minHrFloor <= 0 || h >= minHrFloor) h,
@@ -16327,11 +16338,13 @@ class LocalDb {
         'n': hr.length,
         // Weighted by each row's cadence when the window mixes a minute-HR
         // wearable with a 1 Hz strap; all 1 s reads exactly as before.
-        'avg_hr': c.any((v) => v > 1)
-            ? [for (var i = 0; i < hr.length; i++) hr[i] * c[i]]
+        'avg_hr': spans != null
+            ? [for (var i = 0; i < hr.length; i++) hr[i] * spans[i]]
                     .fold<int>(0, (a, b) => a + b) /
-                c.fold<int>(0, (a, b) => a + b)
+                covered
             : hr.fold<int>(0, (a, b) => a + b) / hr.length,
+        // Seconds covered, for the read-side guard against a banked trace.
+        'covered': covered,
         'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
         'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
       };
