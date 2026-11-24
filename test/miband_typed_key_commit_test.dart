@@ -1,6 +1,8 @@
 // The Mi Band typed-key commit against a "delete everything": a reset seen
 // before, during or after the key and row writes leaves neither behind.
 
+import 'dart:collection';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/miband_link.dart';
@@ -22,6 +24,20 @@ Future<bool> _hasRow() async =>
 void _reset() {
   ResetGate.enter();
   ResetGate.leave();
+}
+
+class _Undeletable extends MapBase<String, String> {
+  final Map<String, String> _m = {};
+  @override
+  String? operator [](Object? key) => _m[key];
+  @override
+  void operator []=(String key, String value) => _m[key] = value;
+  @override
+  void clear() => throw StateError('keychain locked');
+  @override
+  Iterable<String> get keys => _m.keys;
+  @override
+  String? remove(Object? key) => throw StateError('keychain locked');
 }
 
 void main() {
@@ -84,6 +100,16 @@ void main() {
         }),
         contains('reset'));
     expect(store.containsKey(_item), isFalse);
+  });
+
+  test('an undo the keychain refuses says a key may remain', () async {
+    FlutterSecureStorage.setMockInitialValues(_Undeletable());
+    expect(
+        await commit(ResetGate.generation, upsert: () async {
+          await _row();
+          _reset();
+        }),
+        contains('may remain'));
   });
 
   test('a failed row write with no reset puts the old key back', () async {
