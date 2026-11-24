@@ -434,7 +434,9 @@ Future<void> refreshSessionSensorSources() async {
     for (final id in kWorkoutArmedSensors)
       if (await wearableEnabled(id)) id,
   };
-  LocalDb.sessionWearableSource = (await activeWearable())?.$2;
+  final w = await activeWearable();
+  LocalDb.sessionWearableSource = w?.$2;
+  LocalDb.sessionWearableDeviceId = w?.$1;
 }
 
 bool debugDisableWearableWorker = false;

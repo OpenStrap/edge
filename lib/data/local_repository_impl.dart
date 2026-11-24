@@ -3645,9 +3645,16 @@ class LocalRepositoryImpl extends LocalRepository {
         // next drain — the one carrying the REST of that window — skipped it.
         // The partial score then stood on the list until someone opened the
         // detail screen, which is exactly the case the sweep exists for.
+        // Only a window the BAND fully scored is settled: the frontier is
+        // the band's, so an empty read (nothing arrived yet) or one carrying
+        // a sensor's or a wearable's rows (they arrive on their own syncs,
+        // behind no frontier) is read again next sweep.
+        final rows = after.hrRows;
         if (key != null &&
             endTs! <= frontier &&
-            after.hrRows != null &&
+            rows != null &&
+            rows.isNotEmpty &&
+            rows.every((e) => e['source'] == null) &&
             (r['status']?.toString() ?? '') == 'done') {
           _rescoredSessions.add(key);
         }

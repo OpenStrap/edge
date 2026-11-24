@@ -187,12 +187,26 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
 /// owner decides whether a strap may fill a band gap.
 List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) =>
     _sessionWindowRowsFor(rows, sensors: LocalDb.sessionSensorSources,
-        wearable: LocalDb.sessionWearableSource);
+        wearable: LocalDb.sessionWearableSource,
+        wearableId: LocalDb.sessionWearableDeviceId);
 
 // Workers receive the flags explicitly; isolate-local statics start empty.
 List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
-    List<T> rows, {required Set<String> sensors, required String? wearable}) {
+    List<T> rows,
+    {required Set<String> sensors,
+    required String? wearable,
+    String? wearableId}) {
   bool derivable(Object? s) => s == null || kDerivableSources.contains(s);
+  // The ACTIVE wearable's rows, by device: a forgotten device of the same
+  // adapter keeps its rows (`deleteDevice` leaves measurements), and its
+  // family alone would blend them in. A read that carries no device id
+  // (older callers) matches on the family as before.
+  bool isWearable(T r) =>
+      wearable != null &&
+      r['source'] == wearable &&
+      (wearableId == null ||
+          r['device_id'] == null ||
+          r['device_id'] == wearableId);
   List<T> plain() => [
         for (final r in rows)
           if (derivable(r['source'])) r,
@@ -212,9 +226,7 @@ List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
   if (n.isEmpty) {
     return [
       for (final r in rows)
-        if (derivable(r['source']) ||
-            (wearable != null && r['source'] == wearable))
-          r,
+        if (derivable(r['source']) || isWearable(r)) r,
     ];
   }
   final owner = n.entries
@@ -233,8 +245,7 @@ List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
   return [
     for (final r in rows)
       if (r['source'] == owner ||
-          ((derivable(r['source']) ||
-                  (wearable != null && r['source'] == wearable)) &&
+          ((derivable(r['source']) || isWearable(r)) &&
               ((r['rec_ts'] as num) < lo! || (r['rec_ts'] as num) > hi!)))
         r,
   ];
@@ -271,6 +282,10 @@ class LocalDb {
   /// [sessionSensorSources]: its rows fill a session window around the
   /// strap's span ([sessionWindowRows]). Null with none.
   static String? sessionWearableSource;
+
+  /// The active wearable's DEVICE id beside its adapter
+  /// ([sessionWearableSource]): a session reads that device's rows only.
+  static String? sessionWearableDeviceId;
 
   static Future<Database> get instance async {
     final db = _db;
@@ -16235,7 +16250,7 @@ class LocalDb {
     }
     final rows = await db.query(
       'decoded_onehz',
-      columns: ['rec_ts', 'hr', 'source'],
+      columns: ['rec_ts', 'hr', 'source', 'device_id'],
       where: 'rec_ts >= ? AND rec_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC',
@@ -16285,7 +16300,8 @@ class LocalDb {
   ) async {
     final db = await instance;
     final rows = await db.rawQuery(
-      'SELECT s.id AS id, d.source AS source, d.rec_ts AS rec_ts, d.hr AS hr, '
+      'SELECT s.id AS id, d.source AS source, d.device_id AS device_id, '
+      'd.rec_ts AS rec_ts, d.hr AS hr, '
       'COALESCE(s.end_ts, s.start_ts) AS end_ts '
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
@@ -16296,8 +16312,10 @@ class LocalDb {
     );
     final sensors = {...sessionSensorSources};
     final wearable = sessionWearableSource;
+    final wearableId = sessionWearableDeviceId;
     (SessionHrReads, String) construct() => _prepareSessionWindows(
-        rows, sensors, wearable, maxHrCeiling, minHrFloor);
+        rows, sensors, wearable, maxHrCeiling, minHrFloor,
+        wearableId: wearableId);
     final result = debugDisableSessionWindowsWorker
         ? construct()
         : await runCancellableIsolate(construct, const Duration(seconds: 30),
@@ -16308,7 +16326,7 @@ class LocalDb {
 
   static (SessionHrReads, String) _prepareSessionWindows(
       List<Map<String, Object?>> rows, Set<String> sensors, String? wearable,
-      int maxHrCeiling, int minHrFloor) {
+      int maxHrCeiling, int minHrFloor, {String? wearableId}) {
     final by = <String, List<Map<String, Object?>>>{};
     for (final r in rows) {
       final id = r['id'] as String?;
@@ -16320,7 +16338,7 @@ class LocalDb {
     for (final MapEntry(key: id, value: rs) in by.entries) {
       final kept = [
         for (final r in _sessionWindowRowsFor(rs,
-            sensors: sensors, wearable: wearable))
+            sensors: sensors, wearable: wearable, wearableId: wearableId))
           if (((r['hr'] as num?) ?? 0) > 0) r,
       ];
       final hr = [for (final r in kept) (r['hr'] as num).toInt()];
