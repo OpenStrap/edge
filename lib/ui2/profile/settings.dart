@@ -270,6 +270,7 @@ class _MoreSettingsState extends State<MoreSettings>
           await app.setTelemetryConsent(!app.telemetryConsent);
         } catch (_) {
           // Collection already follows the tap this session; only the save failed.
+          if (!messenger.mounted) return;
           messenger.showSnackBar(const SnackBar(
               content: Text("Couldn't save that choice. It may reset when the "
                   'app restarts.')));
