@@ -91,6 +91,14 @@ Future<String?> pairHelioStrapWithTypedKey(
   if (ResetGate.active) return kHelioPairResetText;
   final resetGen = ResetGate.generation;
   final priorRow = await HelioStrapLink.pairedHelioStrapRow();
+  // Only the SAME strap keeps its id: a different strap under the old one's
+  // history id would write its readings over the old strap's at matching
+  // seconds. The app holds one strap key, so a second strap is refused until
+  // the first is forgotten.
+  if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
+    return 'Another Helio Strap is already paired. Forget it on its device '
+        'page first, then pair this one.';
+  }
   final rnd = Random.secure();
   final deviceId = (priorRow?['id'] as String?) ??
       'helio-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
@@ -416,6 +424,14 @@ class HelioStrapLink {
           }
           await device.connect(timeout: const Duration(seconds: 20));
           final services = await device.discoverServices();
+          // Again after discovery: a forget during it found no link or host
+          // to stop, so this is the last point the session can still back
+          // off before running against a deleted row.
+          if (_deviceId != deviceId ||
+              _forgets != forgets ||
+              ResetGate.changedSince(resetGen)) {
+            return false;
+          }
           final link = GattBandLink(
             entry: kHelioStrap,
             services: services,
@@ -490,7 +506,9 @@ class HelioStrapLink {
   bool lastSyncFailed = false;
 
   void _handleNote(String key, Object? value) {
-    if (key == kHelioNoKeyNote || key == kHelioAuthFailedNote) {
+    if (key == kHelioNoKeyNote ||
+        key == kHelioAuthFailedNote ||
+        key == kHelioIncompleteNote) {
       lastSyncFailed = true;
     }
   }

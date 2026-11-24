@@ -61,6 +61,18 @@ void main() {
     }
   });
 
+  test('a second strap is refused while another is paired, never folded '
+      'into its history id', () async {
+    await LocalDb.upsertDevice(
+        id: 'helio-a', adapterId: 'helio_strap', remoteId: 'AA:AA:AA:AA:AA:AA');
+    try {
+      expect(await pairHelioStrapWithTypedKey(device, 'ab' * 16),
+          contains('Another Helio Strap'));
+    } finally {
+      await LocalDb.deleteDevice('helio-a');
+    }
+  });
+
   group('persisting an accepted key', () {
     Future<Map<String, Object?>?> row() => LocalDb.deviceRow('helio-test');
     Future<String?> persist({String? prior}) => persistHelioPairing(

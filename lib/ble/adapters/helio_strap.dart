@@ -85,6 +85,12 @@ const String kHelioNoKeyNote = 'helio_no_key';
 /// timed out, with a short machine-readable reason as its value.
 const String kHelioAuthFailedNote = 'helio_auth_failed';
 
+/// The [BandNote] a session carries when a fetch round FAILED (a refused
+/// write, no reply, or a round that never added up after its retries), as
+/// opposed to the strap confirming it had nothing. What the other rounds
+/// fetched is kept; the sync just must not read as complete.
+const String kHelioIncompleteNote = 'helio_fetch_incomplete';
+
 /// How far back one session's single fetch round reaches, for every type,
 /// counted in whole local days: the fetch starts at the local midnight this
 /// many days before today.
@@ -126,7 +132,10 @@ Future<Uint8List?> _defaultAuthKeyReader() async {
   } catch (_) {
     return null;
   }
-  if (hex == null || hex.length != 32) return null;
+  // All 32 characters checked BEFORE parsing: a stored value of the right
+  // length with a non-hex pair would throw out of `int.parse` instead of
+  // taking the no-key path.
+  if (hex == null || !RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(hex)) return null;
   return Uint8List.fromList(
       [for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
 }
@@ -199,8 +208,16 @@ Future<HelioHandshakeResult> runHelioHandshake(
       return HelioHandshakeFailed('link_write_failed', rawFrames);
     }
 
+    // ONE deadline for the whole handshake: a strap chattering other
+    // notifications more often than [timeout] would otherwise restart the
+    // wait forever and hold the shared BLE slot.
+    final deadline = DateTime.now().add(timeout);
     while (true) {
-      final chunk = await chunkInbox.next(timeout);
+      final left = deadline.difference(DateTime.now());
+      if (left <= Duration.zero) {
+        return HelioHandshakeFailed('timeout', rawFrames);
+      }
+      final chunk = await chunkInbox.next(left);
       if (chunk == null) return HelioHandshakeFailed('timeout', rawFrames);
       rawFrames.add(chunk);
       final frame = decoder.feed(chunk, sessionKey: null);
@@ -311,11 +328,21 @@ class HelioStrapAdapter extends BandAdapter {
       // window cut into would overwrite the whole day an earlier sync read.
       final since = DateTime(
           now.year, now.month, now.day - kHelioFetchWindow.inDays);
-      final utcOffsetMinutes = now.timeZoneOffset.inMinutes;
+      // The offset AT `since`, not now's: across a DST change the two
+      // differ, and `since`'s wall time sent with now's offset names an
+      // instant an hour off the midnight it means.
+      final utcOffsetMinutes = since.timeZoneOffset.inMinutes;
+      // Replies that belong to no published round (a refused or retried
+      // attempt, a stale frame): archived anyway, never decoded.
+      final strayRaw = <Uint8List>[];
+      var incomplete = false;
 
       Future<_FetchRound?> fetch(int type) => _fetchOneRound(
           link, controlInbox, dataInbox, type, since, utcOffsetMinutes,
-          firstReplyTimeout: firstReplyTimeout, quietTimeout: quietTimeout);
+          firstReplyTimeout: firstReplyTimeout,
+          quietTimeout: quietTimeout,
+          strayRaw: strayRaw,
+          onFailed: () => incomplete = true);
 
       final raw = <Uint8List>[];
       final samples = <NeutralSample>[];
@@ -553,6 +580,8 @@ class HelioStrapAdapter extends BandAdapter {
           yield SampleBatch(const [], raw: sleepFetch.raw);
         }
       }
+      if (strayRaw.isNotEmpty) yield SampleBatch(const [], raw: strayRaw);
+      if (incomplete) yield const BandNote(kHelioIncompleteNote);
     } finally {
       await subData.cancel();
       await subControl.cancel();
@@ -720,6 +749,8 @@ Future<_FetchRound?> _fetchOneRound(
   int utcOffsetMinutes, {
   required Duration firstReplyTimeout,
   required Duration quietTimeout,
+  required List<Uint8List> strayRaw,
+  required void Function() onFailed,
 }) async {
   for (var attempt = 0; attempt <= 2; attempt++) {
     // A frame that arrived late for an EARLIER round (a previous type, or
@@ -729,23 +760,47 @@ Future<_FetchRound?> _fetchOneRound(
     dataInbox.drain();
     if (!await link.write(kHuami2021FetchControlChar,
         huami2021FetchStartRequest(type, since, utcOffsetMinutes))) {
+      onFailed();
       return null;
     }
-    final startFrame = await controlInbox.next(firstReplyTimeout);
-    if (startFrame == null) return null;
-    final start = parseHuami2021FetchStart(startFrame);
-    if (start == null || !start.ok) return null;
+    // The start reply, skipping stale control frames (a late end reply of
+    // the previous round can still land after the drain) until one parses
+    // or the reply window closes.
+    final deadline = DateTime.now().add(firstReplyTimeout);
+    Uint8List? startFrame;
+    Huami2021FetchStart? start;
+    while (start == null) {
+      final left = deadline.difference(DateTime.now());
+      if (left <= Duration.zero) break;
+      startFrame = await controlInbox.next(left);
+      if (startFrame == null) break;
+      start = parseHuami2021FetchStart(startFrame);
+      if (start == null) strayRaw.add(startFrame);
+    }
+    if (start == null || startFrame == null) {
+      onFailed();
+      return null;
+    }
+    if (!start.ok) {
+      strayRaw.add(startFrame);
+      onFailed();
+      return null;
+    }
     if (!start.hasData) {
+      // Confirmed empty: the strap has nothing for this type. Not a failure.
+      strayRaw.add(startFrame);
       await link.write(kHuami2021FetchControlChar, kHuami2021FetchAckKeep);
       return null;
     }
 
     if (!await link.write(kHuami2021FetchControlChar, kHuami2021FetchSendData)) {
+      strayRaw.add(startFrame);
+      onFailed();
       return null;
     }
 
     final buffer = Huami2021FetchBuffer();
-    final rawFrames = <Uint8List>[];
+    final rawFrames = <Uint8List>[startFrame];
     var timeout = firstReplyTimeout;
     while (true) {
       final packet = await dataInbox.next(timeout);
@@ -757,13 +812,16 @@ Future<_FetchRound?> _fetchOneRound(
     }
 
     final endFrame = await controlInbox.next(firstReplyTimeout);
+    if (endFrame != null) rawFrames.add(endFrame);
     final endStatus = endFrame == null ? null : parseHuami2021FetchRoundEnd(endFrame);
 
     final countOk = buffer.ok &&
         endStatus != null &&
         huami2021FetchCountMatches(type, start.expected, buffer.bytes.length);
     if (!countOk) {
-      // ack(keep), discard, retry same cursor.
+      // ack(keep), discard, retry same cursor. The replies are archived,
+      // not decoded.
+      strayRaw.addAll(rawFrames);
       await link.write(kHuami2021FetchControlChar, kHuami2021FetchAckKeep);
       continue;
     }
@@ -771,6 +829,7 @@ Future<_FetchRound?> _fetchOneRound(
     await link.write(kHuami2021FetchControlChar, kHuami2021FetchAckKeep);
     return _FetchRound(buffer.bytes, rawFrames, start.roundStart, start.expected);
   }
+  onFailed();
   return null;
 }
 

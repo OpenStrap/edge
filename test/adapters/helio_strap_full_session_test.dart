@@ -40,6 +40,8 @@ final int _nowSec = _now.millisecondsSinceEpoch ~/ 1000;
 /// One completed run's events and the link it ran over, for assertions.
 Future<({List<BandEvent> events, ReplayBandLink link})> _run({
   Uint8List? authKey,
+  int? refuseType,
+  bool staleEndBeforeActivity = false,
 }) async {
   final key = authKey ?? Uint8List.fromList(List.generate(16, (i) => i + 1));
   final link = ReplayBandLink();
@@ -140,8 +142,14 @@ Future<({List<BandEvent> events, ReplayBandLink link})> _run({
           if (value.isNotEmpty && value[0] == 0x01) {
             // Start request: [0x01, type, ...time8].
             final type = value[1];
-            link.feed(kHuami2021FetchControlChar, fetchStartReply(type),
-                atSec: _nowSec);
+            if (staleEndBeforeActivity && type == kHuami2021TypeActivity) {
+              // A late round-end reply from the previous round.
+              link.feed(kHuami2021FetchControlChar, const [0x10, 0x02, 0x01],
+                  atSec: _nowSec);
+            }
+            final reply = fetchStartReply(type);
+            if (type == refuseType) reply[2] = 0x02; // status: refused
+            link.feed(kHuami2021FetchControlChar, reply, atSec: _nowSec);
           } else if (value.length == 1 && value[0] == 0x02) {
             // Send-data trigger for the round just started. Only the
             // activity round (the last start reply with real data) ever
@@ -241,6 +249,22 @@ void main() {
     expect(raw.any((f) => f.isNotEmpty && f[0] == 0x03), isTrue,
         reason: 'at least one archived frame must be a handshake chunk, '
             'not only fetch-channel frames');
+  });
+
+  test('a refused round is an incomplete sync, not a clean empty one',
+      () async {
+    final r = await _run(refuseType: kHuami2021TypeStress);
+    expect(r.events.whereType<BandNote>().map((n) => n.key),
+        contains(kHelioIncompleteNote));
+    // What the other rounds fetched is still banked.
+    expect(_rows(r.events).where((o) => o.key == 'steps'), isNotEmpty);
+  });
+
+  test("a stale end reply before the start reply doesn't end the round",
+      () async {
+    final r = await _run(staleEndBeforeActivity: true);
+    expect(r.events.whereType<BandNote>(), isEmpty);
+    expect(_rows(r.events).singleWhere((o) => o.key == 'steps').value, 30);
   });
 }
 
