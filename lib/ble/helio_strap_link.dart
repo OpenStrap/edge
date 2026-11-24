@@ -98,6 +98,11 @@ Future<String?> _pairZeppOsWithTypedKey(
       [for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
   final keySlot = zeppOsKeySlot(entry);
   final tag = '[${entry.id} pair]';
+  final other = otherEntryNamed(entry, device.platformName);
+  if (other != null) {
+    return 'That is a ${other.label}, not a ${entry.label}. Pair it from its '
+        'own entry.';
+  }
 
   // Read BEFORE the first await: a "delete everything" that lands while
   // this reads the old row, the keychain, waits on the slot or runs the
@@ -114,7 +119,8 @@ Future<String?> _pairZeppOsWithTypedKey(
     // seconds. The app holds one key per family, so a second device is refused
     // until the first is forgotten.
     if (priorRow != null && priorRow['remote_id'] != device.remoteId.str) {
-      return 'Another ${entry.label} is already paired. Forget it on its device '
+      final name = entry.id == kHelioStrap.id ? 'Helio Strap' : entry.label;
+      return 'Another $name is already paired. Forget it on its device '
           'page first, then pair this one.';
     }
     final rnd = Random.secure();

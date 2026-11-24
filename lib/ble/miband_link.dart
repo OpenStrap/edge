@@ -896,6 +896,11 @@ Future<String?> _pairCryptMiBandWithTypedKey(
   if (key == null) {
     return 'That is not a valid key: it must be exactly 32 hex characters.';
   }
+  final other = otherEntryNamed(entry, device.platformName);
+  if (other != null) {
+    return 'That is a ${other.label}, not a ${entry.label}. Pair it from its '
+        'own entry.';
+  }
   return _miBandPairLock(() async {
     final rnd = Random.secure();
     final deviceId = miBandReusableDeviceId(

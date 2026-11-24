@@ -1778,7 +1778,35 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
 /// declared under `NSAccessorySetupBluetoothNames` in Info.plist.
 const Map<String, String> kAskSharedServiceNames = <String, String>{
   'helio_strap': 'Helio Strap',
+  // A substring, so a shorter one also lists the longer names (Amazfit GTS
+  // shows a GTS 2 too); pairing refuses a device whose advertised name
+  // another entry claims, so a wrong pick stops there.
+  'huami_cinco': 'Mi Smart Band 4',
+  'huami_kongming': 'Mi Smart Band 5',
+  'huami_pangu': 'Mi Smart Band 6',
+  'huami_tonlesap': 'Amazfit Bip S',
+  'huami_como': 'Amazfit Bip U',
+  'huami_kestrel': 'Amazfit GTS',
+  'huami_newton': 'Amazfit GTS 2',
+  'huami_falcon': 'Amazfit GTR',
+  'zeppos_l66': 'Smart Band 7',
+  'zeppos_verona': 'Amazfit GTR 3',
+  'zeppos_madrid': 'Amazfit GTR 3 Pro',
+  'zeppos_zurich': 'Amazfit GTS 3',
 };
+
+/// The registry entry other than [entry] whose name matcher claims
+/// [advertisedName], or null. Pairing refuses such a device: the iOS sheet
+/// filters by name substring, so an "Amazfit GTS" sheet can hand back a
+/// GTS 2, which speaks the same handshake with a different record size.
+BandEntry? otherEntryNamed(BandEntry entry, String advertisedName) {
+  final n = advertisedName.trim().toLowerCase();
+  if (n.isEmpty || (entry.nameMatcher?.call(n) ?? false)) return null;
+  for (final e in kBandRegistry) {
+    if (e.id != entry.id && (e.nameMatcher?.call(n) ?? false)) return e;
+  }
+  return null;
+}
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed
 /// a [BandProfile] rather than an entry.

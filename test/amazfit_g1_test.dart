@@ -96,6 +96,23 @@ void main() {
     }
   });
 
+  test('the iOS sheet filters every FEE1 sensor by name, and a wrong model '
+      'is refused at pairing', () {
+    for (final e in kAskPickerSensors) {
+      if (e.service == kHuami234Service && e.id != kMiBand234.id) {
+        final n = kAskSharedServiceNames[e.id];
+        expect(n, isNotNull, reason: e.id);
+        expect(e.nameMatcher!(e.label.toLowerCase()) ||
+            e.label.toLowerCase().contains(n!.toLowerCase()), isTrue,
+            reason: e.id);
+      }
+    }
+    expect(otherEntryNamed(kAmazfitGts, 'Amazfit GTS 2')?.id, 'huami_newton');
+    expect(otherEntryNamed(kAmazfitGtr, 'Amazfit GTR 3')?.id, 'zeppos_verona');
+    expect(otherEntryNamed(kAmazfitGts, 'Amazfit GTS'), isNull);
+    expect(otherEntryNamed(kAmazfitGts, ''), isNull);
+  });
+
   test('every key-only device offers no plain pair, so its screen asks for '
       'the one key', () {
     final keyOnly = [
