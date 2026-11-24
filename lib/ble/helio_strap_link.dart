@@ -111,6 +111,8 @@ Future<void> _helioPairing = Future<void>.value();
 
 Future<String?> _pairHelioStrapHeld(
     BluetoothDevice device, String hex, Uint8List key, int resetGen) async {
+  // As `sync` does: a forget from here on must outlive this pairing.
+  final forgets = HelioStrapLink.instance._forgets;
   final priorRow = await HelioStrapLink.pairedHelioStrapRow();
   // Only the SAME strap keeps its id: a different strap under the old one's
   // history id would write its readings over the old strap's at matching
@@ -186,6 +188,7 @@ Future<String?> _pairHelioStrapHeld(
           hex: hex,
           priorHex: priorHex,
           resetGen: resetGen,
+          forgets: forgets,
         );
       } catch (e) {
         return 'Could not connect: $e';
@@ -208,6 +211,10 @@ Future<String?> _pairHelioStrapHeld(
 /// The text a pairing interrupted by "delete everything" ends with.
 const String kHelioPairResetText =
     'Pairing was interrupted by a reset. Pair the strap again.';
+
+/// The text a pairing ends with when its strap was forgotten meanwhile.
+const String kHelioPairForgottenText =
+    'The strap was forgotten while it was pairing. Pair it again.';
 
 /// The reset ended the pairing but its own undo failed: say what may be
 /// left, so the user can run "delete everything" again.
@@ -233,7 +240,18 @@ Future<String?> persistHelioPairing({
   required String hex,
   required String? priorHex,
   required int resetGen,
+  int? forgets,
 }) async {
+  // Interrupted: a reset ran ([ResetGate]), or the strap was forgotten from
+  // its device page ([HelioStrapLink.forgetStrap] bumps the counter first).
+  // Either must stay in effect over a pairing that finishes after it.
+  bool stopped() =>
+      ResetGate.changedSince(resetGen) ||
+      (forgets != null && HelioStrapLink.instance._forgets != forgets);
+  String stopText() => ResetGate.changedSince(resetGen)
+      ? kHelioPairResetText
+      : kHelioPairForgottenText;
+
   Future<bool> dropKey() async {
     try {
       await _pairSecure.delete(
@@ -247,7 +265,7 @@ Future<String?> persistHelioPairing({
     }
   }
 
-  if (ResetGate.changedSince(resetGen)) return kHelioPairResetText;
+  if (stopped()) return stopText();
   try {
     await _pairSecure.write(
       key: kHelioStrapSecureStorageKey,
@@ -258,8 +276,8 @@ Future<String?> persistHelioPairing({
   } catch (e) {
     return 'The phone’s keychain is locked. Unlock the phone and try again.';
   }
-  if (ResetGate.changedSince(resetGen)) {
-    return await dropKey() ? kHelioPairResetText : kHelioPairResetLeftoverText;
+  if (stopped()) {
+    return await dropKey() ? stopText() : kHelioPairResetLeftoverText;
   }
   try {
     await LocalDb.upsertDevice(
@@ -271,8 +289,8 @@ Future<String?> persistHelioPairing({
   } catch (e) {
     // The row never landed. Restore what the keychain held before this
     // attempt, unless a reset wiped it meanwhile: then it stays wiped.
-    if (priorHex == null || ResetGate.changedSince(resetGen)) {
-      if (!await dropKey() && ResetGate.changedSince(resetGen)) {
+    if (priorHex == null || stopped()) {
+      if (!await dropKey() && stopped()) {
         return kHelioPairResetLeftoverText;
       }
     } else {
@@ -287,8 +305,8 @@ Future<String?> persistHelioPairing({
     }
     return 'Could not save the pairing: $e';
   }
-  if (ResetGate.changedSince(resetGen)) {
-    // The wipe ran while the row was written: take both back out, row
+  if (stopped()) {
+    // The wipe (or forget) ran while the row was written: take both back out, row
     // first. If the row stays, keep its key with it (a row with no key is
     // a strap that silently never syncs) and say both may remain.
     try {
@@ -296,7 +314,7 @@ Future<String?> persistHelioPairing({
     } catch (_) {
       return kHelioPairResetLeftoverText;
     }
-    return await dropKey() ? kHelioPairResetText : kHelioPairResetLeftoverText;
+    return await dropKey() ? stopText() : kHelioPairResetLeftoverText;
   }
   return null;
 }
@@ -377,6 +395,9 @@ class HelioStrapLink {
 
   @visibleForTesting
   String? get deviceIdForTest => _deviceId;
+
+  @visibleForTesting
+  int get forgetsForTest => _forgets;
 
   /// The session's clock, read once (Unix seconds): what the adapter's
   /// `kHelioFetchWindow` lookback is counted from, and the anchor stamped on

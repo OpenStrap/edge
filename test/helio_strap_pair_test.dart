@@ -111,6 +111,24 @@ void main() {
       expect(await row(), isNull);
     });
 
+    test('a strap forgotten during the pairing stays forgotten', () async {
+      final store = <String, String>{};
+      FlutterSecureStorage.setMockInitialValues(store);
+      final forgets = HelioStrapLink.instance.forgetsForTest;
+      await HelioStrapLink.forgetStrap('helio-test'); // from its device page
+      expect(
+          await persistHelioPairing(
+              deviceId: 'helio-test',
+              remoteId: 'AA:BB',
+              hex: 'ab' * 16,
+              priorHex: null,
+              resetGen: ResetGate.generation,
+              forgets: forgets),
+          kHelioPairForgottenText);
+      expect(store, isEmpty);
+      expect(await row(), isNull);
+    });
+
     test('a reset whose key undo fails says a key may remain', () async {
       FlutterSecureStorage.setMockInitialValues(_ResetOnWriteUndeletable());
       expect(await persist(), kHelioPairResetLeftoverText);
