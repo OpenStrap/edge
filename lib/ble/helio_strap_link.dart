@@ -90,6 +90,10 @@ Future<String?> pairHelioStrapWithTypedKey(
   // generation and pass every check once that reset ends.
   if (ResetGate.active) return kHelioPairResetText;
   final resetGen = ResetGate.generation;
+  // As `sync` does, and read with the reset generation (before the queue):
+  // a forget from here on, including while this waits its turn, must
+  // outlive this pairing.
+  final forgets = HelioStrapLink.instance._forgets;
   // ONE pairing at a time, from the paired-row read through the key and row
   // writes (the handshake included): two at once both read an empty store,
   // both mint an id, and the second write of the one key strands the
@@ -100,7 +104,7 @@ Future<String?> pairHelioStrapWithTypedKey(
   _helioPairing = mine.future;
   try {
     await previous;
-    return await _pairHelioStrapHeld(device, hex, key, resetGen);
+    return await _pairHelioStrapHeld(device, hex, key, resetGen, forgets);
   } finally {
     mine.complete();
   }
@@ -109,10 +113,8 @@ Future<String?> pairHelioStrapWithTypedKey(
 /// The tail of the Helio pairing queue ([pairHelioStrapWithTypedKey]).
 Future<void> _helioPairing = Future<void>.value();
 
-Future<String?> _pairHelioStrapHeld(
-    BluetoothDevice device, String hex, Uint8List key, int resetGen) async {
-  // As `sync` does: a forget from here on must outlive this pairing.
-  final forgets = HelioStrapLink.instance._forgets;
+Future<String?> _pairHelioStrapHeld(BluetoothDevice device, String hex,
+    Uint8List key, int resetGen, int forgets) async {
   final priorRow = await HelioStrapLink.pairedHelioStrapRow();
   // Only the SAME strap keeps its id: a different strap under the old one's
   // history id would write its readings over the old strap's at matching
@@ -302,6 +304,9 @@ Future<String?> persistHelioPairing({
           mOptions: kHelioStrapMacosKeyOptions,
         );
       } catch (_) {}
+      // A reset or forget that landed during that restore wiped the key it
+      // put back: take it out again.
+      if (stopped() && !await dropKey()) return kHelioPairResetLeftoverText;
     }
     return 'Could not save the pairing: $e';
   }
