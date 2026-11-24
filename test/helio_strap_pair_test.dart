@@ -50,6 +50,17 @@ void main() {
     expect(result, isNot(contains('32 hex characters')));
   });
 
+  test('a pairing begun during a reset is refused before it reads anything',
+      () async {
+    ResetGate.enter();
+    try {
+      expect(await pairHelioStrapWithTypedKey(device, 'ab' * 16),
+          kHelioPairResetText);
+    } finally {
+      ResetGate.leave();
+    }
+  });
+
   group('persisting an accepted key', () {
     Future<Map<String, Object?>?> row() => LocalDb.deviceRow('helio-test');
     Future<String?> persist({String? prior}) => persistHelioPairing(
@@ -88,6 +99,12 @@ void main() {
       expect(await row(), isNull);
     });
 
+    test('a reset whose key undo fails says a key may remain', () async {
+      FlutterSecureStorage.setMockInitialValues(_ResetOnWriteUndeletable());
+      expect(await persist(), kHelioPairResetLeftoverText);
+      expect(await row(), isNull);
+    });
+
     test('a reset that lands during the key write takes the key back out',
         () async {
       final store = _ResetOnWrite();
@@ -118,4 +135,10 @@ class _ResetOnWrite extends MapBase<String, String> {
   Iterable<String> get keys => _m.keys;
   @override
   String? remove(Object? key) => _m.remove(key);
+}
+
+/// [_ResetOnWrite] whose deletes fail, as a locked keychain's would.
+class _ResetOnWriteUndeletable extends _ResetOnWrite {
+  @override
+  String? remove(Object? key) => throw StateError('keychain locked');
 }
