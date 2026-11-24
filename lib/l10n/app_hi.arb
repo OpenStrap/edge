@@ -1183,7 +1183,7 @@
   "metricDetailNoValueYetWiderRanges": "आज अभी तक कोई मान नहीं मिला है। ऊपर दी गई बड़ी समयसीमाओं में वे दिन शामिल हैं जिनमें मान मिला।",
   "metricDetailNoValueInWindow": "इस समयावधि में किसी भी दिन कोई मान नहीं मिला।",
   "metricDetailWearBandFix": "सीरीज़ शुरू करने के लिए रातभर अपना डिवाइस पहनें",
-  "metricDetailHrvNeedsBeatsFix": "इस चार्ट को धड़कन-दर-धड़कन अंतराल चाहिए: एक बैंड, या रातभर पहना गया चेस्ट स्ट्रैप",
+  "metricDetailHrvNeedsBeatsFix": "यह चार्ट धड़कन-दर-धड़कन अंतराल से बनता है, जिन्हें रात में केवल बैंड रिकॉर्ड करता है। आपके डिवाइस की अपनी HRV उसके डिवाइस पेज पर है",
   "metricDetailBreakdownLinkTitle": "ब्यौरा",
   "metricDetailBreakdownLinkSub": "आज का हर हिस्सा, और उसे किसने गिना",
   "metricDetailNerdStatsTitle": "तकनीकी आँकड़े",

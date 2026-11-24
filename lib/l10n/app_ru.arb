@@ -2480,7 +2480,7 @@
   "metricDetailNoValueYetWiderRanges": "За сегодня значения ещё нет. В более широких периодах выше есть дни с рассчитанными значениями.",
   "metricDetailNoValueInWindow": "За этот период значений нет.",
   "metricDetailWearBandFix": "Носите устройство ночью для начала ряда",
-  "metricDetailHrvNeedsBeatsFix": "Для этого графика нужны интервалы между ударами: браслет или нагрудный датчик, надетый на ночь",
+  "metricDetailHrvNeedsBeatsFix": "Этот график строится по интервалам между ударами, которые ночью записывает только браслет. Собственная ВСР вашего устройства — на его странице устройства",
   "metricDetailBreakdownLinkTitle": "Подробности",
   "metricDetailBreakdownLinkSub": "Каждый отрезок дня и источник его оценки",
   "metricDetailNerdStatsTitle": "Подробная статистика",
