@@ -1066,6 +1066,11 @@ const BandEntry kHelioStrap = BandEntry.notify(
   // none of this protocol's timestamps are arrival-anchored.
   timeAnchor: TimeAnchor.measured,
   nameMatcher: _looksLikeHelioStrap,
+  // Its own service as a HINT too: FEE1 is shared with the Mi Bands, so an
+  // advertisement named "Amazfit Helio Strap" carrying FEE1 must match this
+  // entry by name before the first FEE1 entry claims it by service. A
+  // nameless FEE1 advertisement still falls back to the service match.
+  scanHints: <String>[kHuami234Service],
   scanByName: true,
 );
 
@@ -1404,6 +1409,13 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
   // device, so the same id; already declared above, listed so the plist
   // test keeps it declared for this entry too. Unverified on a strap (R6).
   'helio_strap': 0x0157,
+};
+
+/// iOS picker names for sensors whose service another sensor shares (FEE1):
+/// the advertised-name substring the sheet filters on. Each must also be
+/// declared under `NSAccessorySetupBluetoothNames` in Info.plist.
+const Map<String, String> kAskSharedServiceNames = <String, String>{
+  'helio_strap': 'Helio Strap',
 };
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed

@@ -113,6 +113,11 @@ class PairSensorScreen extends StatefulWidget {
   /// A handoff needs a successful pair result, not just a closed route.
   final bool returnOnPair;
 
+  /// The device the user already chose (a nearby tap handed over for its
+  /// key): listed from the start, so the key is paired to THAT device rather
+  /// than to whichever one a fresh scan lists.
+  final BandCandidate? selected;
+
   const PairSensorScreen({
     super.key,
     required this.entry,
@@ -121,6 +126,7 @@ class PairSensorScreen extends StatefulWidget {
     this.debugFound,
     this.debugPair,
     this.returnOnPair = false,
+    this.selected,
   });
 
   @override
@@ -160,7 +166,8 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   @override
   void initState() {
     super.initState();
-    _found = widget.debugFound ?? const [];
+    _found = widget.debugFound ??
+        (widget.selected == null ? const [] : [widget.selected!]);
     unawaited(_load());
   }
 
@@ -262,7 +269,20 @@ class _PairSensorScreenState extends State<PairSensorScreen>
 
   /// The iOS 18+ path for a [kAskPickerSensors] entry: the ASK picker filtered
   /// to this sensor's service, then the same pairing step a scanned row gets.
+  /// A device that pairs ONLY with a typed key (no install path) and an
+  /// empty key field: nothing can pair it yet.
+  bool get _keyMissing =>
+      widget.onPickedWithKey != null &&
+      widget.onPicked == null &&
+      _key.text.trim().isEmpty;
+
   Future<void> _pairViaPicker() async {
+    // Before the system sheet: approving an accessory there that this screen
+    // then refuses for want of a key leaves an OS approval behind.
+    if (_keyMissing) {
+      setState(() => _problem = 'Enter the device’s key to pair it.');
+      return;
+    }
     setState(() {
       _scanning = true;
       _problem = null;
@@ -277,7 +297,9 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     // band (see `IosBleRestore.reacquireCentral`).
     await IosBleRestore.releaseCentralForPicker();
     try {
-      id = await AccessorySetup.showSensorPicker([widget.entry.service]);
+      final askName = kAskSharedServiceNames[widget.entry.id];
+      id = await AccessorySetup.showSensorPicker([widget.entry.service],
+          name: askName, label: askName == null ? null : widget.entry.label);
     } on PlatformException catch (e) {
       failure = l?.pairSensorCouldNotPair(e.message ?? e.code) ??
           'Could not pair that device: ${e.message ?? e.code}';
@@ -345,9 +367,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     // Helio) must refuse here, not silently fall through to the generic
     // plain pairing below, which would create a device row with no
     // handshake ever attempted and no key the adapter could ever use.
-    if (widget.onPickedWithKey != null &&
-        typedKey.isEmpty &&
-        widget.onPicked == null) {
+    if (_keyMissing) {
       setState(() {
         _busy = null;
         _problem = 'Enter the device’s key to pair it.';

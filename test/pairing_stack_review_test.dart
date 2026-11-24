@@ -369,6 +369,19 @@ void main() {
     expect(find.text('Candidate ring'), findsOneWidget);
   });
 
+  // WHY: a nearby strap handed to its key screen must stay the one listed,
+  // or the key is paired to whichever strap a fresh scan finds.
+  testWidgets('a handed-over strap is listed on its key screen from the start',
+      (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    final strap = (device: BluetoothDevice.fromId('strap-a'), label: 'Strap A',
+        rssi: -40, entryId: 'helio_strap', alsoBand: null);
+    await _screen(t, app, PairSensorScreen(entry: kHelioStrap, selected: strap));
+    await t.pumpAndSettle();
+    expect(find.text('Strap A'), findsOneWidget);
+  });
+
   // WHY: requiring an explicit result must still accept a successful child pair.
   // CLAIM(unframed-pairing-result); catches: always returning cancellation after handoff.
   testWidgets('wearable child returns success only after its pairing succeeds', (t) async {

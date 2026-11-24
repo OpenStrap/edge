@@ -103,7 +103,12 @@ enum AccessorySetup {
           // or no argument is the band picker, byte-identical to before.
           if let args = call.arguments as? [String: Any],
              let services = args["services"] as? [String] {
-            Impl.shared.showSensorPicker(services: services, reply)
+            // `name`/`label`: a sensor that SHARES its service with another
+            // (FEE1: the Mi Bands and the Helio Strap) is told apart by the
+            // name it advertises and the label its approval was made under.
+            Impl.shared.showSensorPicker(services: services,
+                                         name: args["name"] as? String,
+                                         label: args["label"] as? String, reply)
             return
           }
           let addAnother = (call.arguments as? Bool) ?? false
@@ -424,16 +429,21 @@ private final class Impl {
   /// return. Every service must be declared under `OSAskSensorServices`; anything else
   /// is refused here rather than handed to ASK, whose descriptor validation traps.
   func showSensorPicker(services: [String],
+                        name: String? = nil,
+                        label: String? = nil,
                         _ completion: @escaping (Result<String, PickerError>) -> Void) {
     // Same as showPicker: the already-approved check needs the activated accessory list.
     whenActivated({ [weak self] in
-      self?.showSensorPickerActivated(services: services, completion)
+      self?.showSensorPickerActivated(services: services, name: name, label: label,
+                                      completion)
     }, timedOut: {
       completion(.failure(PickerError(message: "Accessory setup is not ready yet. Try again.")))
     })
   }
 
   private func showSensorPickerActivated(services: [String],
+                                         name: String?,
+                                         label: String?,
                                          _ completion: @escaping (Result<String, PickerError>) -> Void) {
     let wanted = Set(services.map { $0.uppercased() })
     guard !wanted.isEmpty, wanted.isSubset(of: sensorServices) else {
@@ -441,9 +451,12 @@ private final class Impl {
         message: "That sensor is not declared for the iOS pairing sheet.")))
       return
     }
+    // A shared service is reused only when the approval is THIS device's (its
+    // label); another sensor's approval on the same service would hand back
+    // that sensor's id on every attempt.
     if let existing = session.accessories.first(where: { a in
-      guard let svc = service(of: a) else { return false }
-      return wanted.contains(svc)
+      guard let svc = service(of: a), wanted.contains(svc) else { return false }
+      return label == nil || a.displayName == label
     }), let id = existing.bluetoothIdentifier?.uuidString.uppercased() {
       completion(.success(id))
       return
@@ -459,8 +472,12 @@ private final class Impl {
     let sensorItems = wanted.sorted().map { svc -> ASPickerDisplayItem in
       let descriptor = ASDiscoveryDescriptor()
       descriptor.bluetoothServiceUUID = CBUUID(string: svc)
-      return ASPickerDisplayItem(name: labels[svc] ?? "Sensor", productImage: image,
-                                 descriptor: descriptor)
+      // Always WITH the service UUID (a name-only descriptor traps; see the
+      // note on whoopMemberUUID16), and the name must be declared under
+      // NSAccessorySetupBluetoothNames or iOS ignores it.
+      if let name = name { descriptor.bluetoothNameSubstring = name }
+      return ASPickerDisplayItem(name: label ?? labels[svc] ?? "Sensor",
+                                 productImage: image, descriptor: descriptor)
     }
     pickerResult = completion
     present(sensorItems, known: allIdList, fallback: { nil }, allowGen4Retry: false)

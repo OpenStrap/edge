@@ -83,6 +83,7 @@
 	<key>NSAccessorySetupBluetoothNames</key>
 	<array>
 		<string>WHOOP</string>
+		<string>Helio Strap</string>
 	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>

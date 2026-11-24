@@ -160,6 +160,28 @@ void main() {
       expect(cand([kWhoopGen5.service], 'WHOOP 5A1B'), isNull);
     });
 
+    test('a FEE1 advertisement named Amazfit Helio Strap is the strap, not a Mi Band', () {
+      final named = HrsLink.candidateFromAd(
+        entries: addDeviceScanEntries(),
+        device: BluetoothDevice.fromId('AA:BB:CC:DD:EE:32'),
+        serviceUuids: [Guid(kHelioStrap.service)],
+        advName: 'Amazfit Helio Strap',
+        platformName: '',
+        rssi: -50,
+      );
+      expect(named!.entryId, 'helio_strap');
+      // A nameless FEE1 advertisement still takes the service match.
+      final nameless = HrsLink.candidateFromAd(
+        entries: addDeviceScanEntries(),
+        device: BluetoothDevice.fromId('AA:BB:CC:DD:EE:33'),
+        serviceUuids: [Guid(kHelioStrap.service)],
+        advName: '',
+        platformName: '',
+        rssi: -50,
+      );
+      expect(nameless!.entryId, 'miband234');
+    });
+
     test('a WHOOP advertising 0x180D is a ble_hrs hit flagged alsoBand=gen4', () {
       // WHY: the picker needs both facts: it matched the HR scan AND is a band.
       final c = cand([kHeartRateServiceUuid, kWhoopGen4.service], 'WHOOP 4C01');

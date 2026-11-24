@@ -343,7 +343,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     // nearby tap opens its key screen instead.
     if (sensor.entry.id == kHelioStrap.id) {
       await HrsLink.stopScanIfRunning(this);
-      final r = await _openEntry(sensor.entry, returnOnPair: true);
+      final r =
+          await _openEntry(sensor.entry, returnOnPair: true, selected: cand);
       return r == BandFlowResult.pairedWearable
           ? const PairOutcome.saved()
           : const PairOutcome.failed('');
@@ -373,7 +374,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   /// a scanned band handed over by [AddDeviceFlow] ([remoteId], [modelKnown]
   /// as [AddDeviceIo.openBandFlow]).
   Future<BandFlowResult> _openEntry(BandEntry entry,
-      {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false}) async {
+      {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false,
+      BandCandidate? selected}) async {
     // A handoff from AddDeviceFlow awaits the scan shutdown first; the user may
     // have left meanwhile, and neither branch below may touch a disposed context.
     if (!mounted) return BandFlowResult.closed;
@@ -420,6 +422,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       builder: (_) => PairSensorScreen(
         entry: sensor.entry,
         returnOnPair: returnOnPair,
+        selected: selected,
         onPicked: sensor.pick,
         // The ring can be paired with the key its own app installed — see
         // `pairOuraRingWithKey`. The strap has no keyless path at all, so
