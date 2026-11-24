@@ -882,7 +882,11 @@ Future<String?> Function(BluetoothDevice, String)? miBandTypedKeyPairFor(
 Future<String?> _pairCryptMiBandWithTypedKey(
     BluetoothDevice device, String raw, BandEntry entry) async {
   // Before the first await: a "delete everything" that finishes during the
-  // reads below must still be seen.
+  // reads below must still be seen. A pairing begun DURING a reset would
+  // read the already-raised generation and pass every check once it ends.
+  if (ResetGate.active) {
+    return 'Pairing was interrupted by a reset. Pair the band again.';
+  }
   final resetGen = ResetGate.generation;
   final hex = raw.trim().replaceFirst(RegExp('^0x', caseSensitive: false), '');
   if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(hex)) {
