@@ -740,6 +740,30 @@ void main() {
       expect(z.fold<double>(0, (a, b) => a + b), closeTo(30, 0.05));
     });
 
+    test('a minute-HR hour covers the hour, and a mixed window weights its mean by time', () {
+      const prof = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+      final hour = computeManualSessionStats(
+        hrTs: [for (var i = 0; i < 60; i++) i * 60],
+        hrBpm: List<int>.filled(60, 120),
+        hrCadenceSec: List<int>.filled(60, 60),
+        endSec: 3600,
+        profile: prof,
+        hrMax: 190,
+      );
+      expect(hour.hrSampleCount, 60);
+      expect(hour.coveredSec, 3600, reason: 'complete, not 60 seconds of it');
+      // Ten minutes of 60 bpm minute HR, then a minute of 180 bpm at 1 Hz.
+      final mixed = computeManualSessionStats(
+        hrTs: [for (var i = 0; i < 10; i++) i * 60, for (var i = 0; i < 60; i++) 600 + i],
+        hrBpm: [...List<int>.filled(10, 60), ...List<int>.filled(60, 180)],
+        hrCadenceSec: [...List<int>.filled(10, 60), ...List<int>.filled(60, 1)],
+        endSec: 660,
+        profile: prof,
+        hrMax: 190,
+      );
+      expect(mixed.avgHr, closeTo(71, 1));
+    });
+
     test("the window's end clips the last sample's span", () {
       // A one-minute window read inclusively: samples at 0 and 60.
       final z = zoneMinutesFor([150, 150], 190,

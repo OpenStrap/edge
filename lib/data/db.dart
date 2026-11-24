@@ -16325,7 +16325,13 @@ class LocalDb {
       ];
       stats[id] = <String, num>{
         'n': hr.length,
-        'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
+        // Weighted by each row's cadence when the window mixes a minute-HR
+        // wearable with a 1 Hz strap; all 1 s reads exactly as before.
+        'avg_hr': c.any((v) => v > 1)
+            ? [for (var i = 0; i < hr.length; i++) hr[i] * c[i]]
+                    .fold<int>(0, (a, b) => a + b) /
+                c.fold<int>(0, (a, b) => a + b)
+            : hr.fold<int>(0, (a, b) => a + b) / hr.length,
         'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
         'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
       };

@@ -167,6 +167,11 @@ class ManualSessionStats {
   /// cannot be scored.
   final int hrSampleCount;
 
+  /// Seconds of the window those samples stand for: [hrSampleCount] for a
+  /// 1 Hz stream, a minute a sample for a wearable's minute HR. Completeness
+  /// and trace replacement compare THIS, never the row count.
+  final int coveredSec;
+
   const ManualSessionStats({
     this.avgHr,
     this.maxHr,
@@ -174,6 +179,7 @@ class ManualSessionStats {
     this.calories,
     this.zoneMinutes = const [],
     this.hrSampleCount = 0,
+    this.coveredSec = 0,
   });
 
   /// True when the window had no 1 Hz HR at all — pruned, or band not worn.
@@ -411,7 +417,20 @@ ManualSessionStats computeManualSessionStats({
   // lost contact as zone time.
   final cadence = medianGapSec(hrTs);
 
-  final avg = worn.reduce((a, b) => a + b) / worn.length;
+  // Each sample's seconds when the rows say their source: a window mixing a
+  // wearable's minute HR with a 1 Hz strap would otherwise let the dense rows
+  // dominate the mean.
+  final spans = caps == null
+      ? null
+      : sampleSpansSec(wornTs, capsSec: caps, endSec: endSec);
+  final coveredSec = spans == null
+      ? worn.length
+      : spans.fold<int>(0, (a, b) => a + b);
+  final avg = spans == null
+      ? worn.reduce((a, b) => a + b) / worn.length
+      : [for (var i = 0; i < worn.length; i++) worn[i] * spans[i]]
+              .fold<int>(0, (a, b) => a + b) /
+          coveredSec;
   final perMin = hrPerMinute(wornTs, worn);
 
   final age = profile.ageYears?.toDouble();
@@ -484,6 +503,7 @@ ManualSessionStats computeManualSessionStats({
         capsSec: caps,
         endSec: endSec),
     hrSampleCount: worn.length,
+    coveredSec: coveredSec,
   );
 }
 

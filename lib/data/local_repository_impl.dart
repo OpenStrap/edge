@@ -2637,7 +2637,13 @@ class LocalRepositoryImpl extends LocalRepository {
         w.addAll(_sessionTrace(ts, hr, startTs, endTs,
             row['device_family'] as String?, await _zoneAnchors(),
             caps: _cadencesOf(hrRows)));
-        final avg = hr.reduce((a, b) => a + b) / hr.length;
+        // Weighted the same way the list and the scorer weight it.
+        final c = _cadencesOf(hrRows);
+        final avg = c.any((v) => v > 1)
+            ? [for (var i = 0; i < hr.length; i++) hr[i] * c[i]]
+                    .fold<int>(0, (a, b) => a + b) /
+                c.fold<int>(0, (a, b) => a + b)
+            : hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
           final curve = await _recoveryCurve(endTs);
@@ -2700,13 +2706,14 @@ class LocalRepositoryImpl extends LocalRepository {
     final drift = _hrDriftPct(ts, hr, startTs, endTs);
     if (drift != null) w['hr_drift_pct'] = drift;
     w['trace_samples'] = hr.length;
+    // Seconds covered, not samples: a minute-HR sample covers a minute.
+    final covered = caps == null
+        ? hr.length
+        : sampleSpansSec(ts, capsSec: caps, endSec: endTs)
+            .fold<int>(0, (a, b) => a + b);
+    w['trace_seconds'] = covered;
     final windowSec = endTs - startTs;
     if (windowSec > 0) {
-      // Seconds covered, not samples: a minute-HR sample covers a minute.
-      final covered = caps == null
-          ? hr.length
-          : sampleSpansSec(ts, capsSec: caps, endSec: endTs)
-              .fold<int>(0, (a, b) => a + b);
       w['trace_coverage_pct'] = math.min(
         100,
         (covered / windowSec * 100).round(),
@@ -3383,12 +3390,12 @@ class LocalRepositoryImpl extends LocalRepository {
       // (#127), instead of the raw peak being re-smoothed here and banked raw
       // everywhere else. Nothing to re-wrap.
 
-      // "Complete" = the band has handed over essentially the whole window.
-      // 1 Hz means one sample per second, so sample count vs window seconds is
-      // the coverage ratio; 90% absorbs the usual handful of dropped seconds.
+      // "Complete" = the whole window was handed over: the seconds the samples
+      // stand for (one each at 1 Hz, a minute each for a wearable's minute
+      // HR) against the window; 90% absorbs the usual handful of drops.
       final windowSec = endTs - startTs;
       final complete =
-          windowSec > 0 && stats.hrSampleCount >= (windowSec * 0.9).floor();
+          windowSec > 0 && stats.coveredSec >= (windowSec * 0.9).floor();
 
       final merged = reconcileSessionScore(
         substrateIsComplete: complete,
@@ -3412,9 +3419,19 @@ class LocalRepositoryImpl extends LocalRepository {
       // when coverage IMPROVED. Rewrite only when this pass saw MORE seconds
       // than the stored trace was built from — a later pass with a thinner
       // window (a partial re-drain) must never overwrite a fuller trace.
-      final storedSamples = (row['trace_samples'] as num?)?.toInt();
-      final needsTrace =
-          storedSamples == null || stats.hrSampleCount > storedSamples;
+      // In SECONDS covered, not samples: 60 minute-HR samples are an hour,
+      // 600 dense ones ten minutes. A trace stored before `trace_seconds`
+      // existed was 1 Hz, so its sample count is its seconds.
+      Object? storedTrace;
+      try {
+        final j = row['trace_json'];
+        storedTrace = j is String && j.isNotEmpty ? jsonDecode(j) : null;
+      } catch (_) {}
+      final storedSec = (storedTrace is Map
+              ? (storedTrace['trace_seconds'] as num?)?.toInt()
+              : null) ??
+          (row['trace_samples'] as num?)?.toInt();
+      final needsTrace = storedSec == null || stats.coveredSec > storedSec;
       // `identical`, not `==`: `reconcileSessionScore` returns one of the two
       // vectors it was handed, so identity IS the answer to which side won —
       // the same test its own `changed` flag is built on.
