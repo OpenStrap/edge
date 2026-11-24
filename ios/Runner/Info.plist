@@ -97,6 +97,18 @@
 	<array>
 		<string>WHOOP</string>
 		<string>Helio Strap</string>
+		<string>Mi Smart Band 4</string>
+		<string>Mi Smart Band 5</string>
+		<string>Mi Smart Band 6</string>
+		<string>Amazfit Bip S</string>
+		<string>Amazfit Bip U</string>
+		<string>Amazfit GTS</string>
+		<string>Amazfit GTS 2</string>
+		<string>Amazfit GTR</string>
+		<string>Smart Band 7</string>
+		<string>Amazfit GTR 3</string>
+		<string>Amazfit GTR 3 Pro</string>
+		<string>Amazfit GTS 3</string>
 	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>

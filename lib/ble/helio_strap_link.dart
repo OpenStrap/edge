@@ -97,6 +97,11 @@ Future<String?> _pairZeppOsWithTypedKey(
   final key = Uint8List.fromList(
       [for (var i = 0; i < 32; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
   final tag = '[${entry.id} pair]';
+  final other = otherEntryNamed(entry, device.platformName);
+  if (other != null) {
+    return 'That is a ${other.label}, not a ${entry.label}. Pair it from its '
+        'own entry.';
+  }
 
   // A pairing begun DURING a reset would capture the already-raised
   // generation and pass every check once that reset ends.
