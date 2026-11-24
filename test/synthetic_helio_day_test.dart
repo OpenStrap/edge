@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart' show TimeAnchor;
 import 'package:openstrap_edge/ble/adapters/adapter.dart' show NeutralSample;
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/compute/inputs/garmin_inputs.dart'
+    show sparseHrSubstrate;
 import 'package:openstrap_edge/compute/inputs/canonical.dart';
 import 'package:openstrap_edge/compute/manual_session.dart'
     show computeManualSessionStats;
@@ -165,6 +167,27 @@ void main() {
     expect(cells['steps']!['class'], 'ours');
     expect(cells['steps']!['value'], 8123);
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test("a temperature record on its own second joins that minute's HR row",
+      () async {
+    final t0 = DateTime(2026, 10, 9, 1).millisecondsSinceEpoch ~/ 1000;
+    await LocalDb.commitSyncBatch(const [], const [],
+        deviceId: _id,
+        deviceFamily: 'helio_strap',
+        neutrals: [
+          NeutralSample(anchor: TimeAnchor.measured, tsEpoch: t0, hr: 55),
+          NeutralSample(anchor: TimeAnchor.measured, tsEpoch: t0 + 60, hr: 56),
+          // The temperature round starts 30 s into each minute.
+          NeutralSample(
+              anchor: TimeAnchor.measured, tsEpoch: t0 + 30, skinTempC: 34.1),
+          NeutralSample(
+              anchor: TimeAnchor.measured, tsEpoch: t0 + 90, skinTempC: 34.2),
+        ]);
+    final sub = await sparseHrSubstrate('helio_strap', _id, t0, t0 + 120,
+        withSkinTemp: true);
+    expect(sub.tsSec, [t0, t0 + 60], reason: 'no extra rows: HR cadence kept');
+    expect(sub.skinTemp, [3410, 3420]);
+  });
 
   test('re-deriving with nothing new moves no stored number', () async {
     Future<Map<String, Object?>> snapshot() async => {

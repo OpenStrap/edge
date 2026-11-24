@@ -116,8 +116,31 @@ Future<Substrate> sparseHrSubstrate(
     [deviceId, family, from, to],
   );
   if (rows.isEmpty) return Substrate.empty;
+  // A device that stores temperature as its own records (the Helio's rounds
+  // start on their own seconds) has readings on rows with no HR, which the
+  // query above drops. Each such reading joins the HR row of the same
+  // minute, so it is kept without adding rows that would change the HR
+  // cadence the column is measured at.
+  var withTemp = rows;
+  if (withSkinTemp) {
+    final byMinute = <int, Object?>{
+      for (final r in await db.rawQuery(
+        'SELECT rec_ts, skin_temp_c FROM decoded_onehz '
+        'WHERE device_id = ? AND device_family = ? AND rec_ts >= ? '
+        'AND rec_ts <= ? AND skin_temp_c IS NOT NULL ORDER BY rec_ts',
+        [deviceId, family, from, to],
+      ))
+        (r['rec_ts'] as num).toInt() ~/ 60: r['skin_temp_c'],
+    };
+    withTemp = [
+      for (final r in rows)
+        r['skin_temp_c'] != null
+            ? r
+            : {...r, 'skin_temp_c': byMinute[(r['rec_ts'] as num).toInt() ~/ 60]},
+    ];
+  }
   return constructWearable(
-      () => _sparseHrSubstrate(family, deviceId, rows, withSkinTemp));
+      () => _sparseHrSubstrate(family, deviceId, withTemp, withSkinTemp));
 }
 
 Substrate _sparseHrSubstrate(String family, String deviceId,

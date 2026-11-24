@@ -1942,7 +1942,12 @@ import 'vendor_sleep.dart';
 // own count won names it: `inputs_used` ['wearable_pedometer'] and its own
 // note, where it still named the phone pedometer it outcounted (the Home card
 // read "Phone"). Wearable days only; every other day's envelope unchanged.
-const int kAlgoVersion = 132;
+// 132 → 133 (no analytics change): a wearable that stores skin temperature as
+// its own records (the Helio's temperature rounds start on their own second)
+// had every reading dropped, because the sparse substrate reads only rows
+// with HR. Each reading now joins the HR row of its minute. Wearables whose
+// temperature already rode on the HR rows, and every band day, unchanged.
+const int kAlgoVersion = 133;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -8298,6 +8303,10 @@ class DerivationEngine {
       Map<String, dynamic>? merged;
       for (final e in p.entries) {
         if (!carrySleep && sub == 'scalars' && e.key == 'nap_min') continue;
+        // PE-1's device night RMSSD is a FIRST-half scalar whose absence
+        // means the readings failed the gate tonight: carrying the previous
+        // value back in would bank a refused night into the baseline.
+        if (sub == 'scalars' && e.key == 'ln_rmssd_dev') continue;
         if (n.containsKey(e.key) || e.value == null) continue;
         (merged ??= Map<String, dynamic>.from(n))[e.key] = e.value;
         carried = true;
