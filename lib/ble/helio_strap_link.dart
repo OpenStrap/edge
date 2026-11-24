@@ -85,18 +85,18 @@ Future<String?> pairHelioStrapWithTypedKey(
   // A pairing begun DURING a reset would capture the already-raised
   // generation and pass every check once that reset ends.
   if (ResetGate.active) return kHelioPairResetText;
-  // ADMISSION, under [_pairingLock]: the reset generation and the
-  // forget counter are read with nothing able to move them mid-read, and a
-  // second strap is turned away before any Bluetooth is spent on it. The
-  // handshake below runs OUTSIDE the lock; [persistHelioPairing] takes it
-  // again and re-checks all of this before anything is written, so a reset
-  // or forget in between (or a second pairing that persisted first) is
-  // seen there.
-  late final int resetGen;
-  late final int forgets;
+  // The reset generation and forget counter as this pairing BEGINS, read
+  // before waiting on the lock: a reset or forget queued ahead of it moves
+  // them, and [persistHelioPairing] then refuses. Read after the wait they
+  // would already include that reset or forget and miss it.
+  final resetGen = ResetGate.generation;
+  final forgets = HelioStrapLink.instance._forgets;
+  // ADMISSION, under [_pairingLock]: a second strap is turned away before
+  // any Bluetooth is spent on it. The handshake below runs OUTSIDE the
+  // lock; [persistHelioPairing] takes it again and re-checks everything
+  // before anything is written, so a reset or forget in between (or a
+  // second pairing that persisted first) is seen there.
   final refused = await _pairingLock.run(() async {
-    resetGen = ResetGate.generation;
-    forgets = HelioStrapLink.instance._forgets;
     final priorRow = await HelioStrapLink.pairedHelioStrapRow();
     return _anotherStrap(priorRow, device.remoteId.str);
   });
