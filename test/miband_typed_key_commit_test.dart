@@ -1,11 +1,13 @@
 // The Mi Band typed-key commit against a "delete everything": a reset seen
 // before, during or after the key and row writes leaves neither behind.
 
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/miband_link.dart';
+import 'package:openstrap_edge/ble/pairing_lock.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/sync/reset_gate.dart';
 import 'package:path/path.dart' as p;
@@ -60,10 +62,13 @@ void main() {
     await LocalDb.deleteDevice(_id);
   });
 
-  Future<String?> commit(int gen, {String? prior, Future<void> Function()? upsert}) =>
+  Future<String?> commit(int gen,
+          {String? prior,
+          Future<void> Function()? upsert,
+          bool Function()? forgotten}) =>
       commitMiBandTypedKey(
           resetGen: gen, deviceId: _id, hex: _hex, priorHex: prior,
-          upsert: upsert ?? _row);
+          upsert: upsert ?? _row, forgotten: forgotten);
 
   test('no reset: the key and the row', () async {
     expect(await commit(ResetGate.generation), isNull);
@@ -110,6 +115,38 @@ void main() {
           _reset();
         }),
         contains('may remain'));
+  });
+
+  test('a forget during the row write takes the row and the key back out',
+      () async {
+    var forgot = false;
+    expect(
+        await commit(ResetGate.generation,
+            forgotten: () => forgot,
+            upsert: () async {
+              await _row();
+              forgot = true;
+            }),
+        contains('forgotten'));
+    expect(store.containsKey(_item), isFalse);
+    expect(await _hasRow(), isFalse);
+  });
+
+  test('a forget waits for a pairing that holds the lock', () async {
+    await _row();
+    final release = Completer<void>();
+    final held = pairingLock.run(() => release.future);
+    var forgotten = false;
+    final forget = MiBand234Link.forId('huami_kongming')!
+        .forget(_id)
+        .then((_) => forgotten = true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(forgotten, isFalse);
+    expect(await _hasRow(), isTrue);
+    release.complete();
+    await held;
+    await forget;
+    expect(await _hasRow(), isFalse);
   });
 
   test('a failed row write with no reset puts the old key back', () async {

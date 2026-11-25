@@ -30,6 +30,7 @@ import 'adapters/helio_strap.dart';
 import 'adapters/host.dart' show BandHost;
 import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
+import 'pairing_lock.dart';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -211,19 +212,8 @@ const String kHelioPairResetLeftoverText =
 /// handshake or the secondary-link slot, so it cannot hold up a radio. And
 /// nothing that holds it waits on another lock (each section only reads or
 /// writes the store and the keychain), so it cannot deadlock.
-final _pairingLock = _AsyncMutex();
-
-/// A FIFO async lock: [run]s take turns, in call order.
-class _AsyncMutex {
-  Future<void> _tail = Future<void>.value();
-
-  Future<T> run<T>(Future<T> Function() op) {
-    final previous = _tail;
-    final done = Completer<void>();
-    _tail = done.future;
-    return previous.then((_) => op()).whenComplete(done.complete);
-  }
-}
+// Shared with the Mi Band typed-key pairing and forget (`pairing_lock.dart`).
+final _pairingLock = pairingLock;
 
 /// A strap other than [remoteId] already paired: refuse, never fold the new
 /// strap into its history id. Null when there is none or it is the same one.
