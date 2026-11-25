@@ -278,10 +278,13 @@ dependencies:
       # short bodies, activity record stride/count, protobuf bounds, nap
       # stage edge). Also carries #86's legacy-Huami and scale decoders,
       # unread here.
-      # REPIN: protocol feat/zepp-family @ e4ccba2, #86's head: an activity
-      # round whose announced count doesn't fit 4- or 8-byte records now
-      # decodes to nothing instead of a byte-length guess.
-      ref: e4ccba263dc94d772af122546fc93396243151fd
+      # protocol main @ #86 merge (the huami2021 transport, 8-byte legacy
+      # records, the amazfit scale decoder, and the review fixes on top:
+      # chunk counter wrap, stale first chunk, short bodies, activity record
+      # stride/count, protobuf bounds, nap stage edge, and an activity round
+      # whose announced count doesn't fit 4- or 8-byte records decoding to
+      # nothing instead of a byte-length guess).
+      ref: dc699ce491c5eec4c924fafe8e29c637ea758b5a
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
