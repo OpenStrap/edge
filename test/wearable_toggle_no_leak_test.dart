@@ -28,6 +28,7 @@ const List<String> _families = [
   'miband234',
   'colmi',
   'oura',
+  'helio_strap',
 ];
 
 void main() {

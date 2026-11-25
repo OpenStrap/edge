@@ -198,6 +198,10 @@ class _MoreSettingsState extends State<MoreSettings>
     final clock = c.watch<ClockFormatController>();
     final l = AppLocalizations.of(c);
     return MoreSettingsView(
+      // The band's own features (its alarm, buzz alerts, double-tap, step
+      // calibration) only where a band is paired; a wearable-only install
+      // would open screens that can only say "the band is not connected".
+      hasBand: app.isPaired,
       version: _version,
       devMode: _dev,
       onVersionTap: _tapVersion,
@@ -639,6 +643,10 @@ class MoreSettingsView extends StatelessWidget {
 
   final VoidCallback? onVersionTap, onToggleDev, onGallery;
 
+  /// A band is paired: its own rows show (alarm, zone-alert buzz,
+  /// double-tap, step calibration). Default true (gallery, tests).
+  final bool hasBand;
+
   final VoidCallback? onEditProfile,
       onAlarm,
       onNotifications,
@@ -693,6 +701,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onGallery,
     this.onEditProfile,
     this.onAlarm,
+    this.hasBand = true,
     this.onNotifications,
     this.onData,
     this.onAutomation,
@@ -734,6 +743,7 @@ class MoreSettingsView extends StatelessWidget {
                 // on the Profile screen — because two doors to one form is how
                 // a user ends up unsure which one is the real setting.
                 settingsGroup(c, l?.settingsGroupTheBand ?? 'The band', [
+                  if (hasBand) ...[
                   SetRow(LucideIcons.alarmClock, C.orange,
                       l?.settingsAlarmRowTitle ?? 'Alarm',
                       sub: l?.settingsAlarmRowSub ??
@@ -771,6 +781,7 @@ class MoreSettingsView extends StatelessWidget {
                                   ?.settingsDoubleTapRowSub ??
                               'What a double-tap on the band does',
                           onTap: () => goto(c, const BandGestures()))),
+                  ],
                   if (backgroundExempt != null)
                     SetRow(LucideIcons.batteryCharging, C.green,
                         l?.settingsKeepAliveRowTitle ??
@@ -873,6 +884,7 @@ class MoreSettingsView extends StatelessWidget {
               // 100 Hz pedometer — see step_calibration.dart for why it must be
               // measured rather than assumed, and for what makes it different
               // from the guided calibration app_state.dart records as removed.
+                  if (hasBand)
                   SetRow(
                       LucideIcons.footprints,
                       C.teal,
@@ -1064,8 +1076,15 @@ class _NotificationSettingsState extends State<NotificationSettings>
   /// Whether the strap-buzz relay exists on this platform. Android only —
   /// iOS gives no app access to another app's notifications — and the row is
   /// absent rather than disabled there, so there is nothing to explain.
-  bool get _relaySupported =>
-      defaultTargetPlatform == TargetPlatform.android;
+  bool get _relaySupported {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    // It buzzes the band: no band, no row.
+    try {
+      return context.read<AppState>().isPaired;
+    } catch (_) {
+      return true; // no AppState above (gallery): as before
+    }
+  }
 
   Future<void> _apply(NotificationPrefs next) async {
     setState(() => _prefs = next);

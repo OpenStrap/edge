@@ -26,6 +26,7 @@ import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
 import '../compute/inputs/canonical.dart'
     show deviceFlagOn, withoutWearableEstimates;
+import '../compute/inputs/garmin_inputs.dart' show kHrCadenceSec;
 import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
@@ -2495,8 +2496,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // session, so it must not replace the banked full-window avg/peak.
     final banked = {
       for (final r in rows)
-        if (r['trace_samples'] is num)
-          r['id']: (r['trace_samples'] as num).toInt(),
+        r['id']: ?_bankedSeconds(r),
     };
 
     // Per-session HR aggregates from the 1 Hz substrate (one indexed join).
@@ -2504,7 +2504,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final (:stats, samples: rawBySession) = await LocalDb.sessionHrReads(
+      final (:stats, samples: rawBySession, :caps) = await LocalDb.sessionHrReads(
         fromTs,
         nowSec,
         maxHrCeiling: hrCeilingForAge(age),
@@ -2517,13 +2517,15 @@ class LocalRepositoryImpl extends LocalRepository {
         final s = stats[w['id']];
         final raw = rawBySession[w['id']];
         final b = banked[w['id']];
-        if (b != null && (s?['n'] ?? 0) < b) continue;
+        if (b != null && (s?['covered'] ?? s?['n'] ?? 0) < b) continue;
         if (s != null && (s['n'] ?? 0) != 0) {
           w['avg_hr'] = (s['avg_hr'] as num).round();
         }
         // Peak: smoothed-from-raw (authoritative, matches the detail screen);
         // else stored column, else the ceiling-bounded SQL max.
-        final smax = raw == null ? null : smoothedMaxHr(raw, age: age);
+        // Each source at its own cadence, as the scorer and detail read.
+        final smax =
+            raw == null ? null : cadenceAwareMaxHrAt(raw, caps[w['id']], age: age)?.$1;
         if (smax != null) {
           w['max_hr'] = smax;
         } else if (s != null && (s['n'] ?? 0) != 0) {
@@ -2627,13 +2629,26 @@ class LocalRepositoryImpl extends LocalRepository {
       // has cut into this window and only its tail is left. Redrawing from that
       // would swap the full session for its cooldown, so serve the banked trace
       // until the substrate is at least as complete as it.
-      final banked = (row['trace_samples'] as num?)?.toInt();
-      if (hrRows.isNotEmpty && (banked == null || hrRows.length >= banked)) {
-        final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
-        final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      final banked = _bankedSeconds(row);
+      final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
+      final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      final c = _cadencesOf(hrRows);
+      // The seconds each row stands for, clipped as the scorer clips them.
+      final spans = c.any((v) => v > 1)
+          ? sampleSpansSec(ts, capsSec: c, endSec: endTs)
+          : null;
+      final covered =
+          spans == null ? hrRows.length : spans.fold<int>(0, (a, b) => a + b);
+      if (hrRows.isNotEmpty && (banked == null || covered >= banked)) {
         w.addAll(_sessionTrace(ts, hr, startTs, endTs,
-            row['device_family'] as String?, await _zoneAnchors()));
-        final avg = hr.reduce((a, b) => a + b) / hr.length;
+            row['device_family'] as String?, await _zoneAnchors(),
+            caps: _cadencesOf(hrRows)));
+        // Weighted the same way the scorer and the list weight it.
+        final avg = spans != null
+            ? [for (var i = 0; i < hr.length; i++) hr[i] * spans[i]]
+                    .fold<int>(0, (a, b) => a + b) /
+                covered
+            : hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
           final curve = await _recoveryCurve(endTs);
@@ -2670,8 +2685,9 @@ class LocalRepositoryImpl extends LocalRepository {
     int startTs,
     int endTs,
     String? deviceFamily,
-    _ZoneAnchors anchors,
-  ) {
+    _ZoneAnchors anchors, {
+    List<int>? caps,
+  }) {
     final w = <String, dynamic>{};
     w['hr'] = _minuteHrCurve(ts, hr);
     // Spike-suppressed trough (issue #127): a lone low PPG dropout must not
@@ -2680,20 +2696,32 @@ class LocalRepositoryImpl extends LocalRepository {
     // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
     // do NOT floor against the stored column: the live path may already have
     // written a spiked max there, and math.max() would preserve it.
-    final peakAt = smoothedMaxHrAt(hr, age: _profileAge());
+    // Each source smoothed at its own cadence, as the scorer did.
+    final peakAt = cadenceAwareMaxHrAt(hr, caps, age: _profileAge());
     if (peakAt != null) {
       w['max_hr'] = peakAt.$1;
       w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
     }
-    w['zone_bands'] = _zoneBands(hr, deviceFamily, anchors);
+    // Weighted by the seconds each sample stands for, as the stored split
+    // is: a wearable's minute HR is a minute a sample, not a second.
+    w['zone_bands'] = _zoneBands(hr, deviceFamily, anchors,
+        spans: caps == null
+            ? null
+            : sampleSpansSec(ts, capsSec: caps, endSec: endTs));
     final drift = _hrDriftPct(ts, hr, startTs, endTs);
     if (drift != null) w['hr_drift_pct'] = drift;
     w['trace_samples'] = hr.length;
+    // Seconds covered, not samples: a minute-HR sample covers a minute.
+    final covered = caps == null
+        ? hr.length
+        : sampleSpansSec(ts, capsSec: caps, endSec: endTs)
+            .fold<int>(0, (a, b) => a + b);
+    w['trace_seconds'] = covered;
     final windowSec = endTs - startTs;
     if (windowSec > 0) {
       w['trace_coverage_pct'] = math.min(
         100,
-        (hr.length / windowSec * 100).round(),
+        (covered / windowSec * 100).round(),
       );
     }
     return w;
@@ -2765,17 +2793,20 @@ class LocalRepositoryImpl extends LocalRepository {
   List<Map<String, dynamic>> _zoneBands(
     List<int> hr,
     String? deviceFamily,
-    _ZoneAnchors anchors,
-  ) {
+    _ZoneAnchors anchors, {
+    List<int>? spans,
+  }) {
     final set = _zoneSetFor(deviceFamily, anchors);
     // No age, or a strap with no calibrated ceiling ⇒ no bands.
     if (set == null) return const [];
     final secs = List<int>.filled(5, 0);
-    for (final v in hr) {
-      final z = set.zoneNumber(v.toDouble());
-      if (z >= 1) secs[z - 1]++;
+    for (var i = 0; i < hr.length; i++) {
+      final z = set.zoneNumber(hr[i].toDouble());
+      if (z >= 1) secs[z - 1] += spans?[i] ?? 1;
     }
-    final total = hr.length;
+    final total = spans == null
+        ? hr.length
+        : spans.fold<int>(0, (a, b) => a + b);
     return [
       for (var z = 0; z < 5; z++)
         {
@@ -3158,6 +3189,26 @@ class LocalRepositoryImpl extends LocalRepository {
   /// calories come from the whole-day substrate independently. So there is no
   /// analytics output to invalidate here and no `kAlgoVersion` bump to make;
   /// the next ordinary derive picks up the exclusion on its own.
+  /// Each HR row's own sampling interval, by the source that stored it: a
+  /// wearable's minute (or 5-minute) HR, 1 s for the band and a strap. A
+  /// window can hold both, so one interval for the whole window is wrong.
+  /// The seconds a session's banked trace covered: `trace_seconds` from the
+  /// trace itself, else `trace_samples` (a trace from before that field was
+  /// 1 Hz, so its sample count is its seconds). Null with no trace.
+  static int? _bankedSeconds(Map<String, dynamic> row) {
+    try {
+      final j = row['trace_json'];
+      final t = j is String && j.isNotEmpty ? jsonDecode(j) : null;
+      final sec = t is Map ? t['trace_seconds'] : null;
+      if (sec is num) return sec.toInt();
+    } catch (_) {}
+    return (row['trace_samples'] as num?)?.toInt();
+  }
+
+  static List<int> _cadencesOf(List<Map<String, dynamic>> rows) => [
+        for (final r in rows) kHrCadenceSec[r['source']] ?? 1,
+      ];
+
   Future<Map<String, dynamic>> _writeManualSession({
     required int startTs,
     required int endTs,
@@ -3204,6 +3255,8 @@ class LocalRepositoryImpl extends LocalRepository {
     final stats = computeManualSessionStats(
       hrTs: hrTs,
       hrBpm: hrBpm,
+      hrCadenceSec: _cadencesOf(hrRows),
+      endSec: endTs,
       profile: profile,
       hrMax: _profileMaxHr(deviceFamily)?.toDouble(),
       restingHr: restingHr,
@@ -3340,6 +3393,8 @@ class LocalRepositoryImpl extends LocalRepository {
       final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
+        hrCadenceSec: _cadencesOf(hrRows),
+        endSec: endTs,
         profile: profile,
         hrMax: hrMaxForSession,
         restingHr: restingHrForSession,
@@ -3353,12 +3408,12 @@ class LocalRepositoryImpl extends LocalRepository {
       // (#127), instead of the raw peak being re-smoothed here and banked raw
       // everywhere else. Nothing to re-wrap.
 
-      // "Complete" = the band has handed over essentially the whole window.
-      // 1 Hz means one sample per second, so sample count vs window seconds is
-      // the coverage ratio; 90% absorbs the usual handful of dropped seconds.
+      // "Complete" = the whole window was handed over: the seconds the samples
+      // stand for (one each at 1 Hz, a minute each for a wearable's minute
+      // HR) against the window; 90% absorbs the usual handful of drops.
       final windowSec = endTs - startTs;
       final complete =
-          windowSec > 0 && stats.hrSampleCount >= (windowSec * 0.9).floor();
+          windowSec > 0 && stats.coveredSec >= (windowSec * 0.9).floor();
 
       final merged = reconcileSessionScore(
         substrateIsComplete: complete,
@@ -3382,9 +3437,19 @@ class LocalRepositoryImpl extends LocalRepository {
       // when coverage IMPROVED. Rewrite only when this pass saw MORE seconds
       // than the stored trace was built from — a later pass with a thinner
       // window (a partial re-drain) must never overwrite a fuller trace.
-      final storedSamples = (row['trace_samples'] as num?)?.toInt();
-      final needsTrace =
-          storedSamples == null || stats.hrSampleCount > storedSamples;
+      // In SECONDS covered, not samples: 60 minute-HR samples are an hour,
+      // 600 dense ones ten minutes. A trace stored before `trace_seconds`
+      // existed was 1 Hz, so its sample count is its seconds.
+      Object? storedTrace;
+      try {
+        final j = row['trace_json'];
+        storedTrace = j is String && j.isNotEmpty ? jsonDecode(j) : null;
+      } catch (_) {}
+      final storedSec = (storedTrace is Map
+              ? (storedTrace['trace_seconds'] as num?)?.toInt()
+              : null) ??
+          (row['trace_samples'] as num?)?.toInt();
+      final needsTrace = storedSec == null || stats.coveredSec > storedSec;
       // `identical`, not `==`: `reconcileSessionScore` returns one of the two
       // vectors it was handed, so identity IS the answer to which side won —
       // the same test its own `changed` flag is built on.
@@ -3430,6 +3495,7 @@ class LocalRepositoryImpl extends LocalRepository {
           endTs,
           row['device_family'] as String?,
           await _zoneAnchors(),
+          caps: _cadencesOf(hrRows),
         );
         // The post-end recovery window is outside the session and outside the
         // rows read above, so it costs one more bounded (~205 s) read — only on
@@ -3579,9 +3645,16 @@ class LocalRepositoryImpl extends LocalRepository {
         // next drain — the one carrying the REST of that window — skipped it.
         // The partial score then stood on the list until someone opened the
         // detail screen, which is exactly the case the sweep exists for.
+        // Only a window the BAND fully scored is settled: the frontier is
+        // the band's, so an empty read (nothing arrived yet) or one carrying
+        // a sensor's or a wearable's rows (they arrive on their own syncs,
+        // behind no frontier) is read again next sweep.
+        final rows = after.hrRows;
         if (key != null &&
             endTs! <= frontier &&
-            after.hrRows != null &&
+            rows != null &&
+            rows.isNotEmpty &&
+            rows.every((e) => e['source'] == null) &&
             (r['status']?.toString() ?? '') == 'done') {
           _rescoredSessions.add(key);
         }

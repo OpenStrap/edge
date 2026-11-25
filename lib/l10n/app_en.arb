@@ -1328,6 +1328,18 @@
   "@pairSensorKeyHint": {
     "description": "Hint text in the existing-key field."
   },
+  "pairSensorKeyRequiredTitle": "Device key",
+  "@pairSensorKeyRequiredTitle": {
+    "description": "Key field title for a device that pairs only with a typed key."
+  },
+  "pairSensorKeyRequiredBody": "This device pairs only with the key its own app set up. Paste that one key: 32 hex digits.",
+  "@pairSensorKeyRequiredBody": {
+    "description": "Key field body for a device that pairs only with one typed hex key."
+  },
+  "pairSensorKeyRequiredHint": "32 hex digits",
+  "@pairSensorKeyRequiredHint": {
+    "description": "Key field hint for a device that pairs only with one typed hex key."
+  },
   "pairSensorSearchAnyway": "Search anyway",
   "@pairSensorSearchAnyway": {
     "description": "iOS-gate status card fix."
@@ -2456,7 +2468,7 @@
   "@readinessDetailNoHistoryBody": {
     "description": "Status card body stating 0 days scored."
   },
-  "readinessDetailWearOvernight": "Wear the band overnight",
+  "readinessDetailWearOvernight": "Wear your device overnight",
   "@readinessDetailWearOvernight": {
     "description": "Fix button label suggesting the user wear the band overnight."
   },
@@ -2530,6 +2542,10 @@
   "readinessDetailRelativeUncalibrated": "relative, uncalibrated",
   "@readinessDetailRelativeUncalibrated": {
     "description": "Breakdown row tag on the temperature input: it is a relative, uncalibrated sensor deviation."
+  },
+  "readinessDetailFromDeviceReadings": "from your device's own readings",
+  "@readinessDetailFromDeviceReadings": {
+    "description": "Breakdown row tag on the HRV input when it was the wearable's own RMSSD readings, not beat-derived."
   },
   "readinessDetailWithinSpread": "yes, within your usual range",
   "@readinessDetailWithinSpread": {
@@ -2889,7 +2905,7 @@
   "@driverBreakdownAbsenceAlgoVersion": {
     "description": "Absence card body when the breakdown is missing because the algorithm version changed and is rebuilding."
   },
-  "driverBreakdownAbsenceStale": "Your trends are out of date. Sync the band to update them.",
+  "driverBreakdownAbsenceStale": "Your trends are out of date. Sync your device to update them.",
   "@driverBreakdownAbsenceStale": {
     "description": "Absence card body when the last stored rollup is too old to show."
   },
@@ -2897,7 +2913,7 @@
   "@driverBreakdownAbsenceNoVersion": {
     "description": "Absence card body when the stored rollup has no version stamp."
   },
-  "driverBreakdownSyncTheBand": "Sync the band",
+  "driverBreakdownSyncTheBand": "Sync your device",
   "@driverBreakdownSyncTheBand": {
     "description": "Absence card action button: sync the band to refresh the rollup."
   },
@@ -2997,7 +3013,7 @@
   "@circadianDetailNoNightsBody": {
     "description": "Empty-state body under circadianDetailNoNightsTitle"
   },
-  "circadianDetailNoNightsFix": "Wear the band overnight",
+  "circadianDetailNoNightsFix": "Wear your device overnight",
   "@circadianDetailNoNightsFix": {
     "description": "Empty-state suggested fix action"
   },
@@ -5823,9 +5839,13 @@
   "@metricDetailNoValueInWindow": {
     "description": "Empty-state body for a multi-day window with no value in it."
   },
-  "metricDetailWearBandFix": "Wear the band overnight to start the series",
+  "metricDetailWearBandFix": "Wear your device overnight to start the series",
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
+  },
+  "metricDetailHrvNeedsBeatsFix": "This chart needs beat-to-beat intervals recorded overnight, which only a device that records beats supplies. A chest strap records only during workouts, and many watches, rings and straps report their own HRV instead: it is on their device page",
+  "@metricDetailHrvNeedsBeatsFix": {
+    "description": "Empty HRV chart fix when no band is paired: the chart needs overnight beat intervals (only a device that records beats supplies them); a chest strap records only during workouts, and many wearables report their own HRV instead."
   },
   "metricDetailBreakdownLinkTitle": "Breakdown",
   "@metricDetailBreakdownLinkTitle": {
@@ -7005,7 +7025,7 @@
   "@healthNoBandRecordings": {
     "description": "Vitals empty-state body"
   },
-  "healthSyncTheBand": "Sync the band",
+  "healthSyncTheBand": "Sync your device",
   "@healthSyncTheBand": {
     "description": "Vitals empty-state fix button: sync the band"
   },
@@ -7391,6 +7411,10 @@
   "@homeStepSensorPhone": {
     "description": "Step count sensor label: the phone counted."
   },
+  "homeStepSensorDevice": "Device",
+  "@homeStepSensorDevice": {
+    "description": "Step count sensor label: the paired wearable's own daily count was used."
+  },
   "homeOvernightBuilding": "Last night is still being worked out.",
   "@homeOvernightBuilding": {
     "description": "Home ring gap reason: last night's data is still being derived."
@@ -7613,11 +7637,11 @@
   "@homeInsightsRebuildingAlgoVersion": {
     "description": "Reason the cross-day rollup is being rebuilt: the algorithm version changed."
   },
-  "homeInsightsStaleOverWeek": "Your trends were last updated over a week ago. Sync the band to bring them up to date.",
+  "homeInsightsStaleOverWeek": "Your trends were last updated over a week ago. Sync your device to bring them up to date.",
   "@homeInsightsStaleOverWeek": {
     "description": "Reason the cross-day rollup is being rebuilt: the last rollup is more than a week old."
   },
-  "homeInsightsStaleOnDay": "Your trends were last updated on {day}. Sync the band to bring them up to date.",
+  "homeInsightsStaleOnDay": "Your trends were last updated on {day}. Sync your device to bring them up to date.",
   "@homeInsightsStaleOnDay": {
     "description": "Reason the cross-day rollup is being rebuilt: names the day the last rollup was built.",
     "placeholders": {
@@ -7631,7 +7655,7 @@
   "@homeInsightsNoVersionStamp": {
     "description": "Reason the cross-day rollup is being rebuilt: the stored rollup has no version stamp."
   },
-  "homeSyncBand": "Sync the band",
+  "homeSyncBand": "Sync your device",
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
   },
@@ -7843,7 +7867,7 @@
   "@homeNothingDerivedTitle": {
     "description": "Title shown on a first-run day with nothing derived yet."
   },
-  "homeNothingDerivedBody": "Wear the band tonight and open the app in the morning.",
+  "homeNothingDerivedBody": "Wear your device tonight and open the app in the morning.",
   "@homeNothingDerivedBody": {
     "description": "Body shown on a first-run day with nothing derived yet."
   },
@@ -8838,7 +8862,7 @@
   "@sleepDetailNoNightBody": {
     "description": "Status card body explaining why there is no night."
   },
-  "sleepDetailNoNightFix": "Wear the band overnight and sync in the morning",
+  "sleepDetailNoNightFix": "Wear your device overnight and sync in the morning",
   "@sleepDetailNoNightFix": {
     "description": "Suggested fix line on the no-night status card."
   },
@@ -9967,6 +9991,10 @@
   "@activitySetupNoBandConnected": {
     "description": "Detail text when no band is connected, shown under the heart rate row"
   },
+  "activitySetupNoLiveHr": "No live heart rate",
+  "@activitySetupNoLiveHr": {
+    "description": "Workout setup heart-rate row when no band is paired and no device streams live heart rate."
+  },
   "activitySetupPrivateLabel": "Private session",
   "@activitySetupPrivateLabel": {
     "description": "Label for the private-session toggle on the activity setup screen"
@@ -10138,7 +10166,7 @@
       }
     }
   },
-  "dayStrainWearBandFix": "Wear the band through the day",
+  "dayStrainWearBandFix": "Wear your device through the day",
   "@dayStrainWearBandFix": {
     "description": "Suggested fix action on the no-strain-trace card, shown when the band never saw the day"
   },
@@ -10255,7 +10283,7 @@
   "@activityZonesNoCeilingDefaultBody": {
     "description": "Default explanation of the 15-second hold rule for a measured ceiling, shown when no other reason was given"
   },
-  "activityZonesWearBandFix": "Wear the band for your normal hard sessions",
+  "activityZonesWearBandFix": "Wear your device for your normal hard sessions",
   "@activityZonesWearBandFix": {
     "description": "Suggested fix action on the no-ceiling card"
   },
@@ -13954,7 +13982,7 @@
   "@supplementColeKripkeWakeSpineHRVcd5f37": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
-  "supplementCountedNeverModelledAStepc66896": "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess.",
+  "supplementCountedNeverModelledAStepc66896": "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess. A paired wearable's own daily count is the day's steps when it counted more than these, used whole and never added to them.",
   "@supplementCountedNeverModelledAStepc66896": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -14462,6 +14490,10 @@
   "@supplementTheNightSMeanRaw25e383": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
+  "supplementSkinTempMethodTrend": "The night's mean raw sensor reading, expressed as distance from your own recent nights. The charted trend is that uncalibrated ADC distance, with no conversion to degrees. (A WHOOP 5 reads in real degrees; its nightly deviation is shown on Vitals in your temperature unit instead.)",
+  "@supplementSkinTempMethodTrend": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
   "supplementTheRatioOfLowTo817781": "The ratio of low- to high-frequency power in beat-interval variability, from a Lomb–Scargle periodogram (the series is unevenly sampled, so an FFT would be wrong).",
   "@supplementTheRatioOfLowTo817781": {
     "description": "Presentation-only text for existing interface, exports or notifications."
@@ -14475,6 +14507,7 @@
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
   "supplementTheseRecordingsAreNotStamped66b52f": "These recordings are not stamped with which strap made them, and this number has to be calibrated per strap, so it is withheld rather than guessed.",
+  "supplementNoCalibrationForThisDevice": "This number has to be calibrated per device, and there is no calibration for this one yet, so it is withheld rather than guessed.",
   "@supplementTheseRecordingsAreNotStamped66b52f": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -15208,6 +15241,10 @@
   "wearableMethodStrap": "a strap, every second",
   "wearableMethodStrapBeats": "a strap's beat-to-beat intervals",
   "wearableMethodRhrStrapComposite": "resting heart rate and a strap's beat-to-beat intervals",
+  "wearableMethodDeviceHrvComposite": "resting heart rate and the device's own HRV readings",
+  "wearableMethodDeviceRmssd": "the device's own HRV readings, over our night",
+  "@wearableMethodDeviceHrvComposite": {"description": "How readiness was computed on a night it took the wearable's own RMSSD readings (policy exception PE-1)."},
+  "@wearableMethodDeviceRmssd": {"description": "How HRV was computed: our night's mean of the wearable's own RMSSD readings."},
   "wearableMethodRingBeats": "its own beat-to-beat intervals",
   "wearableUnlocksTitle": "What this wearable unlocks",
   "wearableUnlocksOurs": "Measured by us",
@@ -15970,7 +16007,7 @@
   "@homeFirstWeekTitle": {
     "description": "Today tab: card saying when each score first appears."
   },
-  "homeFirstWeekWear": "Wear the band tonight",
+  "homeFirstWeekWear": "Wear your device tonight",
   "@homeFirstWeekWear": {
     "description": "First weeks card step."
   },

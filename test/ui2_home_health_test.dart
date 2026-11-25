@@ -393,6 +393,40 @@ void main() {
     expect(find.textContaining('Provisional'), findsNothing);
   });
 
+  testWidgets("a PE-1 breakdown's HRV row says it was the device's readings",
+      (tester) async {
+    Future<void> show(bool device) async {
+      await tester.pumpWidget(_frame(
+        ReadinessDetail(
+          key: ValueKey(device),
+          data: ReadinessData(
+            readiness:
+                const Metric(value: 60, confidence: .8, tier: MetricTier.high),
+            breakdown: [
+              {
+                'label': 'hrv',
+                'weight': .4,
+                'used': true,
+                'past_mdc': false,
+                'weighted_contribution': 1.0,
+                if (device) 'source': 'device_rmssd',
+              },
+            ],
+            inputsUsed: 1,
+          ),
+        ),
+        Brightness.light,
+        1,
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    await show(true);
+    expect(find.textContaining("your device's own readings"), findsOneWidget);
+    await show(false);
+    expect(find.textContaining("your device's own readings"), findsNothing);
+  });
+
   // ── MIND-01 / MIND-04 / MT-06 / MT-07 ────────────────────────────────────
   testWidgets(
     'journal findings say nothing when nothing survived, and phrase a dose and '

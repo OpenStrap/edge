@@ -1263,7 +1263,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         StatusCard(
           l?.healthNothingMeasuredDay ?? 'Nothing measured for this day',
           l?.healthNoBandRecordings ?? 'No band recordings reached this day.',
-          fix: syncOf(c) == null ? '' : (l?.healthSyncTheBand ?? 'Sync the band'),
+          fix: syncOf(c) == null ? '' : (l?.healthSyncTheBand ?? 'Sync your device'),
           icon: LucideIcons.watch,
           onFix: syncOf(c),
         )

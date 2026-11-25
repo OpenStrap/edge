@@ -64,6 +64,7 @@ import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
+import '../../sync/background_sync.dart' show syncPairedSensors;
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/alarm.dart'
@@ -128,13 +129,14 @@ UnitsController? unitsOf(BuildContext c) {
   return i < 0 ? (s, '') : (s.substring(0, i), s.substring(i + 1));
 }
 
-/// The band-sync trigger, or null when there is no AppState above us. Every
+/// The sync trigger, or null when there is no AppState above us. Every
 /// "Sync the band" CTA in this folder goes through here — a call to action
-/// with no action behind it is worse than no call to action.
+/// with no action behind it is worse than no call to action. With no band
+/// paired it syncs the paired wearables instead ([syncPairedSensors]).
 VoidCallback? syncOf(BuildContext c) {
   try {
     final app = c.read<AppState>();
-    return app.syncNow;
+    return app.isPaired ? app.syncNow : () => unawaited(syncPairedSensors());
   } catch (_) {
     return null;
   }
@@ -147,7 +149,8 @@ VoidCallback? syncOf(BuildContext c) {
 /// nothing on Home pointed at pairing.
 Widget? noBandCard(BuildContext c, AppLocalizations? l) {
   try {
-    if (c.read<AppState>().isPaired) return null;
+    // Any source, not only the band: a wearable-only install measures.
+    if (c.read<AppState>().hasSource) return null;
   } catch (_) {
     return null;
   }
@@ -362,6 +365,9 @@ String? stepSensorLabel(Metric m, [AppLocalizations? l]) {
   final strap = used.contains('band_pedometer_100hz') ||
       used.contains('band_step_counter');
   final phone = used.contains('phone_pedometer');
+  if (used.contains('wearable_pedometer')) {
+    return l?.homeStepSensorDevice ?? 'Device';
+  }
   if (strap && phone) return l?.homeStepSensorStrapPhone ?? 'Strap + phone';
   if (strap) return l?.homeStepSensorStrap ?? 'Strap';
   if (phone) return l?.homeStepSensorPhone ?? 'Phone';
@@ -629,12 +635,12 @@ StatusCard? staleInsightsCard(
           'Updating after the latest app update.',
       'stale' => built == null || built.isEmpty
           ? (l?.homeInsightsStaleOverWeek ??
-              'Your trends were last updated over a week ago. Sync the band to bring them up to date.')
+              'Your trends were last updated over a week ago. Sync your device to bring them up to date.')
           : (l?.homeInsightsStaleOnDay(prettyDay(built, l)) ??
-              'Your trends were last updated on ${prettyDay(built, l)}. Sync the band to bring them up to date.'),
+              'Your trends were last updated on ${prettyDay(built, l)}. Sync your device to bring them up to date.'),
       _ => l?.homeInsightsNoVersionStamp ?? 'Your trends are being updated. This takes a minute after a sync.',
     },
-    fix: onSync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+    fix: onSync == null ? '' : (l?.homeSyncBand ?? 'Sync your device'),
     icon: LucideIcons.refreshCw,
     onFix: onSync,
   );
@@ -2350,10 +2356,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           ? (l?.homeNothingDerivedTitle ?? 'No nights scored yet')
           : (l?.homeNothingTodayTitle ?? 'Nothing recorded for today'),
       d.heldOverNight == null
-          ? (l?.homeNothingDerivedBody ?? 'Wear the band tonight and open the app in the morning.')
+          ? (l?.homeNothingDerivedBody ?? 'Wear your device tonight and open the app in the morning.')
           : (l?.homeNothingTodayBody(prettyDay(d.heldOverNight, l)) ??
               'Last scored night: ${prettyDay(d.heldOverNight, l)}.'),
-      fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+      fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync your device'),
       icon: LucideIcons.watch,
       onFix: sync == null ? null : () => _tapSync(sync),
     );
@@ -2423,8 +2429,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             final sync = syncOf(c);
             return StatusCard(
               l?.homeNothingDerivedTitle ?? 'No nights scored yet',
-              l?.homeNothingDerivedBody ?? 'Wear the band tonight and open the app in the morning.',
-              fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
+              l?.homeNothingDerivedBody ?? 'Wear your device tonight and open the app in the morning.',
+              fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync your device'),
               icon: LucideIcons.watch,
               onFix: sync == null ? null : () => _tapSync(sync),
             );
@@ -2781,12 +2787,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // No AppState above us (goldens): nothing to sync.
     }
     final isToday = _day == null || _day == todayLabel();
-    if (app != null && app.isPaired && isToday && widget.data == null) {
+    if (app != null && app.hasSource && isToday && widget.data == null) {
       _tapSync(() {});
       // ponytail: the spinner lets go after 90 s; a long backlog keeps going
       // in the background and the syncing card stays up until it ends.
       try {
-        await app.syncNow().timeout(const Duration(seconds: 90));
+        await (app.isPaired ? app.syncNow() : syncPairedSensors())
+            .timeout(const Duration(seconds: 90));
       } catch (_) {
         // A timeout or a failed sync still re-reads what did land.
       }
@@ -3154,7 +3161,7 @@ Widget firstWeekCard(BuildContext c,
       Text(l?.homeFirstWeekTitle ?? 'Your first weeks',
           style: F.head.copyWith(color: p.ink)),
       const SizedBox(height: S.x2),
-      step(days > 0, l?.homeFirstWeekWear ?? 'Wear the band tonight'),
+      step(days > 0, l?.homeFirstWeekWear ?? 'Wear your device tonight'),
       step(days > 0,
           l?.homeFirstWeekSleep ?? 'Sleep: the morning after your first night'),
       step(strainScored,

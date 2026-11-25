@@ -15,6 +15,7 @@ import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/colmi.dart';
 import 'package:openstrap_edge/ble/adapters/coros.dart';
 import 'package:openstrap_edge/ble/adapters/garmin.dart';
+import 'package:openstrap_edge/ble/adapters/helio_strap.dart';
 import 'package:openstrap_edge/ble/adapters/miband234.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/pebble.dart';
@@ -41,6 +42,7 @@ void main() {
       'miband234': MiBand234Adapter(key: const [0]).signals,
       'pebble': kPebbleAdapter.signals,
       'colmi': kColmiAdapter.signals,
+      'helio_strap': kHelioStrapAdapter.signals,
       'thermometer': ThermometerAdapter().signals,
       'miscale_bc': MiScaleAdapter(kMiScaleComposition).signals,
       'miscale2': MiScaleAdapter(kMiScale2).signals,

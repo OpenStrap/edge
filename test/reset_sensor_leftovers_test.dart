@@ -9,6 +9,9 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/adapters/helio_strap.dart'
+    show kHelioStrapSecureStorageKey;
+import 'package:openstrap_edge/ble/helio_strap_link.dart';
 import 'package:openstrap_edge/ble/miband_link.dart';
 import 'package:openstrap_edge/ble/oura_link.dart';
 import 'package:openstrap_edge/ble/session_link.dart';
@@ -118,12 +121,26 @@ void main() {
       expect(store.keys, ['unrelated']);
     });
 
+    test("the helio strap's one fixed key is dropped too", () async {
+      final store = <String, String>{
+        kHelioStrapSecureStorageKey: 'ee',
+        'unrelated': 'dd',
+      };
+      FlutterSecureStorage.setMockInitialValues(store);
+      expect(await HelioStrapLink.dropStoredKey(), isTrue);
+      expect(store.keys, ['unrelated']);
+    });
+
     test('a delete that throws is reported, not swallowed', () async {
       FlutterSecureStorage.setMockInitialValues(
         _UndeletableMap({'oura_pairing_key:known': 'aa'}),
       );
       expect(await OuraLink.dropStoredKeys(['known']), isFalse);
       expect(await MiBand234Link.dropStoredKeys(['known']), isFalse);
+      FlutterSecureStorage.setMockInitialValues(
+        _UndeletableMap({kHelioStrapSecureStorageKey: 'ee'}),
+      );
+      expect(await HelioStrapLink.dropStoredKey(), isFalse);
     });
 
     test('settings tells the user when a key may remain', () {

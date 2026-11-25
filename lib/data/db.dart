@@ -53,6 +53,8 @@ import 'backup_extras.dart';
 import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
+import '../compute/inputs/garmin_inputs.dart' show kHrCadenceSec;
+import '../compute/manual_session.dart' show sampleSpansSec;
 import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
@@ -82,6 +84,10 @@ typedef DbRebuild = ({
 typedef SessionHrReads = ({
   Map<String, Map<String, num>> stats,
   Map<String, List<int>> samples,
+  // Parallel to [samples]: the seconds each sample stands for, by its source
+  // (a wearable's minute HR vs a 1 Hz strap). Absent for a session whose
+  // samples are all 1 Hz.
+  Map<String, List<int>> caps,
 });
 
 // ── SUBSTRATE ADMISSION — the one predicate that decides what may become a
@@ -160,8 +166,9 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
 
 /// The rows a read INSIDE one session window keeps, out of [rows]: every row
 /// of the window (`source`, `rec_ts`, `hr`), in any order. With no flagged-on
-/// workout sensor ([LocalDb.sessionSensorSources]) in the window, exactly the
-/// [derivableSourceSql] rows. With one, the session override as the derive
+/// workout sensor ([LocalDb.sessionSensorSources]) in the window, the
+/// [derivableSourceSql] rows, or (no band row either) the active wearable's
+/// ([LocalDb.sessionWearableSource]). With one, the session override as the derive
 /// lays it over a wearable's day (`withStrapSessions`): the sensor that
 /// recorded most of the window (one, never two blended) from its first worn
 /// row to its last, and outside that span the active wearable's rows
@@ -180,12 +187,26 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
 /// owner decides whether a strap may fill a band gap.
 List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) =>
     _sessionWindowRowsFor(rows, sensors: LocalDb.sessionSensorSources,
-        wearable: LocalDb.sessionWearableSource);
+        wearable: LocalDb.sessionWearableSource,
+        wearableId: LocalDb.sessionWearableDeviceId);
 
 // Workers receive the flags explicitly; isolate-local statics start empty.
 List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
-    List<T> rows, {required Set<String> sensors, required String? wearable}) {
+    List<T> rows,
+    {required Set<String> sensors,
+    required String? wearable,
+    String? wearableId}) {
   bool derivable(Object? s) => s == null || kDerivableSources.contains(s);
+  // The ACTIVE wearable's rows, by device: a forgotten device of the same
+  // adapter keeps its rows (`deleteDevice` leaves measurements), and its
+  // family alone would blend them in. A read that carries no device id
+  // (older callers) matches on the family as before.
+  bool isWearable(T r) =>
+      wearable != null &&
+      r['source'] == wearable &&
+      (wearableId == null ||
+          r['device_id'] == null ||
+          r['device_id'] == wearableId);
   List<T> plain() => [
         for (final r in rows)
           if (derivable(r['source'])) r,
@@ -199,7 +220,15 @@ List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
       n[s] = (n[s] ?? 0) + 1;
     }
   }
-  if (n.isEmpty) return plain();
+  // No band row and no workout sensor in the window: the active wearable's
+  // own rows score it, as they score the day it sits in (the wearable's
+  // substrate). Before this a wearable-only session read nothing at all.
+  if (n.isEmpty) {
+    return [
+      for (final r in rows)
+        if (derivable(r['source']) || isWearable(r)) r,
+    ];
+  }
   final owner = n.entries
       .reduce((a, b) => b.value > a.value ||
               (b.value == a.value && '${b.key}'.compareTo('${a.key}') < 0)
@@ -216,8 +245,7 @@ List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
   return [
     for (final r in rows)
       if (r['source'] == owner ||
-          ((derivable(r['source']) ||
-                  (wearable != null && r['source'] == wearable)) &&
+          ((derivable(r['source']) || isWearable(r)) &&
               ((r['rec_ts'] as num) < lo! || (r['rec_ts'] as num) > hi!)))
         r,
   ];
@@ -254,6 +282,10 @@ class LocalDb {
   /// [sessionSensorSources]: its rows fill a session window around the
   /// strap's span ([sessionWindowRows]). Null with none.
   static String? sessionWearableSource;
+
+  /// The active wearable's DEVICE id beside its adapter
+  /// ([sessionWearableSource]): a session reads that device's rows only.
+  static String? sessionWearableDeviceId;
 
   static Future<Database> get instance async {
     final db = _db;
@@ -1938,6 +1970,13 @@ class LocalDb {
       // See Sample.bandSleepState for the evidence that it varies and means
       // what it says.
       'band_sleep_state': 'INTEGER',
+      // A wearable's OWN RMSSD (ms) and breathing-rate (breaths/min)
+      // readings, as raw timestamped samples ([NeutralSample.deviceRmssdMs]).
+      // Policy exception PE-1: read ONLY by device_night_samples.dart, for an
+      // admitted family. Nullable, no default: a row without one did not
+      // report it.
+      'dev_rmssd_ms': 'REAL',
+      'dev_resp_brpm': 'REAL',
     };
     final have = await _columnsOf(db, 'decoded_onehz');
     if (have.isEmpty) return; // table not created yet — the DDL carries them
@@ -3763,6 +3802,23 @@ class LocalDb {
   ///
   /// Ordered by `attribution, name` so the same day renders in the same order
   /// on every build.
+  /// [deviceId]'s own step count for [date] (`observation` key 'steps'), or
+  /// null. The one observation a derive reads: a wearable's pedometer total,
+  /// served as the day's steps by owner decision 2026-11-22
+  /// (ADDING_A_DEVICE.md §4.2). Never a baseline input.
+  static Future<int?> deviceDaySteps(String deviceId, String date) async {
+    final rows = await (await instance).query(
+      'observation',
+      columns: ['value'],
+      where: "device_id = ? AND date = ? AND key = 'steps' AND value > 0",
+      whereArgs: [deviceId, date],
+      orderBy: 'ts_ms DESC',
+      limit: 1,
+    );
+    final v = rows.isEmpty ? null : rows.first['value'];
+    return v is num ? v.round() : null;
+  }
+
   static Future<List<Map<String, Object?>>> observationsForDay(
     String date,
   ) async {
@@ -7843,9 +7899,15 @@ class LocalDb {
   /// [_queueDecodedOneHz]. The union of `hrs_link._flush` and
   /// `oura_link._commit`'s bodies, not new logic — see M1 spec §9.3.
   ///
-  /// REPLACE, not IGNORE, for the same reason [_queueDecodedOneHz] uses it: a
-  /// re-read of the same range is idempotent by design on a fetch-by-cursor
-  /// band.
+  /// Newest wins, PER FIELD: a sample carries only what it measured (null =
+  /// "this sample has no heart rate", not "the second had none"), so two
+  /// samples for the same second (a strap's HR record and its temperature
+  /// record, both stamped on the same minute) MERGE instead of the later one
+  /// replacing the row and nulling the earlier one's column. A field the new
+  /// sample does carry overwrites, so a re-read of the same range is still
+  /// idempotent and a fresh value still beats a stale one. INSERT OR IGNORE +
+  /// UPDATE COALESCE rather than an upsert: `ON CONFLICT DO UPDATE` needs
+  /// SQLite 3.24 and Android 8 ships 3.18.
   ///
   /// `beat_ts_ms` is [NeutralSample.beatTsMs] when the host timed the beats
   /// (an arrival-stamped strap, off its own beat chain), NULL otherwise.
@@ -7874,12 +7936,26 @@ class LocalDb {
         // follows for hr/accel/optical.
         'hr': n.hr,
         'skin_temp_c': n.skinTempC,
+        'dev_rmssd_ms': n.deviceRmssdMs,
+        'dev_resp_brpm': n.deviceRespBrpm,
         'device_family': deviceFamily,
         'source': deviceFamily,
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
-    var ops = 1;
+    batch.rawUpdate(
+      'UPDATE decoded_onehz SET hr = COALESCE(?, hr), '
+      'skin_temp_c = COALESCE(?, skin_temp_c), '
+      'dev_rmssd_ms = COALESCE(?, dev_rmssd_ms), '
+      'dev_resp_brpm = COALESCE(?, dev_resp_brpm), rec_ts = ?, counter = 0, '
+      'device_family = ?, source = ? WHERE device_id = ? AND ts_ms = ?',
+      [n.hr, n.skinTempC, n.deviceRmssdMs, n.deviceRespBrpm, recTs,
+          deviceFamily, deviceFamily, deviceId, recTs * 1000],
+    );
+    var ops = 2;
+    // A sample with no heart side (a temperature record) leaves the second's
+    // beats alone: they belong to the HR sample it merged with.
+    if (n.hr == null && n.rrMs.isEmpty) return ops;
     // SCOPED TO THE WRITING DEVICE. Clear the second before reinserting so a
     // shrinking beat count can't strand stale high-index beats — same
     // reasoning as _queueRrBeats, and it must run even when this sample
@@ -10038,6 +10114,7 @@ class LocalDb {
     double? rmssd,
     double? readiness,
     Map<String, double?> series = const {},
+    Set<String> clearIfAbsent = const {},
     // WHO produced these scalars — 'band' for a day this app derived from 1 Hz
     // records, a vendor tag for an importer. NULL is the default and means
     // UNKNOWN; it is never filled in with a guess, because the whole point of
@@ -10107,6 +10184,21 @@ class LocalDb {
       // baseline reads via metric_series. The next successful (non-partial)
       // pass writes the real value once it lands.
       if (!partial) {
+        // [clearIfAbsent]: keys this write OWNS, so absence means "no
+        // longer". PE-1's device night RMSSD exists only on a day an admitted
+        // device's readings produced it; a re-derive that no longer does (the
+        // day now belongs to another wearable, or its readings stopped
+        // passing the gate) takes the old row and its method label with it,
+        // or that device's baseline keeps reading a night it no longer owns.
+        // Only the full derive passes it: a backfill writing one key must not
+        // clear the rest.
+        for (final key in clearIfAbsent) {
+          if (reviewedSeries.containsKey(key)) continue;
+          await txn.delete('metric_series',
+              where: 'date = ? AND key = ?', whereArgs: [dayId, key]);
+          await txn.delete('metric_method',
+              where: 'date = ? AND key = ?', whereArgs: [dayId, key]);
+        }
         for (final e in reviewedSeries.entries) {
           await txn.insert('metric_series', {
             'date': dayId,
@@ -10736,6 +10828,17 @@ class LocalDb {
           'FROM decoded_onehz WHERE rec_ts BETWEEN ? AND ?',
       [fromSec, toSec],
     );
+    // The neutral path updates a second IN PLACE (per-field merge), which
+    // can keep the count, the rowids and every column total ([60,180] ->
+    // [120,120]); the triggers' per-bucket revision counters cannot.
+    if (await has('input_rev')) {
+      await add(
+        'input_rev',
+        'SELECT bucket, rev FROM input_rev WHERE bucket BETWEEN ? AND ? '
+            'ORDER BY bucket',
+        [fromSec ~/ 900, toSec ~/ 900],
+      );
+    }
     await add(
       'rr',
       'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), TOTAL(rr_ms), '
@@ -10853,6 +10956,14 @@ class LocalDb {
             '${legacyArchive ? ' UNION ALL SELECT captured_at, LENGTH(hex) '
                 'FROM $_rawArchiveLegacy WHERE device_id = ?' : ''})',
         [wearableDeviceId, if (legacyArchive) wearableDeviceId],
+      );
+      // Its own daily step count is the day's steps when it counted more
+      // ([deviceDaySteps]), and a sync can bring a new count with no new HR.
+      await add(
+        'wearable_steps',
+        "SELECT ts_ms, value FROM observation WHERE device_id = ? "
+            "AND date = ? AND key = 'steps' ORDER BY ts_ms",
+        [wearableDeviceId, dayId],
       );
     }
     await add(
@@ -11545,6 +11656,13 @@ class LocalDb {
           whereArgs: [dayId],
         );
         await copyRows('metric_method', where: 'date = ?', whereArgs: [dayId]);
+        // A wearable's own daily step count is a derive input
+        // ([deviceDaySteps]); without it the exported day re-derives with
+        // a different total. Only that row, not the rest of the device's
+        // observations.
+        await copyRows('observation',
+            where: "date = ? AND key = 'steps' AND device_id IS NOT NULL",
+            whereArgs: [dayId]);
         await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('journal_metric', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);
@@ -11689,6 +11807,13 @@ class LocalDb {
           'band_battery',
           where: 'ts >= ? AND ts < ?',
           whereArgs: [startSec, endSec],
+        );
+        // A wearable's own daily step count is a derive input now
+        // ([deviceDaySteps]): deleting the day deletes it.
+        deleted += await txn.delete(
+          'observation',
+          where: "date = ? AND key = 'steps' AND device_id IS NOT NULL",
+          whereArgs: [dayId],
         );
         // CASCADE the GPS route and the typed sets BEFORE their session row
         // disappears — otherwise the join key is gone and every lat/lng point
@@ -16113,7 +16238,7 @@ class LocalDb {
     int toTs,
   ) async {
     final db = await instance;
-    if (sessionSensorSources.isEmpty) {
+    if (sessionSensorSources.isEmpty && sessionWearableSource == null) {
       return db.query(
         'decoded_onehz',
         columns: ['rec_ts', 'hr'],
@@ -16125,7 +16250,7 @@ class LocalDb {
     }
     final rows = await db.query(
       'decoded_onehz',
-      columns: ['rec_ts', 'hr', 'source'],
+      columns: ['rec_ts', 'hr', 'source', 'device_id'],
       where: 'rec_ts >= ? AND rec_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC',
@@ -16153,9 +16278,12 @@ class LocalDb {
   /// window once and construct its stats and samples together in a worker.
   static Future<SessionHrReads> sessionHrReads(int from, int to,
       {int maxHrCeiling = 0, int minHrFloor = 0}) async {
-    if (sessionSensorSources.isEmpty) {
+    // The band-only SQL joins, unless a sensor or the active wearable may
+    // own a window ([sessionWindowRows]).
+    if (sessionSensorSources.isEmpty && sessionWearableSource == null) {
       return (stats: await _sessionHrStatsSql(from, to, maxHrCeiling, minHrFloor),
-          samples: await _sessionHrSamplesSql(from, to));
+          samples: await _sessionHrSamplesSql(from, to),
+          caps: const <String, List<int>>{});
     }
     return _sessionWindows(from, to, maxHrCeiling, minHrFloor);
   }
@@ -16172,7 +16300,9 @@ class LocalDb {
   ) async {
     final db = await instance;
     final rows = await db.rawQuery(
-      'SELECT s.id AS id, d.source AS source, d.rec_ts AS rec_ts, d.hr AS hr '
+      'SELECT s.id AS id, d.source AS source, d.device_id AS device_id, '
+      'd.rec_ts AS rec_ts, d.hr AS hr, '
+      'COALESCE(s.end_ts, s.start_ts) AS end_ts '
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
       '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) '
@@ -16182,8 +16312,10 @@ class LocalDb {
     );
     final sensors = {...sessionSensorSources};
     final wearable = sessionWearableSource;
+    final wearableId = sessionWearableDeviceId;
     (SessionHrReads, String) construct() => _prepareSessionWindows(
-        rows, sensors, wearable, maxHrCeiling, minHrFloor);
+        rows, sensors, wearable, maxHrCeiling, minHrFloor,
+        wearableId: wearableId);
     final result = debugDisableSessionWindowsWorker
         ? construct()
         : await runCancellableIsolate(construct, const Duration(seconds: 30),
@@ -16194,7 +16326,7 @@ class LocalDb {
 
   static (SessionHrReads, String) _prepareSessionWindows(
       List<Map<String, Object?>> rows, Set<String> sensors, String? wearable,
-      int maxHrCeiling, int minHrFloor) {
+      int maxHrCeiling, int minHrFloor, {String? wearableId}) {
     final by = <String, List<Map<String, Object?>>>{};
     for (final r in rows) {
       final id = r['id'] as String?;
@@ -16202,14 +16334,27 @@ class LocalDb {
     }
     final stats = <String, Map<String, num>>{};
     final samples = <String, List<int>>{};
+    final caps = <String, List<int>>{};
     for (final MapEntry(key: id, value: rs) in by.entries) {
-      final hr = [
+      final kept = [
         for (final r in _sessionWindowRowsFor(rs,
-            sensors: sensors, wearable: wearable))
-          if (((r['hr'] as num?) ?? 0) > 0) (r['hr'] as num).toInt(),
+            sensors: sensors, wearable: wearable, wearableId: wearableId))
+          if (((r['hr'] as num?) ?? 0) > 0) r,
       ];
+      final hr = [for (final r in kept) (r['hr'] as num).toInt()];
       if (hr.isEmpty) continue;
       samples[id] = hr;
+      final c = [for (final r in kept) kHrCadenceSec[r['source']] ?? 1];
+      if (c.any((v) => v > 1)) caps[id] = c;
+      // The seconds each row stands for: its cadence, clipped at the next
+      // kept row (a strap taking over mid-minute) and the session's end.
+      final spans = c.any((v) => v > 1)
+          ? sampleSpansSec([for (final r in kept) (r['rec_ts'] as num).toInt()],
+              capsSec: c, endSec: (rs.first['end_ts'] as num?)?.toInt())
+          : null;
+      final covered = spans == null
+          ? hr.length
+          : spans.fold<int>(0, (a, b) => a + b);
       final low = [
         for (final h in hr)
           if (minHrFloor <= 0 || h >= minHrFloor) h,
@@ -16220,12 +16365,20 @@ class LocalDb {
       ];
       stats[id] = <String, num>{
         'n': hr.length,
-        'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
+        // Weighted by each row's cadence when the window mixes a minute-HR
+        // wearable with a 1 Hz strap; all 1 s reads exactly as before.
+        'avg_hr': spans != null
+            ? [for (var i = 0; i < hr.length; i++) hr[i] * spans[i]]
+                    .fold<int>(0, (a, b) => a + b) /
+                covered
+            : hr.fold<int>(0, (a, b) => a + b) / hr.length,
+        // Seconds covered, for the read-side guard against a banked trace.
+        'covered': covered,
         'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
         'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
       };
     }
-    return ((stats: stats, samples: samples),
+    return ((stats: stats, samples: samples, caps: caps),
         Isolate.current.debugName ?? 'unnamed');
   }
 
@@ -16245,7 +16398,7 @@ class LocalDb {
     int maxHrCeiling = 0,
     int minHrFloor = 0,
   }) async {
-    if (sessionSensorSources.isNotEmpty) {
+    if (sessionSensorSources.isNotEmpty || sessionWearableSource != null) {
       return (await sessionHrReads(fromTs, toTs,
           maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor)).stats;
     }
@@ -16294,7 +16447,7 @@ class LocalDb {
     int fromTs,
     int toTs,
   ) async {
-    if (sessionSensorSources.isNotEmpty) {
+    if (sessionSensorSources.isNotEmpty || sessionWearableSource != null) {
       return (await sessionHrReads(fromTs, toTs)).samples;
     }
     return _sessionHrSamplesSql(fromTs, toTs);

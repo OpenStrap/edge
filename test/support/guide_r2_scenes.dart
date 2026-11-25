@@ -1,4 +1,5 @@
 // Real shell + real page fixtures for the cross-cutting r2 guard. The scene table is independent of the guide definitions; coverage is checked exactly.
+import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart'; import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart'; import 'package:openstrap_edge/state/alarm_schedule.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart'; import 'package:openstrap_edge/ui2/activity/day_strain.dart';
@@ -41,7 +42,9 @@ class R2Mounted { final LiveGuideApp app; final GuideRun run; final OverlayEntry
 Future<R2Mounted> pumpR2Scene(WidgetTester t, R2Scene scene, {Size size = r2Size, Brightness brightness = Brightness.light,
   bool singlePending = true, GuideFakeRepo? repo, GlobalKey? captureKey, double devicePixelRatio = 1}) async {
   final guide = r2Guide(scene.guide); repo ??= GuideFakeRepo(sleepSource: scene.manual ? 'manual' : 'auto', singlePending: singlePending);
-  final app = await pumpLiveGuideApp(t, size: size, repo: repo, brightness: brightness, captureKey: captureKey, devicePixelRatio: devicePixelRatio); if (scene.shell) {
+  // The alarm buzzes the band, so its door only shows with one paired.
+  final app = await pumpLiveGuideApp(t, size: size, repo: repo, brightness: brightness, captureKey: captureKey, devicePixelRatio: devicePixelRatio,
+      paired: scene.guide == 'alarm-schedule' ? PairedDevice('guide', 'guide-band', generation: 'gen4') : null); if (scene.shell) {
     // Use the shipped runner here: tab-navigation signals may be owned by GuideRunner. A separately inserted run would bypass that real seam.
     final started = await app.runner.start(guide, band: null); expect(started, isA<GuideStarted>());
     final run = (started as GuideStarted).run;

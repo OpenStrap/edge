@@ -1067,6 +1067,9 @@
     "description": "Explainer under the existing-key section title."
   },
   "pairSensorKeyHint": "เลขฐานสิบหก 32 หลัก หรือ base64 — บรรทัดละหนึ่งคีย์",
+  "pairSensorKeyRequiredTitle": "คีย์ของอุปกรณ์",
+  "pairSensorKeyRequiredBody": "อุปกรณ์นี้จับคู่ได้เฉพาะกับคีย์ที่แอปของอุปกรณ์ตั้งไว้เท่านั้น วางคีย์นั้นหนึ่งคีย์: เลขฐานสิบหก 32 หลัก",
+  "pairSensorKeyRequiredHint": "เลขฐานสิบหก 32 หลัก",
   "@pairSensorKeyHint": {
     "description": "Hint text in the existing-key field."
   },
@@ -2192,7 +2195,7 @@
   "@readinessDetailNoHistoryBody": {
     "description": "Status card body stating 0 days scored."
   },
-  "readinessDetailWearOvernight": "สวมสายรัดขณะนอน",
+  "readinessDetailWearOvernight": "สวมอุปกรณ์ขณะนอน",
   "@readinessDetailWearOvernight": {
     "description": "Fix button label suggesting the user wear the band overnight."
   },
@@ -2264,6 +2267,7 @@
     "description": "Breakdown row tag: input was used but its numeric contribution was not reported."
   },
   "readinessDetailRelativeUncalibrated": "ค่าเชิงสัมพัทธ์ ยังไม่ปรับเทียบ",
+  "readinessDetailFromDeviceReadings": "จากค่าที่อุปกรณ์ของคุณวัดเอง",
   "@readinessDetailRelativeUncalibrated": {
     "description": "Breakdown row tag on the temperature input: it is a relative, uncalibrated sensor deviation."
   },
@@ -2625,7 +2629,7 @@
   "@driverBreakdownAbsenceAlgoVersion": {
     "description": "Absence card body when the breakdown is missing because the algorithm version changed and is rebuilding."
   },
-  "driverBreakdownAbsenceStale": "แนวโน้มของคุณยังไม่เป็นปัจจุบัน ซิงค์สายรัดเพื่ออัปเดต",
+  "driverBreakdownAbsenceStale": "แนวโน้มของคุณยังไม่เป็นปัจจุบัน ซิงค์อุปกรณ์เพื่ออัปเดต",
   "@driverBreakdownAbsenceStale": {
     "description": "Absence card body when the last stored rollup is too old to show."
   },
@@ -2633,7 +2637,7 @@
   "@driverBreakdownAbsenceNoVersion": {
     "description": "Absence card body when the stored rollup has no version stamp."
   },
-  "driverBreakdownSyncTheBand": "ซิงค์สายรัด",
+  "driverBreakdownSyncTheBand": "ซิงค์อุปกรณ์",
   "@driverBreakdownSyncTheBand": {
     "description": "Absence card action button: sync the band to refresh the rollup."
   },
@@ -2733,7 +2737,7 @@
   "@circadianDetailNoNightsBody": {
     "description": "Empty-state body under circadianDetailNoNightsTitle"
   },
-  "circadianDetailNoNightsFix": "สวมสายรัดขณะนอน",
+  "circadianDetailNoNightsFix": "สวมอุปกรณ์ขณะนอน",
   "@circadianDetailNoNightsFix": {
     "description": "Empty-state suggested fix action"
   },
@@ -5559,7 +5563,8 @@
   "@metricDetailNoValueInWindow": {
     "description": "Empty-state body for a multi-day window with no value in it."
   },
-  "metricDetailWearBandFix": "สวมสายรัดขณะนอนเพื่อเริ่มมีชุดข้อมูล",
+  "metricDetailWearBandFix": "สวมอุปกรณ์ขณะนอนเพื่อเริ่มมีชุดข้อมูล",
+  "metricDetailHrvNeedsBeatsFix": "กราฟนี้ต้องใช้ช่วงห่างระหว่างการเต้นแต่ละครั้งที่บันทึกขณะนอน ซึ่งได้จากอุปกรณ์ที่บันทึกการเต้นของหัวใจเท่านั้น สายรัดหน้าอกบันทึกเฉพาะระหว่างออกกำลังกาย และนาฬิกา แหวน และสายรัดหลายรุ่นรายงาน HRV ของตัวเองแทน ซึ่งอยู่ในหน้าอุปกรณ์",
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
   },
@@ -6720,7 +6725,7 @@
   "@healthNoBandRecordings": {
     "description": "Vitals empty-state body"
   },
-  "healthSyncTheBand": "ซิงค์สายรัด",
+  "healthSyncTheBand": "ซิงค์อุปกรณ์",
   "@healthSyncTheBand": {
     "description": "Vitals empty-state fix button: sync the band"
   },
@@ -7103,6 +7108,7 @@
     "description": "Step count sensor label: the strap counted."
   },
   "homeStepSensorPhone": "โทรศัพท์",
+  "homeStepSensorDevice": "อุปกรณ์",
   "@homeStepSensorPhone": {
     "description": "Step count sensor label: the phone counted."
   },
@@ -7328,11 +7334,11 @@
   "@homeInsightsRebuildingAlgoVersion": {
     "description": "Reason the cross-day rollup is being rebuilt: the algorithm version changed."
   },
-  "homeInsightsStaleOverWeek": "อัปเดตแนวโน้มล่าสุดเกินหนึ่งสัปดาห์แล้ว ซิงค์สายรัดเพื่ออัปเดต",
+  "homeInsightsStaleOverWeek": "อัปเดตแนวโน้มล่าสุดเกินหนึ่งสัปดาห์แล้ว ซิงค์อุปกรณ์เพื่ออัปเดต",
   "@homeInsightsStaleOverWeek": {
     "description": "Reason the cross-day rollup is being rebuilt: the last rollup is more than a week old."
   },
-  "homeInsightsStaleOnDay": "อัปเดตแนวโน้มล่าสุดเมื่อ {day} ซิงค์สายรัดเพื่ออัปเดต",
+  "homeInsightsStaleOnDay": "อัปเดตแนวโน้มล่าสุดเมื่อ {day} ซิงค์อุปกรณ์เพื่ออัปเดต",
   "@homeInsightsStaleOnDay": {
     "description": "Reason the cross-day rollup is being rebuilt: names the day the last rollup was built.",
     "placeholders": {
@@ -7346,7 +7352,7 @@
   "@homeInsightsNoVersionStamp": {
     "description": "Reason the cross-day rollup is being rebuilt: the stored rollup has no version stamp."
   },
-  "homeSyncBand": "ซิงค์สายรัด",
+  "homeSyncBand": "ซิงค์อุปกรณ์",
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
   },
@@ -7558,7 +7564,7 @@
   "@homeNothingDerivedTitle": {
     "description": "Title shown on a first-run day with nothing derived yet."
   },
-  "homeNothingDerivedBody": "สวมสายรัดคืนนี้ แล้วเปิดแอปตอนเช้า",
+  "homeNothingDerivedBody": "สวมอุปกรณ์คืนนี้ แล้วเปิดแอปตอนเช้า",
   "@homeNothingDerivedBody": {
     "description": "Body shown on a first-run day with nothing derived yet."
   },
@@ -8550,7 +8556,7 @@
   "@sleepDetailNoNightBody": {
     "description": "Status card body explaining why there is no night."
   },
-  "sleepDetailNoNightFix": "สวมสายรัดขณะนอนแล้วซิงค์ตอนเช้า",
+  "sleepDetailNoNightFix": "สวมอุปกรณ์ขณะนอนแล้วซิงค์ตอนเช้า",
   "@sleepDetailNoNightFix": {
     "description": "Suggested fix line on the no-night status card."
   },
@@ -9673,6 +9679,7 @@
     "description": "Detail text when the band is connected, shown under the heart rate row"
   },
   "activitySetupNoBandConnected": "ไม่มีสายรัดเชื่อมต่อ",
+  "activitySetupNoLiveHr": "ไม่มีอัตราการเต้นของหัวใจแบบสด",
   "@activitySetupNoBandConnected": {
     "description": "Detail text when no band is connected, shown under the heart rate row"
   },
@@ -9844,7 +9851,7 @@
       }
     }
   },
-  "dayStrainWearBandFix": "สวมสายรัดตลอดวัน",
+  "dayStrainWearBandFix": "สวมอุปกรณ์ตลอดวัน",
   "@dayStrainWearBandFix": {
     "description": "Suggested fix action on the no-strain-trace card, shown when the band never saw the day"
   },
@@ -9961,7 +9968,7 @@
   "@activityZonesNoCeilingDefaultBody": {
     "description": "Default explanation of the 15-second hold rule for a measured ceiling, shown when no other reason was given"
   },
-  "activityZonesWearBandFix": "สวมสายรัดระหว่างการออกกำลังกายหนักตามปกติ",
+  "activityZonesWearBandFix": "สวมอุปกรณ์ระหว่างการออกกำลังกายหนักตามปกติ",
   "@activityZonesWearBandFix": {
     "description": "Suggested fix action on the no-ceiling card"
   },
@@ -13657,7 +13664,7 @@
   "@supplementColeKripkeWakeSpineHRVcd5f37": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
-  "supplementCountedNeverModelledAStepc66896": "นับจริง ไม่ใช้แบบจำลอง จำนวนก้าวมาจากตัวนับที่อ่านรูปแบบการเดินได้ ได้แก่ตัวนับ 100 Hz ของสายรัดขณะสตรีมหรือของโทรศัพท์ แต่ละช่วงใช้เซ็นเซอร์ที่บันทึกจริง ช่วงที่ทั้งสองบันทึกจะนับเพียงครั้งเดียว การออกกำลังกายจึงไม่เปลี่ยนแหล่งข้อมูลของทั้งวันแทนเซ็นเซอร์ที่บันทึกช่วงที่เหลือ ไม่มีค่าประมาณจาก 1 Hz เพราะจังหวะเดินสูงเกินกว่าหนึ่งตัวอย่างต่อวินาทีจะแยกได้ วันที่ไม่มีตัวนับจึงไม่รายงานก้าวแทนการเดา",
+  "supplementCountedNeverModelledAStepc66896": "นับจริง ไม่ใช้แบบจำลอง จำนวนก้าวมาจากตัวนับที่อ่านรูปแบบการเดินได้ ได้แก่ตัวนับ 100 Hz ของสายรัดขณะสตรีมหรือของโทรศัพท์ แต่ละช่วงใช้เซ็นเซอร์ที่บันทึกจริง ช่วงที่ทั้งสองบันทึกจะนับเพียงครั้งเดียว การออกกำลังกายจึงไม่เปลี่ยนแหล่งข้อมูลของทั้งวันแทนเซ็นเซอร์ที่บันทึกช่วงที่เหลือ ไม่มีค่าประมาณจาก 1 Hz เพราะจังหวะเดินสูงเกินกว่าหนึ่งตัวอย่างต่อวินาทีจะแยกได้ วันที่ไม่มีตัวนับจึงไม่รายงานก้าวแทนการเดา จำนวนก้าวรายวันของอุปกรณ์สวมใส่ที่จับคู่ไว้จะเป็นจำนวนก้าวของวันเมื่อมันนับได้มากกว่า โดยใช้ทั้งหมดและไม่บวกรวมกับตัวอื่น",
   "@supplementCountedNeverModelledAStepc66896": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -14162,6 +14169,7 @@
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
   "supplementTheNightSMeanRaw25e383": "ค่าเฉลี่ยเซ็นเซอร์ดิบของคืน แสดงเป็นความต่างจากคืนล่าสุด ๆ ของคุณ ไม่มีขั้นตอนใดแปลงเป็นองศา",
+  "supplementSkinTempMethodTrend": "ค่าเฉลี่ยดิบของเซ็นเซอร์ตลอดคืน แสดงเป็นระยะห่างจากคืนล่าสุดของคุณเอง แนวโน้มในกราฟคือระยะห่าง ADC ที่ยังไม่สอบเทียบนั้น โดยไม่แปลงเป็นองศา (WHOOP 5 วัดเป็นองศาจริง ค่าเบี่ยงเบนรายคืนของมันจะแสดงในหน้าสัญญาณชีพตามหน่วยอุณหภูมิของคุณแทน)",
   "@supplementTheNightSMeanRaw25e383": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -14178,6 +14186,7 @@
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
   "supplementTheseRecordingsAreNotStamped66b52f": "ข้อมูลนี้ไม่ได้ระบุว่าสายรัดใดบันทึก และค่านี้ต้องปรับเทียบรายสายรัด จึงไม่แสดงแทนการเดา",
+  "supplementNoCalibrationForThisDevice": "ค่านี้ต้องปรับเทียบแยกตามอุปกรณ์ และยังไม่มีการปรับเทียบสำหรับอุปกรณ์นี้ จึงงดแสดงแทนการคาดเดา",
   "@supplementTheseRecordingsAreNotStamped66b52f": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -14911,6 +14920,8 @@
   "wearableMethodStrap": "สายคาดวัดหัวใจ ทุกวินาที",
   "wearableMethodStrapBeats": "ช่วงเวลาระหว่างจังหวะหัวใจจากสายคาด",
   "wearableMethodRhrStrapComposite": "อัตราการเต้นหัวใจขณะพักและช่วงเวลาจังหวะหัวใจจากสายคาด",
+  "wearableMethodDeviceHrvComposite": "อัตราการเต้นหัวใจขณะพักและค่า HRV ที่อุปกรณ์วัดเอง",
+  "wearableMethodDeviceRmssd": "ค่า HRV ที่อุปกรณ์วัดเอง ตลอดคืนที่เรากำหนด",
   "wearableMethodRingBeats": "ช่วงเวลาระหว่างจังหวะหัวใจของอุปกรณ์เอง",
   "wearableUnlocksTitle": "สิ่งที่อุปกรณ์นี้ช่วยให้ใช้ได้",
   "wearableUnlocksOurs": "เราเป็นผู้วัด",
@@ -15673,7 +15684,7 @@
   "@homeFirstWeekTitle": {
     "description": "Today tab: card saying when each score first appears."
   },
-  "homeFirstWeekWear": "สวมสายรัดคืนนี้",
+  "homeFirstWeekWear": "สวมอุปกรณ์คืนนี้",
   "@homeFirstWeekWear": {
     "description": "First weeks card step."
   },

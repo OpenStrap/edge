@@ -247,7 +247,9 @@ const _specs = <String, MetricSpec>{
         'once, so a session never takes the day from the sensor that carried '
         'the rest of it. There is no 1 Hz estimate — walking cadence sits above what '
         'one sample a second can resolve, so a day with no counter behind it '
-        'reports no steps rather than a guess.',
+        'reports no steps rather than a guess. A paired wearable\'s own daily '
+        'count is the day\'s steps when it counted more than these, used '
+        'whole and never added to them.',
     citation: 'AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)',
     // Deliberately EMPTY — see final-plan §4.6. Steps are resolved by
     // `live_coverage_policy.dart`, which ranks by SPAN not device and credits
@@ -1012,9 +1014,16 @@ class _MetricDetailState extends State<MetricDetail> {
             fix: all.isEmpty
                 ? (kDaytimeMetricKeys.contains(widget.metricKey)
                     ? (l?.dayStrainWearBandFix ??
-                        'Wear the band through the day')
-                    : (l?.metricDetailWearBandFix ??
-                        'Wear the band overnight to start the series'))
+                        'Wear your device through the day')
+                    // This chart is beat-derived HRV. Only a device that
+                    // records beats overnight fills it; many wearables report
+                    // their own HRV (on their device page) instead, and a
+                    // chest strap records only during workouts.
+                    : widget.metricKey == 'hrv' && !_bandPaired(context)
+                        ? (l?.metricDetailHrvNeedsBeatsFix ??
+                            'This chart needs beat-to-beat intervals recorded overnight, which only a device that records beats supplies. A chest strap records only during workouts, and many watches, rings and straps report their own HRV instead: it is on their device page')
+                        : (l?.metricDetailWearBandFix ??
+                            'Wear your device overnight to start the series'))
                 : '',
             icon: spec.icon,
           ),
@@ -2286,5 +2295,15 @@ class MonoTable extends StatelessWidget {
           ),
       ]),
     );
+  }
+}
+
+/// A band is paired, or there is no AppState above (gallery, tests: as
+/// before).
+bool _bandPaired(BuildContext c) {
+  try {
+    return c.read<AppState>().isPaired;
+  } catch (_) {
+    return true;
   }
 }

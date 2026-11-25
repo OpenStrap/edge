@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/data/observation.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
 
@@ -345,6 +346,55 @@ void main() {
       wearableDeviceId: 'ring-1',
     );
     expect(sig, contains('wearable_archive=$expected;'));
+  });
+
+  test("a wearable's new step count alone moves the day's signature", () async {
+    Future<String?> sig() => LocalDb.dayInputSignature(
+          dayId: '2025-06-15',
+          prevDayId: '2025-06-14',
+          nextDayId: '2025-06-16',
+          fromSec: 1749900000,
+          toSec: 1750100000,
+          wearableDeviceId: 'ring-1',
+        );
+    Observation steps(int n) => Observation(
+          at: DateTime(2025, 6, 15),
+          sourceKind: ObservationSource.vendor,
+          key: 'steps',
+          value: n,
+          unit: 'steps',
+          attribution: 'test',
+        );
+    await LocalDb.putObservations([steps(4000)], deviceId: 'ring-1');
+    final before = await sig();
+    expect(await sig(), before);
+    await LocalDb.putObservations([steps(6500)], deviceId: 'ring-1');
+    expect(await sig(), isNot(before));
+  });
+
+  test('an in-place rewrite that keeps every total still moves the signature',
+      () async {
+    final db = await LocalDb.instance;
+    const t = 1750000000;
+    for (final (i, hr) in [(0, 60), (1, 180)]) {
+      await db.rawInsert(
+          'INSERT OR REPLACE INTO decoded_onehz (device_id, ts_ms, rec_ts, counter, hr) '
+          'VALUES (?, ?, ?, ?, ?)',
+          ['w-1', (t + i) * 1000, t + i, t + i, hr]);
+    }
+    Future<String?> sig() => LocalDb.dayInputSignature(
+          dayId: '2025-06-15',
+          prevDayId: '2025-06-14',
+          nextDayId: '2025-06-16',
+          fromSec: 1749900000,
+          toSec: 1750100000,
+          wearableDeviceId: null,
+        );
+    final before = await sig();
+    // Same count, same rowids, same TOTAL(hr): only the revision moves.
+    await db.rawUpdate('UPDATE decoded_onehz SET hr = 120 WHERE rec_ts IN (?, ?)',
+        [t, t + 1]);
+    expect(await sig(), isNot(before));
   });
 
   test('a backup of the new layout restores every frame', () async {

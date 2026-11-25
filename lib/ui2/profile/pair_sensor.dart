@@ -63,6 +63,7 @@ import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
 import '../../ble/ios_ble_restore.dart';
+import '../../ble/helio_strap_link.dart' show pairHelioStrapWithTypedKey;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -112,6 +113,11 @@ class PairSensorScreen extends StatefulWidget {
   /// A handoff needs a successful pair result, not just a closed route.
   final bool returnOnPair;
 
+  /// The device the user already chose (a nearby tap handed over for its
+  /// key): listed from the start, so the key is paired to THAT device rather
+  /// than to whichever one a fresh scan lists.
+  final BandCandidate? selected;
+
   const PairSensorScreen({
     super.key,
     required this.entry,
@@ -120,6 +126,7 @@ class PairSensorScreen extends StatefulWidget {
     this.debugFound,
     this.debugPair,
     this.returnOnPair = false,
+    this.selected,
   });
 
   @override
@@ -159,7 +166,8 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   @override
   void initState() {
     super.initState();
-    _found = widget.debugFound ?? const [];
+    _found = widget.debugFound ??
+        (widget.selected == null ? const [] : [widget.selected!]);
     unawaited(_load());
   }
 
@@ -261,7 +269,20 @@ class _PairSensorScreenState extends State<PairSensorScreen>
 
   /// The iOS 18+ path for a [kAskPickerSensors] entry: the ASK picker filtered
   /// to this sensor's service, then the same pairing step a scanned row gets.
+  /// A device that pairs ONLY with a typed key (no install path) and an
+  /// empty key field: nothing can pair it yet.
+  bool get _keyMissing =>
+      widget.onPickedWithKey != null &&
+      widget.onPicked == null &&
+      _key.text.trim().isEmpty;
+
   Future<void> _pairViaPicker() async {
+    // Before the system sheet: approving an accessory there that this screen
+    // then refuses for want of a key leaves an OS approval behind.
+    if (_keyMissing) {
+      setState(() => _problem = 'Enter the device’s key to pair it.');
+      return;
+    }
     setState(() {
       _scanning = true;
       _problem = null;
@@ -276,7 +297,9 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     // band (see `IosBleRestore.reacquireCentral`).
     await IosBleRestore.releaseCentralForPicker();
     try {
-      id = await AccessorySetup.showSensorPicker([widget.entry.service]);
+      final askName = kAskSharedServiceNames[widget.entry.id];
+      id = await AccessorySetup.showSensorPicker([widget.entry.service],
+          name: askName, label: askName == null ? null : widget.entry.label);
     } on PlatformException catch (e) {
       failure = l?.pairSensorCouldNotPair(e.message ?? e.code) ??
           'Could not pair that device: ${e.message ?? e.code}';
@@ -337,6 +360,20 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     if (!mounted) return;
     String? failure;
     final typedKey = _key.text.trim();
+    // An empty key is NOT the same thing as "no typed-key path exists".
+    // [kOura] has both a keyless install function AND a typed-key one, so
+    // leaving the field blank correctly means "use the install path" —
+    // but a device with ONLY a typed-key path (no [onPicked] at all, e.g.
+    // Helio) must refuse here, not silently fall through to the generic
+    // plain pairing below, which would create a device row with no
+    // handshake ever attempted and no key the adapter could ever use.
+    if (_keyMissing) {
+      setState(() {
+        _busy = null;
+        _problem = 'Enter the device’s key to pair it.';
+      });
+      return;
+    }
     try {
       failure = widget.onPickedWithKey != null && typedKey.isNotEmpty
           ? await widget.onPickedWithKey!(device, typedKey)
@@ -441,8 +478,11 @@ class _PairSensorScreenState extends State<PairSensorScreen>
           entry: band,
           returnOnPair: true,
           onPicked: sensor.pick,
-          onPickedWithKey:
-              band.id == kOura.id ? pairOuraRingWithTypedKey : null,
+          onPickedWithKey: switch (band.id) {
+            final id when id == kOura.id => pairOuraRingWithTypedKey,
+            final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
+            _ => null,
+          },
         ),
       ));
       return result ?? BandFlowResult.closed;
@@ -478,6 +518,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     paired: _paired,
     busyRemoteId: _busy,
     keyController: widget.onPickedWithKey == null ? null : _key,
+    keyRequired: widget.onPickedWithKey != null && widget.onPicked == null,
     onScan: _scan,
     onPick: _pick,
     onForget: _forget,
@@ -505,6 +546,10 @@ class PairSensorView extends StatelessWidget {
   /// The optional "pair with the key it already holds" field. Null hides it.
   final TextEditingController? keyController;
 
+  /// The device pairs ONLY with a typed key (no install path): the field says
+  /// one key is required, and the ring's key-replacement warning is not shown.
+  final bool keyRequired;
+
   final VoidCallback? onScan;
   final void Function(BandCandidate)? onPick;
   final void Function(String id)? onForget;
@@ -520,6 +565,7 @@ class PairSensorView extends StatelessWidget {
     this.paired,
     this.busyRemoteId,
     this.keyController,
+    this.keyRequired = false,
     this.onScan,
     this.onPick,
     this.onForget,
@@ -579,6 +625,7 @@ class PairSensorView extends StatelessWidget {
                 if (keyController != null) ...[
                   // Before the user commits: a new key evicts the ring's own
                   // app, and there is no state in which both work.
+                  if (!keyRequired) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
                     l?.pairSensorKeyReplacesTitle ??
@@ -587,8 +634,10 @@ class PairSensorView extends StatelessWidget {
                         'The ring holds one key. Pairing without the Oura app’s key gives it a new one, and the Oura app stops working with it until the ring is reset.',
                     icon: LucideIcons.triangleAlert,
                   ),
+                  ],
                   const SizedBox(height: S.x4),
-                  _keySection(c, keyController!, busy || scanning),
+                  _keySection(c, keyController!, busy || scanning,
+                      required: keyRequired),
                 ],
                 if (heldBack != null) ...[
                   const SizedBox(height: S.x4),
@@ -664,16 +713,22 @@ class PairSensorView extends StatelessWidget {
 
   /// The key the device already holds, if the user has it. Optional, and says
   /// so: an empty field is the ordinary pairing.
-  Widget _keySection(BuildContext c, TextEditingController ctl, bool locked) {
+  Widget _keySection(BuildContext c, TextEditingController ctl, bool locked,
+      {bool required = false}) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     return Section(
-      l?.pairSensorKeyTitle ?? 'Already set up elsewhere?',
+      required
+          ? (l?.pairSensorKeyRequiredTitle ?? 'Device key')
+          : (l?.pairSensorKeyTitle ?? 'Already set up elsewhere?'),
       Surface(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(
-            l?.pairSensorKeyBody ??
-                'Have this device’s key? Paste it to pair without a factory reset. Several keys, one per line, are tried in turn. Leave it empty to pair normally.',
+            required
+                ? (l?.pairSensorKeyRequiredBody ??
+                    'This device pairs only with the key its own app set up. Paste that one key: 32 hex digits.')
+                : (l?.pairSensorKeyBody ??
+                    'Have this device’s key? Paste it to pair without a factory reset. Several keys, one per line, are tried in turn. Leave it empty to pair normally.'),
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
           TextField(
@@ -691,8 +746,10 @@ class PairSensorView extends StatelessWidget {
             textInputAction: TextInputAction.newline,
             style: F.head.copyWith(color: p.ink),
             decoration: InputDecoration(
-              hintText: l?.pairSensorKeyHint ??
-                  '32 hex digits or base64 — one key per line',
+              hintText: required
+                  ? (l?.pairSensorKeyRequiredHint ?? '32 hex digits')
+                  : (l?.pairSensorKeyHint ??
+                      '32 hex digits or base64 — one key per line'),
               hintStyle: F.head.copyWith(color: p.ink3),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(vertical: S.x3),

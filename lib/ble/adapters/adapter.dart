@@ -156,6 +156,17 @@ class NeutralSample {
   /// metric is claimed on its behalf.
   final double? skinTempC;
 
+  /// The device's OWN RMSSD reading for this second, in ms, or null; and its
+  /// own breathing-rate reading, breaths/min. Raw single-quantity samples in
+  /// a physical unit, never a composite and never an aggregate the device
+  /// made (its night mean is an observation). They land in
+  /// `decoded_onehz.dev_rmssd_ms` / `dev_resp_brpm`, and the ONLY reader is
+  /// `compute/inputs/device_night_samples.dart`, for a family listed in
+  /// `kAdmittedDeviceSamples` (policy exception PE-1,
+  /// docs/internal/sparse_device_analytics_architecture.md §1).
+  final double? deviceRmssdMs;
+  final double? deviceRespBrpm;
+
   /// Anything the band emitted that we do not have a column for, under the
   /// band's OWN name for it (owner rulings R1-R3: capture everything, decide
   /// what to do with it later). Never an input to a derivation, never in a
@@ -181,6 +192,8 @@ class NeutralSample {
     this.hr,
     this.rrMs = const <int>[],
     this.skinTempC,
+    this.deviceRmssdMs,
+    this.deviceRespBrpm,
     this.vendor = const <String, Object?>{},
     this.beatTsMs,
     this.gapMs = 0,

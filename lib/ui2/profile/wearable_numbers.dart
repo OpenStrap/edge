@@ -188,6 +188,7 @@ String? methodText(AppLocalizations l, String? method) => switch (method) {
   'rr_ring' => l.wearableMethodRingBeats,
   'hr_5min' || 'hr_5min_stager' => l.wearableMethodHr5min,
   'device_stages' => l.wearableMethodDeviceStages,
+  'skin_temp_c' ||
   'skin_temp_c_5min' ||
   'skin_temp_c_slot' ||
   'skin_temp_c_event' => l.wearableMethodSkinTemp,
@@ -195,6 +196,8 @@ String? methodText(AppLocalizations l, String? method) => switch (method) {
   'rhr_only_partial' => l.wearableMethodRhrOnly,
   kPartialReadinessMethod => l.wearableMethodPartialComposite,
   kStrapReadinessMethod => l.wearableMethodRhrStrapComposite,
+  kDeviceHrvReadinessMethod => l.wearableMethodDeviceHrvComposite,
+  kDeviceRmssdMethod => l.wearableMethodDeviceRmssd,
   'hr_1min_zone_minutes' => l.wearableMethodZoneMinutes,
   'steps_5min' => l.wearableMethodActivity,
   _ => null,

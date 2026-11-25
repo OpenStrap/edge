@@ -941,7 +941,7 @@ void main() {
       await show(const DayStrainData(wornMin: 1274, coveragePct: 89));
       expect(find.textContaining('scored night'), findsNothing,
           reason: 'the night WAS scored — a cause nobody gave this screen');
-      expect(find.textContaining('Wear the band through the day'), findsNothing,
+      expect(find.textContaining('Wear your device through the day'), findsNothing,
           reason: 'an action that cannot change the outcome is worse than none');
       expect(find.textContaining('Nothing recorded says why'), findsOneWidget);
 
@@ -957,7 +957,7 @@ void main() {
       // A day the band genuinely never saw is the ONE state where "wear the
       // band" is an instruction rather than an insult, so it survives there.
       await show(const DayStrainData());
-      expect(find.textContaining('Wear the band through the day'),
+      expect(find.textContaining('Wear your device through the day'),
           findsOneWidget);
 
       // MEASURED on whoop-4, 6 of 17 days: `backfillStrainScale` rescales the
@@ -1007,7 +1007,7 @@ void main() {
           source: 'tanaka',
           ceilingNote: 'unknown_device_family:id=none'));
       expect(find.textContaining('HELD'), findsNothing);
-      expect(find.textContaining('Wear the band for your normal hard sessions'),
+      expect(find.textContaining('Wear your device for your normal hard sessions'),
           findsNothing);
       expect(find.textContaining('which strap'), findsWidgets);
 
@@ -2587,5 +2587,30 @@ void main() {
       expect(strengthLoadInRange(500.1, kgU), isFalse);
       expect(strengthLoadInRange(-1, kgU), isFalse);
     });
+  });
+
+  testWidgets("setup's heart-rate row: a paired band is 'not connected', no band is no live heart rate",
+      (tester) async {
+    tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    addTearDown(LiveDraft.clear);
+    Future<void> show(bool paired) async {
+      await tester.pumpWidget(_frame(
+          ActivitySetup(activityByName('running')!,
+              key: ValueKey(paired),
+              weightKg: 72.4,
+              host: ActivityHost(bandPaired: paired)),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+    }
+
+    await show(true);
+    expect(find.text('No band connected'), findsOneWidget);
+    expect(find.text('No live heart rate'), findsNothing);
+    await show(false);
+    expect(find.text('No live heart rate'), findsOneWidget);
+    expect(find.text('No band connected'), findsNothing);
   });
 }

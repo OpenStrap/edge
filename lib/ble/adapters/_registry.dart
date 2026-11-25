@@ -1028,6 +1028,57 @@ bool _looksLikeMiBand23(String lowercaseName) => const {
       'xiaomi band 3',
     }.contains(lowercaseName);
 
+/// Chunked transport write/notify (auth + small commands) and the plaintext
+/// activity-fetch control/data pair (bulk history) — see
+/// `huami2021_chunks.dart` and `huami2021_fetch.dart` in protocol. All four
+/// are required: without the chunk pair there is no handshake, without the
+/// fetch pair there is nothing to decode.
+const String kHuami2021FetchControlChar = kHuamiActivityControlChar;
+const String kHuami2021FetchDataChar = kHuamiActivityDataChar;
+
+/// Amazfit Helio Strap (Huami2021/ZeppOS protocol family). The auth key is a
+/// precondition this adapter assumes already exists in secure storage — see
+/// `helio_strap.dart`'s header; acquiring one is a separate, unbuilt flow.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). The service
+/// UUID is the same `0000fee1-…` the whole Huami/Zepp family shares
+/// (confirmed for Mi Band 2/3 above; assumed, not separately confirmed, for
+/// this specific device) — a wrong guess here only means the scan filter
+/// never matches, not a silent wrong decode.
+const BandEntry kHelioStrap = BandEntry.notify(
+  id: 'helio_strap',
+  role: DeviceRole.band,
+  kind: DeviceKind.strap,
+  resetSteps: ResetSteps.unverified(
+    officialUrl: 'https://support.amazfit.com/en/amazfit_helio_strap/',
+  ),
+  category: DeviceCategory.wearable,
+  label: 'Amazfit Helio Strap',
+  service: kHuami234Service,
+  characteristics: <String>[
+    kHuami2021ChunkWriteChar,
+    kHuami2021ChunkNotifyChar,
+    kHuami2021FetchControlChar,
+    kHuami2021FetchDataChar,
+  ],
+  // The strap stamps its own records (session/round/absolute `sec` fields);
+  // none of this protocol's timestamps are arrival-anchored.
+  timeAnchor: TimeAnchor.measured,
+  nameMatcher: _looksLikeHelioStrap,
+  // Its own service as a HINT too: FEE1 is shared with the Mi Bands, so an
+  // advertisement named "Amazfit Helio Strap" carrying FEE1 must match this
+  // entry by name before the first FEE1 entry claims it by service. A
+  // nameless FEE1 advertisement still falls back to the service match.
+  scanHints: <String>[kHuami234Service],
+  scanByName: true,
+);
+
+/// The name the strap advertises, confirmed from the real Zepp app's own
+/// BLE advertised-name match table.
+bool _looksLikeHelioStrap(String lowercaseName) =>
+    lowercaseName.contains('helio strap');
+
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
 /// PPoGATT carries the inner protocol, whose health data logging the adapter
 /// decodes (HR, steps, the watch's sleep periods). `pebble_link.dart`'s
@@ -1238,6 +1289,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kCoros,
   kUltrahuman,
   kMiBand234,
+  kHelioStrap,
   kPebble,
   kColmi,
   kGarmin,
@@ -1281,6 +1333,19 @@ final List<BandEntry> kFramedBands =
 /// a picker filtered on them would hand back another sensor's approval. On
 /// iOS 18+ they cannot be paired yet; `PairSensorScreen` says so.
 ///
+/// [kHelioStrap] IS listed, with a known, owner-accepted risk: it shares
+/// [kMiBand234]'s FEE1 service, and nothing here tells the two apart —
+/// no company identifier, no manufacturer-data blob, because nobody has a
+/// real strap to read one off. A developer forum report describes exactly
+/// this shape (several products sharing one service UUID, no company
+/// identifier set) as "random which device is found"; Apple's own WWDC24
+/// session says the picker shows the device's OWN advertised name as well
+/// as ours, so a user may well see and tap the right one, but which
+/// physical device the approval actually resolves to is unconfirmed when
+/// more than one FEE1 device is nearby. Fix it properly once a real strap's
+/// advertisement can be read for a `bluetoothCompanyIdentifier` or
+/// manufacturer-data blob that differs from Mi Band's.
+///
 /// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
 /// [kMiScale2] are listed although they break the rule above: the band is
 /// not known to advertise FEE1, the Colmi ring is not known to advertise its
@@ -1298,6 +1363,7 @@ const List<BandEntry> kAskPickerSensors = <BandEntry>[
   kColmi,
   kUltrahuman,
   kMiBand234,
+  kHelioStrap,
   kPebble,
   kGarmin,
   kThermometer,
@@ -1339,6 +1405,17 @@ const Map<String, int> kAskSensorCompanyIds = <String, int>{
   // Unverified on a band (R6): declared because a Mi Band 2/3 advertisement
   // is expected to carry this manufacturer data, the Oura case above.
   'miband234': 0x0157, // Anhui Huami Information Technology
+  // The same company (Zepp Health, formerly Huami) makes every Amazfit
+  // device, so the same id; already declared above, listed so the plist
+  // test keeps it declared for this entry too. Unverified on a strap (R6).
+  'helio_strap': 0x0157,
+};
+
+/// iOS picker names for sensors whose service another sensor shares (FEE1):
+/// the advertised-name substring the sheet filters on. Each must also be
+/// declared under `NSAccessorySetupBluetoothNames` in Info.plist.
+const Map<String, String> kAskSharedServiceNames = <String, String>{
+  'helio_strap': 'Helio Strap',
 };
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed
@@ -1430,6 +1507,19 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceSpo2: Duration(days: 1),
     InputSignal.deviceStress: Duration(days: 1),
   },
+  // Mirrors `kHelioStrapSignals` in `helio_strap.dart` exactly — keep the
+  // two in sync by hand, same as every other entry here.
+  'helio_strap': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(minutes: 1),
+    InputSignal.skinTempC: Duration(minutes: 1),
+    InputSignal.deviceStress: Duration(minutes: 1),
+    InputSignal.deviceHrv: Duration(minutes: 2),
+    InputSignal.deviceResp: Duration(minutes: 30),
+    InputSignal.deviceSpo2: Duration(minutes: 5),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.vendorScalars: Duration.zero,
+  },
   'thermometer': <InputSignal, Duration>{},
   'miscale_bc': <InputSignal, Duration>{},
   'miscale2': <InputSignal, Duration>{},
@@ -1443,6 +1533,15 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.deviceStress: Duration(days: 1),
   },
 };
+
+/// POLICY EXCEPTION PE-1 (docs/internal/sparse_device_analytics_architecture.md
+/// §1, owner decision 2026-11-22): the families whose OWN RMSSD readings
+/// (`decoded_onehz.dev_rmssd_ms`, raw timestamped samples in ms) our readiness
+/// may take as its HRV input, on a night no strap's beats gave our own.
+/// Raw samples only: a device's stress score, readiness, PAI, ODI or any
+/// aggregate it made stays in `observation`, display-only, forever. A family
+/// not listed here contributes nothing even with samples on disk.
+const Set<String> kDeviceRmssdFamilies = {'helio_strap'};
 
 /// [adapterId]'s [DeviceCategory], or null for an id this build has no
 /// entry for.

@@ -22,6 +22,7 @@ void main() {
           'coros',
           'ultrahuman',
           'miband234',
+          'helio_strap',
           'pebble',
           'colmi',
           'garmin',

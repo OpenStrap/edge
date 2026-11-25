@@ -230,4 +230,16 @@ void main() {
           isFalse);
     });
   });
+
+  test("a device's night RMSSD the gate refused tonight is never carried back",
+      () {
+    final prev = <String, dynamic>{
+      'scalars': <String, dynamic>{'ln_rmssd_dev': 3.7, 'steps': 4000.0},
+    };
+    final next = <String, dynamic>{'scalars': <String, dynamic>{'rhr': 52.0}};
+    DerivationEngine.carryForwardDetail(prev, next);
+    final sc = next['scalars'] as Map;
+    expect(sc.containsKey('ln_rmssd_dev'), isFalse);
+    expect(sc['steps'], 4000.0, reason: 'other detail still carries');
+  });
 }

@@ -14,11 +14,20 @@ import 'dart:math' as math;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../../ble/adapters/_registry.dart'
-    show DeviceCategory, categoryOf, kBleHrs, kCoros, kPolarPmd;
+    show
+        DeviceCategory,
+        categoryOf,
+        declaredSignals,
+        kBleHrs,
+        kCoros,
+        kDeviceRmssdFamilies,
+        kPolarPmd;
+import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../crossday_pipeline.dart' show buildCrossDayBundle;
 import '../derivation_engine.dart' show DerivationEngine, kAlgoVersion, runCancellableIsolate;
+import '../onehz_pipeline.dart' show kDeviceRmssdHrvSource;
 import '../substrate.dart';
 import '../vendor_sleep.dart';
 import 'colmi_inputs.dart';
@@ -26,6 +35,7 @@ import 'garmin_inputs.dart';
 import 'miband_inputs.dart';
 import 'oura_inputs.dart';
 import 'pebble_inputs.dart';
+import 'sparse_inputs.dart';
 import 'ultrahuman_inputs.dart';
 import 'validation_bands.dart';
 
@@ -38,6 +48,27 @@ const String kPartialReadinessMethod = 'composite_rhr_temp_partial';
 /// temperature: the composite over the watch's resting HR and a flagged-on
 /// strap's night beats (resting HR alone is below its weight floor).
 const String kStrapReadinessMethod = 'composite_rhr_strap';
+
+/// The method tag of our readiness on a night whose HRV input was the
+/// wearable's own RMSSD readings (policy exception PE-1): resting HR from its
+/// minute HR, HRV from its readings, both baselined on its own nights. Kept
+/// on every such stored day so they stay findable if the readings turn out
+/// not to be RMSSD (sparse_device_analytics_architecture.md §8.0).
+const String kDeviceHrvReadinessMethod = 'composite_device_hrv';
+
+/// The method tag of our night HRV off the wearable's own RMSSD readings.
+const String kDeviceRmssdMethod = 'device_rmssd_samples';
+
+/// `metric_series` keys a PE-1 night touches, whose baseline (and method
+/// family) is the admitted DEVICE family's own nights, never the resolution's:
+/// two vendors' RMSSD are two methods even at the same HR cadence.
+const Set<String> kDeviceSeriesFamilyKeys = {'ln_rmssd_dev', 'readiness_z'};
+
+/// Whether a derived [bundle]'s composite took the wearable's own RMSSD.
+bool deviceHrvNight(Map bundle) =>
+    ((bundle['clinical'] as Map?)?['readiness_composite'] as Map?)?[
+        'hrv_source'] ==
+    kDeviceRmssdHrvSource;
 
 /// What a served number is. Ours collapses A and B (the method says which
 /// resolution it came from); device is the wearable's own value, labelled;
@@ -403,7 +434,9 @@ Future<void> refreshSessionSensorSources() async {
     for (final id in kWorkoutArmedSensors)
       if (await wearableEnabled(id)) id,
   };
-  LocalDb.sessionWearableSource = (await activeWearable())?.$2;
+  final w = await activeWearable();
+  LocalDb.sessionWearableSource = w?.$2;
+  LocalDb.sessionWearableDeviceId = w?.$1;
 }
 
 bool debugDisableWearableWorker = false;
@@ -447,13 +480,13 @@ Future<Substrate> wearableSubstrate(
   int to,
 ) async {
   final own = await switch (wearable.$2) {
-    kGarminFamily ||
-    kPebbleFamily ||
-    kMiBandFamily => sparseHrSubstrate(wearable.$2, wearable.$1, from, to),
     kUltrahumanFamily => ultrahumanSubstrate(wearable.$1, from, to),
     kColmiFamily => colmiSubstrate(wearable.$1, from, to),
     kOuraFamily => ouraSubstrate(wearable.$1, from, to),
-    _ => Future.value(Substrate.empty),
+    // Every other family with an HR cadence: its HR rows, and the skin
+    // temperature on them when it declares one.
+    final f => sparseHrSubstrate(f, wearable.$1, from, to,
+        withSkinTemp: declaredSignals(f).contains(InputSignal.skinTempC)),
   };
   if (!own.isEmpty || columnFor(wearable.$2) == null) {
     return withStrapSessions(own, from, to);
@@ -638,6 +671,25 @@ Future<int?> enabledVendorSleepEndTs() async {
   return last;
 }
 
+/// The active wearable's own step count for [date] when [daySub] is that
+/// wearable's day and it declares a step counter ([InputSignal.steps]); null
+/// on a band's day, with no active wearable (none chosen, flag off: rule R6)
+/// or no count stored. The day's steps take it as a whole-day answer
+/// (`DerivationEngine._writeSteps`).
+/// ponytail: the newest stored row of the day; a device that banks several
+/// partial counts a day would need them summed.
+Future<int?> wearableDaySteps(Substrate daySub, String date) async {
+  final family = daySub.deviceFamily;
+  if (!isWearableFamily(family) ||
+      daySub.deviceIds.length != 1 ||
+      !declaredSignals(family).contains(InputSignal.steps)) {
+    return null;
+  }
+  final active = await activeWearable();
+  if (active == null || active.$1 != daySub.deviceIds.single) return null;
+  return LocalDb.deviceDaySteps(active.$1, date);
+}
+
 /// Whether paired device [deviceId]'s adapter has its flag on (rule R6).
 Future<bool> deviceFlagOn(String? deviceId) async {
   if (deviceId == null) return false;
@@ -697,12 +749,9 @@ Future<Map<String, int>> _scanWearableRecTsMaxByDay(
     (String, String) wearable) async {
   final out = {
     ...await switch (wearable.$2) {
-      kGarminFamily ||
-      kPebbleFamily ||
-      kMiBandFamily ||
-      kUltrahumanFamily ||
-      kColmiFamily => sparseHrRecTsMaxByDay(wearable.$2, wearable.$1),
       kOuraFamily => ouraRecTsMaxByDay(wearable.$1),
+      final f when kHrCadenceSec.containsKey(f) =>
+        sparseHrRecTsMaxByDay(f, wearable.$1),
       _ => Future.value(const <String, int>{}),
     },
   };
@@ -873,9 +922,15 @@ class Cell {
   /// on that envelope): a ring's skin temperature, and the readiness that
   /// takes it in, rest on a settle band set on synthetic nights.
   final List<String>? provisionalAt;
+
+  /// Ours' method on the given stored day, where it depends on what that
+  /// night's inputs were (a PE-1 night's readiness); null falls back to
+  /// [ourMethod].
+  final String? Function(Map day)? ourMethodOf;
   const Cell({
     this.ours,
     this.ourMethod,
+    this.ourMethodOf,
     this.device,
     this.estimated,
     this.estimatedMethod,
@@ -931,6 +986,18 @@ Cell strapBeatCell(String key, {String? device, required Why reason}) => Cell(
   reason: reason,
 );
 
+/// Steps on a wearable that counts them: the day's steps (`scalars.steps`,
+/// the larger of the phone's count and the wearable's own whole-day total,
+/// `DerivationEngine._writeSteps`), with the wearable's own count beside it.
+/// Owner decision 2026-11-22: a step count is a measurement, served as the
+/// day's steps, not only as the device's display value.
+final Cell wearableStepsCell = Cell(
+  ours: (d, _) => scalar(d, 'steps'),
+  ourMethod: 'steps',
+  device: 'steps',
+  reason: Why.noDeviceSteps,
+);
+
 /// HRV: ours off a strap's beats on a night it was worn at rest.
 Cell strapHrvCell({String? device, required Why reason}) =>
     strapBeatCell('rmssd', device: device, reason: reason);
@@ -955,11 +1022,11 @@ Map<String, Map<String, Object?>> resolveCells(
       final est = dev == null ? c.estimated?.call(day, crossDay) : null;
       // Ours off the device's stages only on a night the device staged; on a
       // night our HR-led window found, ours off its HR ([seriesMethodFor]).
-      final ourHow =
-          c.ourMethod == 'device_stages' &&
-              day['sleep_source'] != 'vendor_staged'
-          ? method
-          : c.ourMethod ?? method;
+      final ourHow = c.ourMethodOf?.call(day) ??
+          (c.ourMethod == 'device_stages' &&
+                  day['sleep_source'] != 'vendor_staged'
+              ? method
+              : c.ourMethod ?? method);
       final (cls, value, how) = ours != null
           ? (MetricClass.ours, ours, ourHow)
           : dev != null
@@ -1055,13 +1122,30 @@ SeriesMethod Function(String key)? seriesMethodFor(
   bool vendorNight = false,
   bool strapNight = false,
   bool provisionalReadiness = false,
+  bool deviceHrvNight = false,
 }) {
   final fam = methodFamily(family);
   if (fam == null) return null;
+  final admitted = kDeviceRmssdFamilies.contains(family);
   // A ring night a strap's beats own ([ouraStrapOwnsNight]).
   final strapBeats = strapNight && family == kOuraFamily;
   final column = strapBeats ? kOuraStrapNightColumn : columnFor(family);
   return (key) => switch (column?[kSeriesKeyRow[key]]) {
+    // PE-1: an admitted wearable's own night RMSSD, and the readiness and
+    // composite z of a night that took it, are ours under the device-HRV
+    // method, on that device family's own baseline.
+    _ when admitted && key == 'ln_rmssd_dev' =>
+      (method: kDeviceRmssdMethod, family: family!, cls: MetricClass.ours.name),
+    _ when admitted && deviceHrvNight && key == 'readiness' => (
+      method: kDeviceHrvReadinessMethod,
+      family: family!,
+      cls: MetricClass.ours.name,
+    ),
+    _ when admitted && key == 'readiness_z' => (
+      method: deviceHrvNight ? kDeviceHrvReadinessMethod : fam,
+      family: family!,
+      cls: MetricClass.ours.name,
+    ),
     // A wearable's provisional readiness is not drawn as a measured point
     // either ([withoutWearableEstimates]); a band's day is left as it is.
     _ when column != null && provisionalReadiness && key == 'readiness' => (
@@ -1203,7 +1287,8 @@ const Map<String, String> kEnvelopeSeriesKey = {
 /// exactly as it is: no stamp there means ours at `hr_1hz`, which its
 /// `metric_method` rows also say per key, so no band payload moves.
 void tagEnvelopes(Map? clinical, String? family) {
-  final of = seriesMethodFor(family);
+  final of = seriesMethodFor(family,
+      deviceHrvNight: clinical != null && deviceHrvNight({'clinical': clinical}));
   if (clinical == null || of == null || columnFor(family) == null) return;
   for (final MapEntry(:key, :value) in clinical.entries) {
     if (value is! Map) continue;
@@ -1224,7 +1309,9 @@ Map<String, Cell>? columnFor(String? adapterId) => switch (adapterId) {
   kUltrahumanFamily => kUltrahumanColumn,
   kColmiFamily => kColmiColumn,
   kOuraFamily => kOuraColumn,
-  _ => null,
+  // Any other wearable with an HR cadence: the column its declarations build.
+  final String f => sparseColumn(f),
+  null => null,
 };
 
 /// What a column can serve at best, row by row, read off its cells rather

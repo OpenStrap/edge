@@ -88,9 +88,11 @@ void main() {
   });
 
   group('wearables fill every day (the active wearable)', () {
-    test('the six columned entries are found (control for the loops below)', () {
-      expect({for (final e in _columnEntries()) e.id},
-          {'garmin', 'pebble', 'miband234', 'ultrahuman', 'colmi', 'oura'});
+    test('the seven columned entries are found (control for the loops below)',
+        () {
+      // helio_strap's column is the declaration-built one (sparseColumn).
+      expect({for (final e in _columnEntries()) e.id}, {'garmin', 'pebble',
+          'miband234', 'ultrahuman', 'colmi', 'oura', 'helio_strap'});
     });
 
     test('Oura: the rows read off kOuraColumn, with their captions', () {
@@ -158,7 +160,9 @@ void main() {
       // Pebble 2 only caption must not drop that.
       expect(d[C.recovery]?.reasonKey, 'capReasonPebble2OnlyEstimated');
       expect(d[C.sleep]?.reasonKey, kReasonOwnStages);
-      expect(d[C.steps]?.kind, K.vendorReported);
+      // The watch's own step count is the day's steps (owner decision
+      // 2026-11-22), so steps are served, not only reported.
+      expect(d[C.steps]?.kind, K.native);
       expect(cmp.workoutsOnly.sends, isEmpty);
     });
 

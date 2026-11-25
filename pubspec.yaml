@@ -269,7 +269,22 @@ dependencies:
       # truncation semantics, removal of deprecated gen5 APIs). #81 sits on top
       # of #82, so it cannot be pinned alone.
       # protocol main @ #85 merge (image update payload builders).
-      ref: fbadb5bd055965d9400e266d6cf42748992ba950
+      # REPIN: protocol feat/zepp-family @ d74cbc8, one commit on top of
+      # fbadb5b: the Huami2021 transport the Helio Strap needs (chunked
+      # transport, auth, fetch, record decoders). Additions only; WHOOP decode
+      # untouched. Re-point at the merge commit once it lands on protocol main.
+      # REPIN: protocol feat/zepp-family @ f2398ab, PR #86's head: its review
+      # fixes to the same transport (chunk counter wrap, stale first chunk,
+      # short bodies, activity record stride/count, protobuf bounds, nap
+      # stage edge). Also carries #86's legacy-Huami and scale decoders,
+      # unread here.
+      # protocol main @ #86 merge (the huami2021 transport, 8-byte legacy
+      # records, the amazfit scale decoder, and the review fixes on top:
+      # chunk counter wrap, stale first chunk, short bodies, activity record
+      # stride/count, protobuf bounds, nap stage edge, and an activity round
+      # whose announced count doesn't fit 4- or 8-byte records decoding to
+      # nothing instead of a byte-length guess).
+      ref: dc699ce491c5eec4c924fafe8e29c637ea758b5a
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

@@ -39,8 +39,10 @@ class _Feed extends BandAdapter {
 }
 
 /// Banks [samples] as [entry]'s, through the real host.
-Future<void> _bank(BandEntry entry, List<NeutralSample> samples) async {
-  final host = BandHost(adapter: _Feed(entry, samples), deviceId: entry.id);
+Future<void> _bank(BandEntry entry, List<NeutralSample> samples,
+    {String? deviceId}) async {
+  final host =
+      BandHost(adapter: _Feed(entry, samples), deviceId: deviceId ?? entry.id);
   await host.run(ReplayBandLink());
   await host.stop();
 }
@@ -215,6 +217,60 @@ void main() {
         _t0 - 3600,
         _t0 + 3600);
     expect(sub.length, 611);
+  });
+
+  // No band row and no workout sensor in the window: the active wearable's
+  // own minute HR scores it, as it scores the day. It used to read nothing,
+  // so every session on a wearable-only install was unscored.
+  test("a session with no band and no strap reads the active wearable's rows",
+      () async {
+    LocalDb.sessionWearableSource = kGarmin.id;
+    await _bank(kGarmin, [
+      for (var t = _t0; t <= _t0 + 1200; t += 60) _s(t, hr: 120),
+    ]);
+    await LocalDb.putSession({
+      'id': 'wrist',
+      'start_ts': _t0,
+      'end_ts': _t0 + 1200,
+      'type': 'run',
+      'status': 'done',
+      'created_at': _t0 + 1200,
+    });
+    final rows = await LocalDb.hrSamplesInRange(_t0, _t0 + 1200);
+    expect(rows, hasLength(21));
+    final stats = (await LocalDb.sessionHrStats(_t0 - 1, _t0 + 1))['wrist']!;
+    expect(stats['n'], 21);
+    // No active wearable (none chosen, or its flag off): nothing, as before.
+    LocalDb.sessionWearableSource = null;
+    expect(await LocalDb.hrSamplesInRange(_t0, _t0 + 1200), isEmpty);
+  });
+
+  // A forgotten watch keeps its rows; a new one of the same adapter must not
+  // blend them in.
+  test("only the ACTIVE wearable's device scores the session", () async {
+    LocalDb.sessionWearableSource = kGarmin.id;
+    LocalDb.sessionWearableDeviceId = 'watch-b';
+    try {
+      await _bank(kGarmin, [for (var t = _t0; t <= _t0 + 600; t += 60) _s(t, hr: 60)],
+          deviceId: 'watch-b');
+      await _bank(kGarmin, [_s(_t0 + 30, hr: 180)], deviceId: 'watch-a');
+      await LocalDb.putSession({
+        'id': 'two-watches',
+        'start_ts': _t0,
+        'end_ts': _t0 + 600,
+        'type': 'run',
+        'status': 'done',
+        'created_at': _t0 + 600,
+      });
+      final rows = await LocalDb.hrSamplesInRange(_t0, _t0 + 600);
+      expect(rows.map((r) => r['hr']).toSet(), {60});
+      final stats =
+          (await LocalDb.sessionHrStats(_t0 - 1, _t0 + 1))['two-watches']!;
+      expect(stats['max_hr'], 60);
+    } finally {
+      LocalDb.sessionWearableDeviceId = null;
+      LocalDb.sessionWearableSource = null;
+    }
   });
 
   test("a strap's scored session serves no score once its flag is off",

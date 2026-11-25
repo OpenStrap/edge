@@ -381,7 +381,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
               ? StatusCard(
                   l?.readinessDetailNoHistoryTitle ?? 'No recovery history',
                   l?.readinessDetailNoHistoryBody ?? '0 days scored.',
-                  fix: l?.readinessDetailWearOvernight ?? 'Wear the band overnight',
+                  fix: l?.readinessDetailWearOvernight ?? 'Wear your device overnight',
                   icon: LucideIcons.chartLine,
                 )
               : Surface(child: _history(c, d)),
@@ -659,6 +659,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       // temperature. It gets said, every time.
       if (key == 'temp')
         l?.readinessDetailRelativeUncalibrated ?? 'relative, uncalibrated',
+      // PE-1: the HRV ranked here was the wearable's own readings.
+      if (r['source'] == 'device_rmssd')
+        l?.readinessDetailFromDeviceReadings ??
+            "from your device's own readings",
     ];
 
     return Padding(

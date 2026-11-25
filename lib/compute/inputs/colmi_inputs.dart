@@ -270,7 +270,7 @@ final Map<String, Cell> kColmiColumn = {
     'irregular_rhythm_flag',
     reason: Why.needsBeats,
   ),
-  'steps': Cell(device: 'steps', reason: Why.noDeviceSteps),
+  'steps': wearableStepsCell,
   'strain': Cell(
     estimated: (d, _) => scalar(d, 'strain'),
     estimatedMethod: 'hr_5min',

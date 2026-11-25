@@ -362,7 +362,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementCoefficientOfVariationOfPerc71989,
     "Cole–Kripke wake spine + HRV overlay" =>
       l.supplementColeKripkeWakeSpineHRVcd5f37,
-    "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess." =>
+    "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess. A paired wearable's own daily count is the day's steps when it counted more than these, used whole and never added to them." =>
       l.supplementCountedNeverModelledAStepc66896,
     "Creatinine" => l.supplementCreatinined3029a,
     "Your daily recovery score" =>
@@ -555,6 +555,8 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementTheLowestSustainedSleepingHeart72e5dd,
     "The night's mean raw sensor reading, expressed as distance from your own recent nights. There is no conversion to degrees anywhere in the path." =>
       l.supplementTheNightSMeanRaw25e383,
+    "The night's mean raw sensor reading, expressed as distance from your own recent nights. The charted trend is that uncalibrated ADC distance, with no conversion to degrees. (A WHOOP 5 reads in real degrees; its nightly deviation is shown on Vitals in your temperature unit instead.)" =>
+      l.supplementSkinTempMethodTrend,
     "The ratio of low- to high-frequency power in beat-interval variability, from a Lomb–Scargle periodogram (the series is unevenly sampled, so an FFT would be wrong)." =>
       l.supplementTheRatioOfLowTo817781,
     "There is no resting heart rate from a scored night to measure against." =>
@@ -563,6 +565,8 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementThereIsNoScoredNight5d353d,
     "These recordings are not stamped with which strap made them, and this number has to be calibrated per strap, so it is withheld rather than guessed." =>
       l.supplementTheseRecordingsAreNotStamped66b52f,
+    "This number has to be calibrated per device, and there is no calibration for this one yet, so it is withheld rather than guessed." =>
+      l.supplementNoCalibrationForThisDevice,
     "This day came from an import that only covers the night, so there is nothing recorded for the waking day." =>
       l.supplementThisDayCameFromAn2dc4b2,
     "This phone" => l.settingsGroupThisPhone,

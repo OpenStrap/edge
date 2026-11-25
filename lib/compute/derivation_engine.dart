@@ -59,7 +59,9 @@ import '../telemetry/firebase_bridge.dart';
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import '../ble/adapters/_registry.dart' show kDeviceRmssdFamilies;
 import 'inputs/canonical.dart';
+import 'inputs/device_night_samples.dart' show deviceNightRmssd;
 import 'inputs/garmin_inputs.dart'
     show
         isWearableFamily,
@@ -1913,7 +1915,39 @@ import 'vendor_sleep.dart';
 // counts covered TIME not rows, so sparse substrates are not called unclaimed;
 // ring naps no longer bridge ring-off holes; the quiet-level repass counts
 // wearable-only days as substrate; calories absence names resting_hr.
-const int kAlgoVersion = 127;
+// 127 → 128 (no analytics change): the Helio strap joins the sparse-HR
+// wearables (kHrCadenceSec 60 s, method family hr_1min), so its days derive
+// resting HR, nadir, strain, calories and an rhr-only readiness off its
+// minute HR, served by the declaration-built column (sparseColumn). Its skin
+// temperature rides on its HR rows (skin_temp_z). No band or other wearable
+// output moves.
+// 128 → 129 (no analytics change): policy exception PE-1 (owner decision
+// 2026-11-22). On a night with no beat-derived HRV of ours, an admitted
+// wearable's (kDeviceRmssdFamilies: helio_strap) own RMSSD readings, gated
+// (>= 6 plausible in our night) and taken as ln(mean), are readiness's HRV
+// input against that device family's own nights (`ln_rmssd_dev`; readiness_z
+// is per device family there too). Served as ours, method
+// composite_device_hrv. Band days and every other wearable unchanged.
+// 129 → 130 (no analytics change): a wearable's own daily step count
+// (owner decision 2026-11-22) joins the steps ladder as a whole-day answer
+// beside the gen5 chip counter: the day's steps are the larger of it and the
+// windowed band/phone sum, never their total. Wearable days only; a band day
+// has no active-wearable count.
+// 130 → 131 (no analytics change): the readiness breakdown (glass-box) ranks
+// a PE-1 night's HRV too. A night with no beat RMSSD but the device's own
+// readings (`ln_rmssd_dev`) feeds exp(ln_rmssd_dev) as the HRV row, against
+// the same device family's earlier nights only, tagged source device_rmssd.
+// Cross-day only; a band night has no `ln_rmssd_dev`, so nothing else moves.
+// 131 → 132 (no analytics change): a day whose steps the active wearable's
+// own count won names it: `inputs_used` ['wearable_pedometer'] and its own
+// note, where it still named the phone pedometer it outcounted (the Home card
+// read "Phone"). Wearable days only; every other day's envelope unchanged.
+// 132 → 133 (no analytics change): a wearable that stores skin temperature as
+// its own records (the Helio's temperature rounds start on their own second)
+// had every reading dropped, because the sparse substrate reads only rows
+// with HR. Each reading now joins the HR row of its minute. Wearables whose
+// temperature already rode on the HR rows, and every band day, unchanged.
+const int kAlgoVersion = 133;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2154,7 +2188,16 @@ const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // REPIN: protocol main @ fbadb5b (#84 realtime packet decoder, #85 image
 // update payload builders). NO kAlgoVersion bump: neither is read by any
 // derivation; WHOOP output unchanged (freeze goldens).
-const String kProtocolPin = 'fbadb5bd055965d9400e266d6cf42748992ba950';
+// REPIN: protocol feat/zepp-family @ d74cbc8 (Huami2021 transport for the
+// Helio Strap, additions only on top of fbadb5b). Its decoders feed the
+// Helio adapter at ingest; WHOOP output unchanged (freeze goldens).
+// REPIN: protocol feat/zepp-family @ f2398ab (#86 head: review fixes to the
+// Huami2021 transport and decoders). Ingest only; WHOOP output unchanged.
+// REPIN: protocol feat/zepp-family @ e4ccba2 (an activity round whose count
+// doesn't fit 4- or 8-byte records decodes to nothing). NO kAlgoVersion bump:
+// ingest only, and the Helio adapter already passes the checked count; WHOOP
+// output unchanged.
+const String kProtocolPin = 'e4ccba263dc94d772af122546fc93396243151fd';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -2295,6 +2338,7 @@ bool pinnableNight({required int wakeSec, int? onsetSec}) {
 const _crossDayVendorScoreKeys = [
   'rhr',
   'rmssd',
+  'rmssd_dev',
   'readiness',
   'resp_rate',
   'skin_temp_z',
@@ -2705,6 +2749,8 @@ class _BaselineHistoryCache {
     // The readiness composite z — later days' scores are calibrated against
     // its spread (`calibratedReadinessScore`).
     'readiness_z',
+    // PE-1: an admitted wearable's own night RMSSD (ln), its own baseline.
+    'ln_rmssd_dev',
     // Per-day high quantile of the calibration-invariant dynamic accel
     // amplitude. The 1 Hz activity estimator's floor is anchored on the MEDIAN
     // of this series across trailing days, never on a same-day value: a
@@ -2964,13 +3010,18 @@ class _BaselineHistoryCache {
   /// whole rescan window on every heavy pass for nothing. Once ANY baseline
   /// series has a later day (one too short to write its own level, say, which
   /// may already be finalized), that day was priced on it, so it is hashed.
-  String _quietFingerprint() {
-    final series = _series['quiet_hrr'] ?? const <_DatedValue>[];
+  String _quietFingerprint() => _datedFingerprint('quiet_hrr');
+
+  /// [_quietFingerprint]'s rule for any trailing-window series: every dated
+  /// value an earlier day's window can see, newest excluded until a later day
+  /// exists.
+  String _datedFingerprint(String key) {
+    final series = _series[key] ?? const <_DatedValue>[];
     const span = _rescanWindowDays + _baselineWindowDays;
     final newest = series.isEmpty ? null : series.last.date;
     final laterDay = newest != null &&
         _series.entries.any((e) =>
-            e.key != 'quiet_hrr' &&
+            e.key != key &&
             e.value.isNotEmpty &&
             e.value.last.date.compareTo(newest) > 0);
     final end = series.isEmpty ? 0 : series.length - (laterDay ? 0 : 1);
@@ -2994,9 +3045,15 @@ class _BaselineHistoryCache {
     final temp = values('skin_temp_adc');
     final resp = values('resp_rate');
     final readiness = values('readiness');
+    // PE-1's device night RMSSD feeds readiness too, dated like the quiet
+    // levels (a reshuffle that keeps the median still moves a day's window).
+    // Only when the series has values: a band-only install's signature reads
+    // exactly as before.
+    final hasDev = (_series['ln_rmssd_dev'] ?? const []).isNotEmpty;
     final signature =
         'v$kAlgoVersion|n${rhr.length}|rhr${fmt(_median(rhr))}|rmssd${fmt(_median(rmssd))}'
         '|temp${fmt(_median(temp))}|resp${fmt(_median(resp))}'
+        '${hasDev ? '|dev${_datedFingerprint('ln_rmssd_dev')}' : ''}'
         '|q${_quietFingerprint()}';
     return {
       'algo_version': kAlgoVersion,
@@ -6958,6 +7015,14 @@ class DerivationEngine {
         ? null
         : await LocalDb.stepCalibrationProfile(
             daySub.deviceFamily!, counterWearing);
+    // PE-1: an admitted wearable's own RMSSD readings over the night the
+    // prepare step chose (null for every other family and every band day).
+    final deviceRmssd = await deviceNightRmssd(
+      family: daySub.deviceFamily,
+      deviceIds: daySub.deviceIds,
+      onsetSec: day.sleepOnsetSec,
+      offsetSec: day.sleepOffsetSec,
+    );
     final input = DayBundleInput(
       date: day.date,
       dayTsSec: daySub.tsSec,
@@ -7004,6 +7069,8 @@ class DerivationEngine {
       // forced window.
       sleepSource: day.sleepSource,
       useHmmStages: day.useHmmStages,
+      deviceLnRmssd: deviceRmssd?.lnRmssd,
+      deviceRmssdRefusal: deviceRmssd?.refusal,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -7465,6 +7532,7 @@ class DerivationEngine {
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
         liveStepsReal: liveSteps.total,
         liveStepsFromStrap: liveSteps.strap,
+        wearableSteps: await wearableDaySteps(daySub, day.date),
         counterProfile: counterProfile,
         counterWearing: counterWearing,
         // The same resolution's credited spans, so the walking-cadence term
@@ -7846,7 +7914,11 @@ class DerivationEngine {
           strapNight: strapNight,
           provisionalReadiness: ((bundle['clinical'] as Map?)?[
                   'readiness_composite'] as Map?)?['provisional'] ==
-              true),
+              true,
+          deviceHrvNight: deviceHrvNight(bundle)),
+      // Absent tonight means gone: an earlier pass's device night RMSSD
+      // must not outlive the readings that made it.
+      clearIfAbsent: const {'ln_rmssd_dev'},
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),
@@ -7854,6 +7926,9 @@ class DerivationEngine {
         'readiness': sc('readiness'),
         'readiness_z': sc('readiness_z'),
         'ln_rmssd': sc('ln_rmssd'),
+        // Only when the device's readings produced it; a day without it
+        // has any earlier row removed by putDayResult.
+        'ln_rmssd_dev': ?sc('ln_rmssd_dev'),
         'resp_rate': sc('resp_rate'),
         'skin_temp_z': sc('skin_temp_z'),
         // RAW nightly ADC mean — the baseline series for skin_temp_z. Written
@@ -8228,6 +8303,10 @@ class DerivationEngine {
       Map<String, dynamic>? merged;
       for (final e in p.entries) {
         if (!carrySleep && sub == 'scalars' && e.key == 'nap_min') continue;
+        // PE-1's device night RMSSD is a FIRST-half scalar whose absence
+        // means the readings failed the gate tonight: carrying the previous
+        // value back in would bank a refused night into the baseline.
+        if (sub == 'scalars' && e.key == 'ln_rmssd_dev') continue;
         if (n.containsKey(e.key) || e.value == null) continue;
         (merged ??= Map<String, dynamic>.from(n))[e.key] = e.value;
         carried = true;
@@ -8452,7 +8531,9 @@ class DerivationEngine {
   /// its method family, except a wearable's skin temperature, which is that
   /// device family's own nights (see [_BaselineHistoryCache.load]).
   static String? _baselineFamily(String key, String? deviceFamily) =>
-      key == 'skin_temp_adc' && isWearableFamily(deviceFamily)
+      (key == 'skin_temp_adc' && isWearableFamily(deviceFamily)) ||
+              (kDeviceSeriesFamilyKeys.contains(key) &&
+                  kDeviceRmssdFamilies.contains(deviceFamily))
           ? deviceFamily
           : methodFamily(deviceFamily);
 
@@ -8498,6 +8579,7 @@ class DerivationEngine {
     // two cannot score the day on different levels.
     m['quiet_hrr_history'] = before('quiet_hrr');
     m['readiness_z_history'] = before('readiness_z');
+    m['device_ln_rmssd_history'] = before('ln_rmssd_dev');
     return m;
   }
 
@@ -8988,6 +9070,9 @@ class DerivationEngine {
       'date': date,
       'rhr': col('rhr') ?? sc('rhr'),
       'rmssd': col('rmssd') ?? sc('rmssd'),
+      // PE-1: the device's own night RMSSD (ms), for the breakdown's HRV row
+      // on a night with no beats. Only admitted families ever bank it.
+      if (sc('ln_rmssd_dev') case final ln?) 'rmssd_dev': math.exp(ln),
       'readiness': col('readiness') ?? sc('readiness'),
       'resp_rate': sc('resp_rate'),
       'skin_temp_z': sc('skin_temp_z'),
@@ -9519,6 +9604,7 @@ class DerivationEngine {
     double? dynFloorG,
     int liveStepsReal = 0,
     int liveStepsFromStrap = 0,
+    int? wearableSteps,
     int dynHistoryDays = 0,
     List<List<int>> stepSpans = const [],
     /// This day's `sessions` rows (`LocalDb.sessionsInRange`), for the
@@ -9616,6 +9702,7 @@ class DerivationEngine {
       dynHistoryDays,
       counterProfile: counterProfile,
       counterWearing: counterWearing,
+      wearableSteps: wearableSteps,
     );
     // `_stepsAndEnergy` just wrote `steps` — REAL pedometer counts from
     // `live_coverage`, band 100 Hz or phone, never an estimate. `wake` was
@@ -9936,6 +10023,7 @@ class DerivationEngine {
     Map<String, dynamic>? scMap,
     int liveStepsReal, {
     int liveStepsFromStrap = 0,
+    int? wearableSteps,
     CounterDeltas? counter,
     StepCalibrationProfile? profile,
     int wearing = Wearing.wrist,
@@ -9972,8 +10060,23 @@ class DerivationEngine {
     final useBand = calibratedBand != null &&
         calibratedBand > 0 &&
         calibratedBand > liveStepsReal;
-    final steps = useBand ? calibratedBand : liveStepsReal;
-    final calibrated = useBand && profile != null && profile.isCalibrated;
+    // Rung 2b, the active wearable's OWN pedometer total for the day (a
+    // count it measured, served as the day's steps by owner decision
+    // 2026-11-22): a whole-day answer like the chip counter, so it joins the
+    // same max rather than the windowed sum (adding it would count every walk
+    // the phone also counted twice).
+    final wearable = wearableSteps != null && wearableSteps > 0
+        ? wearableSteps
+        : null;
+    final useWearable = wearable != null &&
+        wearable > (useBand ? calibratedBand : liveStepsReal);
+    final steps = useWearable
+        ? wearable
+        : useBand
+            ? calibratedBand
+            : liveStepsReal;
+    final calibrated =
+        useBand && !useWearable && profile != null && profile.isCalibrated;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
       scMap?['steps'] = steps.toDouble();
@@ -9987,6 +10090,8 @@ class DerivationEngine {
       // won. Null (never 0) when this generation has no counter at all. Raw
       // ticks; `counter_calibration` carries the factor applied to `value`.
       'band_measured': rawBand,
+      // The active wearable's own daily count, and whether it won.
+      'wearable_measured': ?wearable,
       if (counter != null && wearing != 0)
         'counter_wearing': wearingName(wearing),
       if (calibrated)
@@ -10003,7 +10108,7 @@ class DerivationEngine {
       // When the on-chip counter is the day's answer, WHEN it counted: hourly
       // spans off the counter's own per-record times, scaled by the same
       // factor as `value` and summing to it exactly.
-      if (useBand && bandSpans != null)
+      if (useBand && !useWearable && bandSpans != null)
         'spans': _scaleSpans(bandSpans, rawBand!, calibratedBand),
       // WHICH SENSOR COUNTED WHAT, so a screen can say so instead of implying
       // the phone's count came off the wrist or the other way round. Only the
@@ -10013,7 +10118,9 @@ class DerivationEngine {
           ? <String, int>{
               // What the chip counted, not the scaled value: the factor is
               // in `counter_calibration`.
-              if (useBand)
+              if (useWearable)
+                'wearable': wearable
+              else if (useBand)
                 'strap_counter': rawBand!
               else ...{
                 if (strap > 0) 'strap': strap,
@@ -10023,13 +10130,15 @@ class DerivationEngine {
           : const <String, int>{},
       'source': !haveRealSteps
           ? null
-          : useBand
+          : useWearable
+              ? 'wearable'
+              : useBand
               ? 'strap_counter'
               : (strap > 0 && phone > 0)
                   ? 'mixed'
                   : (strap > 0 ? 'strap' : 'phone'),
       'confidence': haveRealSteps
-          ? (useBand ? stepCounterConfidence(profile) : 0.9)
+          ? (useBand && !useWearable ? stepCounterConfidence(profile) : 0.9)
           : 0.0,
       // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
       // ways: this code path never estimates anything (that is the whole point
@@ -10047,6 +10156,8 @@ class DerivationEngine {
       // reads these to label the card.
       'inputs_used': !haveRealSteps
           ? const <String>[]
+          : useWearable
+              ? const ['wearable_pedometer']
           : useBand
               ? const ['band_step_counter']
               : <String>[
@@ -10054,7 +10165,11 @@ class DerivationEngine {
                   if (phone > 0) 'phone_pedometer',
                 ],
       'note': haveRealSteps
-          ? (useBand
+          ? (useWearable
+              ? 'the wearable\'s own daily step count, as it counted it; used '
+                  'whole when it counted more than the other sensors, never '
+                  'added to them'
+              : useBand
               ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
                   'counter; wrapped and reset boundaries contribute nothing '
                   'rather than a guess'
@@ -10118,6 +10233,7 @@ class DerivationEngine {
     int dynHistoryDays, {
     StepCalibrationProfile? counterProfile,
     int counterWearing = Wearing.wrist,
+    int? wearableSteps,
   }) {
     try {
       // STEPS FIRST — they depend on NOTHING from the band substrate.
@@ -10142,6 +10258,7 @@ class DerivationEngine {
         scMap,
         liveStepsReal,
         liveStepsFromStrap: liveStepsFromStrap,
+        wearableSteps: wearableSteps,
         counter: counter,
         profile: counterProfile,
         wearing: counterWearing,
@@ -11853,6 +11970,7 @@ class DerivationEngine {
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
       liveStepsFromStrap: inp.liveStepsFromStrap,
+      wearableSteps: inp.wearableSteps,
       counterProfile: inp.counterProfile,
       counterWearing: inp.counterWearing,
       dynHistoryDays: inp.dynHistoryDays,
@@ -12642,6 +12760,11 @@ class _DayBlocksInput {
   /// isolate, which has no handle.
   final int liveStepsFromStrap;
 
+  /// The active wearable's own step count for the day (its pedometer), or
+  /// null: a whole-day alternative to the windowed sum, like the gen5 chip
+  /// counter (`_writeSteps`). Read before the isolate, which has no handle.
+  final int? wearableSteps;
+
   /// The SAME resolution's credited spans, as `[startSec, endSec, steps]` —
   /// the walking-cadence energy term prices wake minutes off these (see
   /// `cadenceSpmForMinutes`). Credited, never raw rows, so a step the ladder
@@ -12716,6 +12839,7 @@ class _DayBlocksInput {
     this.counterProfile,
     this.counterWearing = Wearing.wrist,
     this.liveStepsFromStrap = 0,
+    this.wearableSteps,
     this.stepSpans = const [],
     required this.dynFloorG,
     required this.dynHistoryDays,

@@ -340,7 +340,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
           StatusCard(
             l?.circadianDetailNoNightsTitle ?? 'No nights to plot yet',
             l?.circadianDetailNoNightsBody ?? '0 nights scored.',
-            fix: l?.circadianDetailNoNightsFix ?? 'Wear the band overnight',
+            fix: l?.circadianDetailNoNightsFix ?? 'Wear your device overnight',
             icon: LucideIcons.calendarClock,
           )
         else

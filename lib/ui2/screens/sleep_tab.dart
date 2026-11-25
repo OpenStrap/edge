@@ -8,8 +8,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
 import '../profile/alarm.dart';
 import '../ui2.dart';
 import '../guides/help_entry.dart';
@@ -36,6 +38,8 @@ class SleepTab extends StatelessWidget {
         Section(
           l?.sleepTabMoreTitle ?? 'Alarm and body clock',
           Column(children: [
+            // The alarm buzzes the band; without one it has nothing to arm.
+            if (_hasBand(c)) ...[
             detailLinkRow(
                 c,
                 LucideIcons.alarmClock,
@@ -45,6 +49,7 @@ class SleepTab extends StatelessWidget {
                 () => Navigator.of(c).push(MaterialPageRoute<void>(
                     builder: (_) => const AlarmScreen()))),
             const SizedBox(height: S.x3),
+            ],
             detailLinkRow(
                 c,
                 LucideIcons.sunMoon,
@@ -58,5 +63,15 @@ class SleepTab extends StatelessWidget {
         const HelpEntry(topic: GuideTopic.sleep),
       ],
     );
+  }
+}
+
+/// A band is paired, or there is no AppState above (gallery, goldens: as
+/// before). Selected, so pairing or forgetting a band redraws the tab.
+bool _hasBand(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.isPaired);
+  } catch (_) {
+    return true;
   }
 }

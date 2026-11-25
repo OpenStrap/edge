@@ -54,6 +54,7 @@ void main() {
       'miband234': DeviceCategory.wearable,
       'pebble': DeviceCategory.wearable,
       'colmi': DeviceCategory.wearable,
+      'helio_strap': DeviceCategory.wearable,
       'garmin': DeviceCategory.wearable,
       'thermometer': DeviceCategory.healthMeasurement,
       'miscale_bc': DeviceCategory.healthMeasurement,

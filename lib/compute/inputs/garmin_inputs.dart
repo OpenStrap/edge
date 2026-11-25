@@ -29,6 +29,10 @@ import 'ultrahuman_inputs.dart';
 
 const String kGarminFamily = 'garmin';
 
+/// The Amazfit Helio Strap (`helio_strap.dart`). No column of its own: it is
+/// served by the declaration-built [sparseColumn].
+const String kHelioFamily = 'helio_strap';
+
 /// The widest gap, in seconds, between two readings still taken as one 1 Hz
 /// run (a strap's seconds laid over a wearable's day): a dropped second or
 /// two. A reading further off is a wearable's own and stands for its minutes.
@@ -43,6 +47,7 @@ const int kOneHzRunGapSec = 3;
 /// A family missing here gets no substrate at all (calibrationFor refuses).
 const Map<String, int> kHrCadenceSec = {
   kGarminFamily: 60,
+  kHelioFamily: 60,
   kPebbleFamily: 60,
   kMiBandFamily: 60,
   kUltrahumanFamily: 300,
@@ -59,6 +64,7 @@ const Map<String, String> kMethodFamily = {
   'gen4': 'hr_1hz',
   'gen5': 'hr_1hz',
   kGarminFamily: 'hr_1min',
+  kHelioFamily: 'hr_1min',
   kPebbleFamily: 'hr_1min',
   kMiBandFamily: 'hr_1min',
   kUltrahumanFamily: 'hr_5min',
@@ -89,29 +95,56 @@ String? hrMethod(String? family) =>
 /// A [family] watch's HR rows for [deviceId] over `[from, to]` as a
 /// substrate: HR only, absent gravity (0,0,0), no beats. Empty when there are
 /// none, or when the rows are not this family's. Shared by every family in
-/// [kHrCadenceSec].
+/// [kHrCadenceSec]. [withSkinTemp]: each HR row's own `skin_temp_c` rides
+/// beside it in centi-°C (0 = none), for a family that declares
+/// [InputSignal.skinTempC] and stores it on its HR rows.
 Future<Substrate> sparseHrSubstrate(
   String family,
   String deviceId,
   int from,
-  int to,
-) async {
+  int to, {
+  bool withSkinTemp = false,
+}) async {
   if (ana.calibrationFor(kHrCadenceSec, family) == null) {
     return Substrate.empty;
   }
   final db = await LocalDb.instance;
   final rows = await db.rawQuery(
-    'SELECT rec_ts, hr FROM decoded_onehz '
+    'SELECT rec_ts, hr, skin_temp_c FROM decoded_onehz '
     'WHERE device_id = ? AND device_family = ? AND rec_ts >= ? '
     'AND rec_ts <= ? AND hr > 0 ORDER BY rec_ts',
     [deviceId, family, from, to],
   );
   if (rows.isEmpty) return Substrate.empty;
-  return constructWearable(() => _sparseHrSubstrate(family, deviceId, rows));
+  // A device that stores temperature as its own records (the Helio's rounds
+  // start on their own seconds) has readings on rows with no HR, which the
+  // query above drops. Each such reading joins the HR row of the same
+  // minute, so it is kept without adding rows that would change the HR
+  // cadence the column is measured at.
+  var withTemp = rows;
+  if (withSkinTemp) {
+    final byMinute = <int, Object?>{
+      for (final r in await db.rawQuery(
+        'SELECT rec_ts, skin_temp_c FROM decoded_onehz '
+        'WHERE device_id = ? AND device_family = ? AND rec_ts >= ? '
+        'AND rec_ts <= ? AND skin_temp_c IS NOT NULL ORDER BY rec_ts',
+        [deviceId, family, from, to],
+      ))
+        (r['rec_ts'] as num).toInt() ~/ 60: r['skin_temp_c'],
+    };
+    withTemp = [
+      for (final r in rows)
+        r['skin_temp_c'] != null
+            ? r
+            : {...r, 'skin_temp_c': byMinute[(r['rec_ts'] as num).toInt() ~/ 60]},
+    ];
+  }
+  return constructWearable(
+      () => _sparseHrSubstrate(family, deviceId, withTemp, withSkinTemp));
 }
 
 Substrate _sparseHrSubstrate(String family, String deviceId,
-    List<Map<String, Object?>> rows) {
+    List<Map<String, Object?>> rows, bool withSkinTemp) {
   final n = rows.length;
   final zeros = List<double>.filled(n, 0);
   final none = List<int>.filled(n, -1);
@@ -125,7 +158,17 @@ Substrate _sparseHrSubstrate(String family, String deviceId,
     az: zeros,
     spo2Red: List<int>.filled(n, 0),
     spo2Ir: List<int>.filled(n, 0),
-    skinTemp: List<int>.filled(n, 0),
+    skinTemp: withSkinTemp
+        ? [
+            for (final r in rows)
+              switch (r['skin_temp_c']) {
+                // Skin on a wrist, arm or chest; anything else is the sensor
+                // off the body or its sentinel, read as no reading.
+                final num c when c >= 20 && c <= 45 => (c * 100).round(),
+                _ => 0,
+              },
+          ]
+        : List<int>.filled(n, 0),
     skinContact: List<int>.filled(n, 0),
     stepCount: none,
     hrValid: none,
@@ -228,7 +271,7 @@ final Map<String, Cell> kGarminColumn = {
     'irregular_rhythm_flag',
     reason: Why.needsBeats,
   ),
-  'steps': Cell(device: 'steps', reason: Why.noDeviceSteps),
+  'steps': wearableStepsCell,
   'strain': Cell(
     ours: (d, _) => scalar(d, 'strain'),
     reason: Why.noWakeHr,

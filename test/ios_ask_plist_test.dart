@@ -78,6 +78,17 @@ void main() {
     expect(swift, isNot(contains('bluetoothCompanyIdentifier =')));
   });
 
+  test('every shared-service picker name is declared, or iOS ignores it', () {
+    final names = RegExp(
+      '<key>NSAccessorySetupBluetoothNames</key>\\s*<array>(.*?)</array>',
+      dotAll: true,
+    ).firstMatch(plist)?.group(1);
+    expect(names, isNotNull);
+    for (final e in kAskSharedServiceNames.entries) {
+      expect(names, contains('<string>${e.value}</string>'), reason: e.key);
+    }
+  });
+
   test('ASK sensors are notify-class, never framed bands', () {
     for (final e in kAskPickerSensors) {
       expect(e.isFramed, isFalse, reason: e.id);

@@ -24,6 +24,7 @@ import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart' show AlarmConfirmation;
 import '../ble/colmi_link.dart';
+import '../ble/helio_strap_link.dart';
 import '../ble/session_link.dart';
 import '../ble/coros_link.dart';
 import '../ble/garmin_link.dart';
@@ -408,13 +409,16 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     BandOwnership.release(ownedLease);
     // Not during "delete everything": a secondary sync started now would
     // bank a device the reset is removing into the store it just emptied.
-    if (!ResetGate.changedSince(runGen)) await _syncPairedSensors();
+    if (!ResetGate.changedSince(runGen)) await syncPairedSensors();
   }
 }
 
 /// The paired sensors' piggyback on a headless wake. Runs after the band work
 /// is fully done so it can never delay or interfere with WHOOP's own timing.
-Future<void> _syncPairedSensors() async {
+/// Also Home's sync on an install whose only source is a wearable: every link
+/// here no-ops when its device is not paired, so it is the one generic "sync
+/// what is paired" there is.
+Future<void> syncPairedSensors() async {
   // Piggyback paired sensors on the same OS wake window, after the band
   // work is fully done so neither can ever delay or interfere with WHOOP's
   // own timing. Both `sync()` calls already no-op when nothing is paired
@@ -474,6 +478,14 @@ Future<void> _syncPairedSensors() async {
     await ColmiLink.instance.sync();
   } catch (e) {
     debugPrint('[bgsync] colmi sync skipped: $e');
+  }
+  // Same piggyback, same reasoning: no-ops when unpaired (and also when no
+  // auth key is stored yet — see `HelioStrapLink.sync`'s own doc), must
+  // never let a failure here mark the WHOOP cycle as errored.
+  try {
+    await HelioStrapLink.instance.sync();
+  } catch (e) {
+    debugPrint('[bgsync] helio_strap sync skipped: $e');
   }
   // Thermometer and scales: same piggyback; each no-ops when unpaired and
   // only reaches a device that happens to be awake and nearby.

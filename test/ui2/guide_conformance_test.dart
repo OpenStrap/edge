@@ -11,6 +11,7 @@
 //  * CLAIM(guide-quotes): the caption quotes that label verbatim.  * CLAIM(guide-covered): the table covers exactly the catalogue's steps (a new
 //    guide or step without a scene fails here).  * CLAIM(guide-copy): every guide string exists in every locale, differs from
 //    English where English is not a brand, and has balanced bold markup.
+import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart'; import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart'; import 'package:openstrap_edge/state/alarm_schedule.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart' show quickStart; import 'package:openstrap_edge/ui2/activity/day_strain.dart' show DayStrainDetail;
@@ -72,7 +73,9 @@ void main() { setUpAll(() async { sqfliteFfiInit(); databaseFactory = databaseFa
   for (final locale in AppLocalizations.supportedLocales) { group(locale.languageCode, () { for (final scene in _scenes) {
         testWidgets('${scene.guideId} / ${scene.stepId}: anchor and target resolve on the real ${scene.screen}', (t) async {
           final l = lookupAppLocalizations(locale); await pumpLiveGuideApp(t, home: scene.home(), locale: locale, textScale: 1.3,
-              repo: GuideFakeRepo(sleepSource: scene.sleepSource)); await settleLiveGuide(t, frames: 30); await scene.prepare?.call(t, l);
+              repo: GuideFakeRepo(sleepSource: scene.sleepSource),
+              // The alarm's door only shows with a band paired.
+              paired: scene.guideId == 'alarm-schedule' ? PairedDevice('guide', 'guide-band', generation: 'gen4') : null); await settleLiveGuide(t, frames: 30); await scene.prepare?.call(t, l);
           await settleLiveGuide(t, frames: 30); final step = _stepOf(scene); final screens = find.byType(scene.screen).evaluate().toList();
           expect(screens, hasLength(1), reason: 'exactly one ${scene.screen} on screen'); final root = screens.single;
           // Looked at BEFORE any scrolling: this is what the run sees after a frame.

@@ -683,4 +683,136 @@ void main() {
       expect(ids, ['s4']);
     });
   });
+
+  // A wearable storing one HR a minute: each sample stands for 60 s. Counted
+  // as one second each, its zone minutes read 60x short, and a 5-sample peak
+  // median is a five-minute median.
+  group('minute-cadence HR', () {
+    final ts = [for (var i = 0; i < 20; i++) 1000 + i * 60];
+    final bpm = [for (var i = 0; i < 20; i++) i == 10 ? 175 : 150];
+
+    test('zone minutes count each sample as its own minute', () {
+      final z = zoneMinutesFor(bpm, 190, hrTs: ts);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(20, 1e-9));
+    });
+
+    test('a 1 Hz stream counts exactly as before', () {
+      final ts1 = [for (var i = 0; i < 300; i++) 5000 + i];
+      final b1 = [for (var i = 0; i < 300; i++) 140 + i % 30];
+      expect(zoneMinutesFor(b1, 190, hrTs: ts1), zoneMinutesFor(b1, 190));
+    });
+
+    test('a gap longer than the cadence is not zone time', () {
+      final gapped = [...ts.sublist(0, 10), for (final t in ts.sublist(10)) t + 3600];
+      final z = zoneMinutesFor(bpm, 190, hrTs: gapped);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(20, 1e-9));
+    });
+
+    test("the peak is the hardest minute, not a five-minute median", () {
+      final s = computeManualSessionStats(
+        hrTs: ts,
+        hrBpm: bpm,
+        profile: const Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm'),
+        hrMax: 190,
+      );
+      expect(s.maxHr, 175);
+    });
+
+    test('lost contact on a 1 Hz stream is not read as a coarser stream', () {
+      // HR only at 0, 1 and 600 s of a 1 Hz stream: three worn seconds.
+      final t = [for (var i = 0; i <= 600; i++) 9000 + i];
+      final b = [for (var i = 0; i <= 600; i++) i == 0 || i == 1 || i == 600 ? 150 : 0];
+      final s = computeManualSessionStats(
+        hrTs: t,
+        hrBpm: b,
+        profile: const Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm'),
+        hrMax: 190,
+      );
+      expect(s.zoneMinutes.fold<double>(0, (a, b) => a + b), closeTo(0.05, 1e-9));
+    });
+
+    test('a window mixing minute HR and a 1 Hz strap weights each by its own source', () {
+      // 20 minutes of wearable minute HR, then 10 minutes of a 1 Hz strap.
+      final t = [for (var i = 0; i < 20; i++) i * 60, for (var i = 0; i < 600; i++) 1200 + i];
+      final b = List<int>.filled(t.length, 150);
+      final caps = [for (var i = 0; i < 20; i++) 60, for (var i = 0; i < 600; i++) 1];
+      final z = zoneMinutesFor(b, 190, hrTs: t, capsSec: caps, endSec: 1800);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(30, 0.05));
+    });
+
+    test('a minute-HR hour covers the hour, and a mixed window weights its mean by time', () {
+      const prof = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+      final hour = computeManualSessionStats(
+        hrTs: [for (var i = 0; i < 60; i++) i * 60],
+        hrBpm: List<int>.filled(60, 120),
+        hrCadenceSec: List<int>.filled(60, 60),
+        endSec: 3600,
+        profile: prof,
+        hrMax: 190,
+      );
+      expect(hour.hrSampleCount, 60);
+      expect(hour.coveredSec, 3600, reason: 'complete, not 60 seconds of it');
+      // Ten minutes of 60 bpm minute HR, then a minute of 180 bpm at 1 Hz.
+      final mixed = computeManualSessionStats(
+        hrTs: [for (var i = 0; i < 10; i++) i * 60, for (var i = 0; i < 60; i++) 600 + i],
+        hrBpm: [...List<int>.filled(10, 60), ...List<int>.filled(60, 180)],
+        hrCadenceSec: [...List<int>.filled(10, 60), ...List<int>.filled(60, 1)],
+        endSec: 660,
+        profile: prof,
+        hrMax: 190,
+      );
+      expect(mixed.avgHr, closeTo(71, 1));
+    });
+
+    test('an hour of 5-minute HR prices as an hour, like the same hour at 1 minute', () {
+      const prof = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+      ManualSessionStats at(int every) => computeManualSessionStats(
+            hrTs: [for (var t = 0; t < 3600; t += every) t],
+            hrBpm: [for (var t = 0; t < 3600; t += every) 150],
+            hrCadenceSec: [for (var t = 0; t < 3600; t += every) every],
+            endSec: 3600,
+            profile: prof,
+            hrMax: 190,
+            restingHr: 55,
+            quietHrr: 0.2,
+          );
+      final five = at(300), one = at(60);
+      expect(one.strain, isNotNull);
+      expect(five.strain, closeTo(one.strain!, 1e-9));
+    });
+
+    test('a clipped sparse span prices its seconds, not a rounded-up minute', () {
+      const prof = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+      ManualSessionStats run(List<int> ts, int end) => computeManualSessionStats(
+            hrTs: ts,
+            hrBpm: List<int>.filled(ts.length, 150),
+            hrCadenceSec: List<int>.filled(ts.length, 300),
+            endSec: end,
+            profile: prof,
+            hrMax: 190,
+            restingHr: 55,
+            quietHrr: 0.2,
+          );
+      // 0..300 then a sample at 300 clipped to 90 s: 6.5 minutes, so 6
+      // whole minutes priced, the same as a 360 s window with one sample cut
+      // to 60 s.
+      final clipped = run([0, 300], 390);
+      final whole = run([0, 300], 360);
+      expect(clipped.strain, closeTo(whole.strain!, 1e-9));
+    });
+
+    test('a sparse minute is the mean HR of the seconds it holds', () {
+      // 90 s at 180 then 30 s at 80: the second minute is half of each.
+      expect(sparseMinutes([180, 80], [300, 300], [90, 30]), [180, 130]);
+      // Whole-minute spans emit their own HR.
+      expect(sparseMinutes([150, 120], [300, 300], [120, 60]), [150, 150, 120]);
+    });
+
+    test("the window's end clips the last sample's span", () {
+      // A one-minute window read inclusively: samples at 0 and 60.
+      final z = zoneMinutesFor([150, 150], 190,
+          hrTs: [0, 60], capsSec: [60, 60], endSec: 60);
+      expect(z.fold<double>(0, (a, b) => a + b), closeTo(61 / 60, 0.01));
+    });
+  });
 }

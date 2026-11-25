@@ -48,6 +48,7 @@ import '../ble/scale_presence.dart' show ScalePresenceWatcher;
 import '../ble/session_link.dart' show SessionLink;
 import '../ble/colmi_link.dart' show ColmiLink;
 import '../ble/coros_link.dart' show CorosLink;
+import '../ble/helio_strap_link.dart' show HelioStrapLink;
 import '../ble/garmin_link.dart' show GarminLink;
 import '../ble/miband_link.dart' show MiBand234Link;
 import '../ble/oura_link.dart' show OuraLink;
@@ -56,9 +57,12 @@ import '../ble/ultrahuman_link.dart' show UltrahumanLink;
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
+import '../compute/inputs/garmin_inputs.dart' show isWearableFamily;
 import '../compute/inputs/canonical.dart'
     show
+        activeWearable,
         flagOnOrPrimary,
+        wearableLastTs,
         onWearableDaysChanged,
         refreshSessionSensorSources,
         substrateDays;
@@ -504,6 +508,33 @@ class AppState extends ChangeNotifier {
 
   bool get isPaired => paired != null;
 
+  /// A flag-on active wearable is chosen (`activeWearable`), cached for the
+  /// sync getters below; refreshed on boot, on device-row changes and on every
+  /// wearable flag or choice change ([refreshWearableSource]).
+  bool _wearableSource = false;
+
+  /// Whether ANYTHING measures: the band, or the active wearable with its flag
+  /// on. The gates that mean "this install has data coming" (onboarding, the
+  /// cadence checks and reminders, Home's no-device card, pull-to-sync) read
+  /// this; the ones that mean "the band" (its session, alarm, battery, find)
+  /// keep [isPaired]. A flag-off wearable is not a source (rule R6).
+  bool get hasSource => isPaired || _wearableSource;
+
+  /// Bumped by every [refreshWearableSource] and by a reset, so only the
+  /// newest read may write [_wearableSource].
+  int _wearableSourceSeq = 0;
+
+  /// Re-reads [hasSource]'s wearable half; notifies only on a change. A read
+  /// that a newer one (or a reset) overtook while it awaited writes nothing.
+  Future<void> refreshWearableSource() async {
+    final seq = ++_wearableSourceSeq;
+    final on = await activeWearable() != null;
+    if (seq != _wearableSourceSeq) return;
+    if (on == _wearableSource) return;
+    _wearableSource = on;
+    if (!_disposed) notifyListeners();
+  }
+
   /// Sensors paired ALONGSIDE the primary band — a chest strap, a ring.
   ///
   /// Raw `device` rows, minus the primary. Not `PairedDevice`: that type is the
@@ -547,6 +578,7 @@ class AppState extends ChangeNotifier {
     // only when the user changes it.
     _hrPriority =
         (await LocalDb.signalPriorities())[InputSignal.hr1Hz.name] ?? const [];
+    await refreshWearableSource();
     notifyListeners();
   }
 
@@ -1635,8 +1667,14 @@ class AppState extends ChangeNotifier {
           'deleted. Try again in a minute.');
     }
     // 0 · nothing further ENTERS the database either. The band is still
-    //     connected and still draining — see [_resetting].
-    ResetGate.enter();
+    //     connected and still draining — see [_resetting]. Raised inside
+    //     the Helio pairing lock: a pairing mid-persist finishes before the
+    //     gate rises (and the wipe below removes what it wrote), and one
+    //     that has not started persisting sees the generation moved. The
+    //     section is only the raise, so it waits on nothing.
+    await HelioStrapLink.exclusive(() async {
+      ResetGate.enter();
+    });
     var primaryEnded = false;
     try {
       // Wait for a running backup and remove copies while the selected folder
@@ -1716,7 +1754,7 @@ class AppState extends ChangeNotifier {
       } catch (e) {
         _log('[reset] coach chat delete failed: $e');
       }
-      // The ring's and Mi Band's 16-byte pairing keys. iOS keeps keychain
+      // The ring's, Mi Band's and Helio Strap's pairing keys. iOS keeps keychain
       // items across an uninstall, and a ring still holding the old key needs
       // a factory reset before it pairs again. A delete of a key that was
       // never written is a no-op, so every non-primary id is tried for both,
@@ -1724,6 +1762,8 @@ class AppState extends ChangeNotifier {
       final keysDropped = [
         await OuraLink.dropStoredKeys(secondaryIds),
         await MiBand234Link.dropStoredKeys(secondaryIds),
+        // One fixed item, not keyed by device: the strap's key.
+        await HelioStrapLink.dropStoredKey(),
       ];
       resetLeftPairingKeys = keysDropped.contains(false);
 
@@ -1782,6 +1822,10 @@ class AppState extends ChangeNotifier {
       _lastRecTs = null;
       _bandUntimedArchive = false;
       lastSynced = null;
+      // The active wearable's cached source flag: left on, `hasSource` kept
+      // a wiped install out of the welcome screen until the next refresh.
+      _wearableSource = false;
+      _wearableSourceSeq++; // an in-flight refresh must not restore it
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
       await signOut();
@@ -1840,6 +1884,7 @@ class AppState extends ChangeNotifier {
     await bounded('colmi', ColmiLink.instance.stop);
     await bounded('garmin', GarminLink.instance.stop);
     await bounded('miband234', MiBand234Link.instance.stop);
+    await bounded('helio_strap', HelioStrapLink.instance.stop);
     await bounded('pebble', PebbleLink.instance.stop);
     await bounded('coros', CorosLink.instance.stop);
     for (final link in SessionLink.all) {
@@ -1870,8 +1915,8 @@ class AppState extends ChangeNotifier {
     // First run, fresh install: offer "existing v2 user vs new user" before we
     // ask anyone to pair. A returning (already-paired) user skips it even if the
     // choice flag predates this build.
-    if (_onboardChoice == null && !isPaired) return AppRoute.welcome;
-    if (!isPaired) return AppRoute.pairing;
+    if (_onboardChoice == null && !hasSource) return AppRoute.welcome;
+    if (!hasSource) return AppRoute.pairing;
     if (!profileComplete) return AppRoute.profile;
     return AppRoute.shell;
   }
@@ -2541,7 +2586,14 @@ class AppState extends ChangeNotifier {
       if (!recoveryNightSettled(
         dayId: dayId,
         payload: payload,
-        dataEdgeSec: await LocalDb.lastDecodedRecTs() ?? 0,
+        // The edge of the device the night came off: the active wearable's
+        // for a wearable night (the band's is 0 there, so it settled only
+        // through the 12 h give-up), the band's otherwise. Never the larger
+        // of the two: a wearable synced to 08:00 would certify a band night
+        // whose own data stops at its 06:00 wake.
+        dataEdgeSec: isWearableFamily(payload?['device_family'] as String?)
+            ? await wearableLastTs() ?? 0
+            : await LocalDb.lastDecodedRecTs() ?? 0,
         nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       )) {
         return;
@@ -2600,7 +2652,7 @@ class AppState extends ChangeNotifier {
   /// any prefs change), then run the data-driven foreground nudges.
   Future<void> runCadenceChecks() async {
     try {
-      if (!isPaired) return;
+      if (!hasSource) return;
       await _ensureRemindersScheduled();
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
@@ -2885,6 +2937,10 @@ class AppState extends ChangeNotifier {
   /// False when the pass threw or any day failed (logged), so a caller that
   /// owes the user more than a log line can tell.
   Future<bool> rederiveDays(Set<String> days) async {
+    // A wearable's flag or the choice of wearable moved (the only caller of
+    // this through `onWearableDaysChanged`): whether anything measures may
+    // have too.
+    await refreshWearableSource();
     if (days.isEmpty) return true;
     while (_derive.running) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -3424,7 +3480,7 @@ class AppState extends ChangeNotifier {
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
-    if (isPaired) unawaited(_ensureRemindersScheduled());
+    if (hasSource) unawaited(_ensureRemindersScheduled());
     // SECOND FRAMED BAND (iOS 18+): the ASK picker must run with NO
     // CBCentralManager alive in the process. This is the only such moment —
     // `main()`'s two flutter_blue_plus calls (setOptions/setLogLevel) return

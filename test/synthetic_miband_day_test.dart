@@ -164,7 +164,7 @@ void main() {
       'skin_temp': 'unavailable',
       'readiness': 'estimated',
       'irregular_rhythm': 'unavailable',
-      'steps': 'device',
+      'steps': 'ours',
       'strain': 'ours',
       'calories': 'ours',
       'movement': 'estimated',
@@ -276,8 +276,10 @@ void main() {
     expect(find.text('Estimated'), findsOneWidget, reason: 'readiness');
     expect(find.text('From your Mi Band 2/3 · 1-min heart rate'),
         findsWidgets);
-    expect(find.text("Your Mi Band 2/3's own value"), findsOneWidget,
-        reason: 'its own steps');
+    // Its own step count is the day's steps now (owner decision
+    // 2026-11-22), served as ours, not labelled as the band's own value.
+    expect(find.text("Your Mi Band 2/3's own value"), findsNothing,
+        reason: 'its steps are the day\'s steps');
   });
 
   test("a daytime sleep block's minutes stay out of the night's stages",

@@ -47,6 +47,7 @@ import '../../ble/ble_state.dart'
         classifyBleBlocker,
         kMaxConcurrentSecondaryLinks;
 import '../../ble/hrs_link.dart';
+import '../../ble/helio_strap_link.dart' show pairHelioStrapWithTypedKey;
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -337,6 +338,17 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
                   'sensors alongside your band. Remove one to add another.');
     }
     if (!mounted) return const PairOutcome.failed('');
+    // The strap pairs only with the key its vendor app issued, and a plain
+    // pair would save a row with none (every sync then ends at once). A
+    // nearby tap opens its key screen instead.
+    if (sensor.entry.id == kHelioStrap.id) {
+      await HrsLink.stopScanIfRunning(this);
+      final r =
+          await _openEntry(sensor.entry, returnOnPair: true, selected: cand);
+      return r == BandFlowResult.pairedWearable
+          ? const PairOutcome.saved()
+          : const PairOutcome.failed('');
+    }
     setState(() => _busy = cand.device.remoteId.str);
     // OUR OWN SCAN, ENDED FIRST. It runs for a 15 s window and the user has
     // tapped a row several seconds into it, so without this the radio keeps
@@ -362,7 +374,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   /// a scanned band handed over by [AddDeviceFlow] ([remoteId], [modelKnown]
   /// as [AddDeviceIo.openBandFlow]).
   Future<BandFlowResult> _openEntry(BandEntry entry,
-      {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false}) async {
+      {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false,
+      BandCandidate? selected}) async {
     // A handoff from AddDeviceFlow awaits the scan shutdown first; the user may
     // have left meanwhile, and neither branch below may touch a disposed context.
     if (!mounted) return BandFlowResult.closed;
@@ -409,11 +422,16 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       builder: (_) => PairSensorScreen(
         entry: sensor.entry,
         returnOnPair: returnOnPair,
+        selected: selected,
         onPicked: sensor.pick,
-        // The ring alone can be paired with the key its own app installed —
-        // see `pairOuraRingWithKey`.
-        onPickedWithKey:
-            sensor.entry.id == kOura.id ? pairOuraRingWithTypedKey : null,
+        // The ring can be paired with the key its own app installed — see
+        // `pairOuraRingWithKey`. The strap has no keyless path at all, so
+        // its typed-key function is the only way it pairs.
+        onPickedWithKey: switch (sensor.entry.id) {
+          final id when id == kOura.id => pairOuraRingWithTypedKey,
+          final id when id == kHelioStrap.id => pairHelioStrapWithTypedKey,
+          _ => null,
+        },
         ),
       ),
     );

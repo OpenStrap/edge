@@ -27,8 +27,8 @@ void main() {
         if (e.role == DeviceRole.band) e.id,
     };
     expect(bands, {
-      'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'pebble',
-      'colmi', 'garmin',
+      'gen4', 'gen5', 'oura', 'coros', 'ultrahuman', 'miband234', 'helio_strap',
+      'pebble', 'colmi', 'garmin',
     });
   });
 

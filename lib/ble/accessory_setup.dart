@@ -82,9 +82,18 @@ class AccessorySetup {
   /// service must be declared under `OSAskSensorServices`; the native side
   /// refuses anything else. Sent in [plistUuid] form (`180D`, not the 128-bit
   /// expansion), the form the plist declares. An already-approved sensor comes back with no sheet.
-  static Future<String> showSensorPicker(List<String> services) async {
+  ///
+  /// [name] (an advertised-name substring, declared under
+  /// `NSAccessorySetupBluetoothNames`) and [label] tell apart a sensor that
+  /// shares its service with another: the sheet lists only devices with that
+  /// name, and an earlier approval is reused only if it was made under
+  /// [label].
+  static Future<String> showSensorPicker(List<String> services,
+      {String? name, String? label}) async {
     final id = await _ch.invokeMethod<String>('showPicker', <String, Object>{
       'services': [for (final s in services) plistUuid(s)],
+      'name': ?name,
+      'label': ?label,
     });
     if (id == null || id.isEmpty) {
       throw Exception('Pairing cancelled.');

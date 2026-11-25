@@ -106,7 +106,7 @@ void main() {
     expect(find.textContaining('could not be read'), findsOneWidget);
     expect(find.text('Try again'), findsOneWidget);
     expect(find.text('Nothing recorded today'), findsNothing);
-    expect(find.textContaining('Wear the band'), findsNothing);
+    expect(find.textContaining('Wear your device'), findsNothing);
     expect(repo.reads, 1);
 
     await t.tap(find.text('Try again'));

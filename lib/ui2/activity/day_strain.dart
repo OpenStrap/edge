@@ -363,7 +363,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
                   'The day strain is ${displayFixed(s, 1)}. The waking minutes '
                       'it was built from are not stored for this day.'),
           fix: (s == null && !saw)
-              ? (l?.dayStrainWearBandFix ?? 'Wear the band through the day')
+              ? (l?.dayStrainWearBandFix ?? 'Wear your device through the day')
               : '',
           icon: LucideIcons.trendingUp,
         ),

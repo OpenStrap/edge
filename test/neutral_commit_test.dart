@@ -127,6 +127,106 @@ void main() {
     expect(onehz.single['skin_temp_c'], 34.2);
   });
 
+  // A strap's HR record and its temperature record both stamped on the same
+  // minute (the Helio strap's activity and temperature rounds do this) used to
+  // be two REPLACEs on one key: the second nulled the first's column.
+  for (final hrFirst in [true, false]) {
+    test('same-second HR and temperature in one batch keep both '
+        '(${hrFirst ? 'HR' : 'temperature'} first)', () async {
+      const hr = NeutralSample(
+          anchor: TimeAnchor.measured, tsEpoch: 1750000060, hr: 58, rrMs: [1030]);
+      const temp = NeutralSample(
+          anchor: TimeAnchor.measured, tsEpoch: 1750000060, skinTempC: 33.6);
+      await LocalDb.commitSyncBatch(
+        const [],
+        const [],
+        deviceId: 'helio-1',
+        deviceFamily: 'helio_strap',
+        neutrals: hrFirst ? const [hr, temp] : const [temp, hr],
+      );
+      final db = await LocalDb.instance;
+      final row = (await db.query('decoded_onehz',
+              where: 'device_id = ? AND ts_ms = ?',
+              whereArgs: ['helio-1', 1750000060000]))
+          .single;
+      expect(row['hr'], 58);
+      expect(row['skin_temp_c'], 33.6);
+      expect(row['device_family'], 'helio_strap');
+      final rr = await db.query('decoded_rr',
+          where: 'device_id = ? AND ts_ms = ?',
+          whereArgs: ['helio-1', 1750000060000]);
+      expect(rr.single['rr_ms'], 1030,
+          reason: 'a temperature-only sample must not evict the beats');
+    });
+  }
+
+  // The realistic shape: a later session re-fetches the strap's overlapping
+  // window but its activity round fails (retries exhausted) while the
+  // temperature round lands. Its temperature-only rows must not null the HR
+  // the earlier session banked.
+  test('a later temperature-only session keeps the banked HR', () async {
+    Future<void> write(List<NeutralSample> n) => LocalDb.commitSyncBatch(
+        const [], const [],
+        deviceId: 'helio-1', deviceFamily: 'helio_strap', neutrals: n);
+    await write(const [
+      NeutralSample(anchor: TimeAnchor.measured, tsEpoch: 1750000180, hr: 61),
+    ]);
+    await write(const [
+      NeutralSample(
+          anchor: TimeAnchor.measured, tsEpoch: 1750000180, skinTempC: 33.9),
+    ]);
+    final db = await LocalDb.instance;
+    final row = (await db.query('decoded_onehz',
+            where: 'device_id = ? AND ts_ms = ?',
+            whereArgs: ['helio-1', 1750000180000]))
+        .single;
+    expect(row['hr'], 61);
+    expect(row['skin_temp_c'], 33.9);
+  });
+
+  test("the device's own RMSSD and breathing samples merge onto the HR row",
+      () async {
+    await LocalDb.commitSyncBatch(const [], const [],
+        deviceId: 'helio-1',
+        deviceFamily: 'helio_strap',
+        neutrals: const [
+          NeutralSample(anchor: TimeAnchor.measured, tsEpoch: 1750000240, hr: 55),
+          NeutralSample(
+              anchor: TimeAnchor.measured, tsEpoch: 1750000240, deviceRmssdMs: 48),
+          NeutralSample(
+              anchor: TimeAnchor.measured, tsEpoch: 1750000240, deviceRespBrpm: 14),
+        ]);
+    final db = await LocalDb.instance;
+    final row = (await db.query('decoded_onehz',
+            where: 'device_id = ? AND ts_ms = ?',
+            whereArgs: ['helio-1', 1750000240000]))
+        .single;
+    expect(row['hr'], 55);
+    expect(row['dev_rmssd_ms'], 48);
+    expect(row['dev_resp_brpm'], 14);
+  });
+
+  test('a re-read still wins per field it carries', () async {
+    Future<void> write(List<NeutralSample> n) => LocalDb.commitSyncBatch(
+        const [], const [],
+        deviceId: 'helio-1', deviceFamily: 'helio_strap', neutrals: n);
+    await write(const [
+      NeutralSample(
+          anchor: TimeAnchor.measured, tsEpoch: 1750000120, hr: 70, skinTempC: 33.0),
+    ]);
+    await write(const [
+      NeutralSample(anchor: TimeAnchor.measured, tsEpoch: 1750000120, hr: 64),
+    ]);
+    final db = await LocalDb.instance;
+    final row = (await db.query('decoded_onehz',
+            where: 'device_id = ? AND ts_ms = ?',
+            whereArgs: ['helio-1', 1750000120000]))
+        .single;
+    expect(row['hr'], 64, reason: 'the newer heart rate replaces the older');
+    expect(row['skin_temp_c'], 33.0,
+        reason: 'a field the re-read does not carry is kept, not nulled');
+  });
+
   test('deviceId defaults to the primary and neutrals is a no-op for gen4',
       () async {
     // Single-device equivalence: passing neutrals: null (the default) queues

@@ -87,5 +87,13 @@ void main() {
       expect(s.toLowerCase(), isNot(contains('age')));
       expect(s.toLowerCase(), isNot(contains('wrist')));
     });
+
+    // A known device with no calibration (a wearable with no motion channel)
+    // IS stamped: "not stamped with which strap" would be false there.
+    test('a stamped but uncalibrated device is not called unstamped', () {
+      final s = whyFromNote('unknown_device_family:id=helio_strap')!;
+      expect(s, isNot(contains('not stamped')));
+      expect(s, contains('no calibration for this one'));
+    });
   });
 }

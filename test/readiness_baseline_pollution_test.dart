@@ -340,4 +340,47 @@ void main() {
     await LocalDb.putMetricSeriesValue('2027-01-07', 'quiet_hrr', 0.14);
     expect(await debugBaselineSignature(), isNot(withLater));
   });
+
+  test("a device's night RMSSD history moves the rescan signature", () async {
+    final db = await LocalDb.instance;
+    await db.delete('metric_series', where: 'key = ?', whereArgs: ['ln_rmssd_dev']);
+    final none = await debugBaselineSignature();
+    expect(none, isNot(contains('|dev')), reason: 'no series, no term');
+    for (final (d, v) in [('2027-02-01', 3.6), ('2027-02-02', 3.8), ('2027-02-03', 3.7)]) {
+      await LocalDb.putMetricSeriesValue(d, 'ln_rmssd_dev', v);
+    }
+    await LocalDb.putMetricSeriesValue('2027-02-04', 'rhr', 52);
+    final before = await debugBaselineSignature();
+    expect(await debugBaselineSignature(), before);
+    // Same median (3.7), but the 02-02 night is not what it was.
+    await LocalDb.putMetricSeriesValue('2027-02-02', 'ln_rmssd_dev', 3.9);
+    await LocalDb.putMetricSeriesValue('2027-02-01', 'ln_rmssd_dev', 3.5);
+    expect(await debugBaselineSignature(), isNot(before));
+  });
+
+  test('a full derive that no longer makes device HRV removes the old row', () async {
+    final db = await LocalDb.instance;
+    Future<List<Map<String, Object?>>> rows(String table) => db.query(table,
+        where: "date = '2027-03-01' AND key = 'ln_rmssd_dev'");
+    Future<void> put(Map<String, double?> series, {Set<String> clear = const {}}) =>
+        LocalDb.putDayResult(
+          dayId: '2027-03-01',
+          algoVersion: 1,
+          payloadJson: '{}',
+          windowJson: '{}',
+          series: series,
+          clearIfAbsent: clear,
+          seriesMethod: (k) => (method: 'm', family: 'helio_strap', cls: 'ours'),
+        );
+    await put({'ln_rmssd_dev': 3.6, 'rhr': 50});
+    expect(await rows('metric_series'), hasLength(1));
+    expect(await rows('metric_method'), hasLength(1));
+    // A backfill writing one key leaves it alone.
+    await put({'strain': 9});
+    expect(await rows('metric_series'), hasLength(1));
+    // The full derive owns the key: absent now, gone now.
+    await put({'rhr': 51}, clear: const {'ln_rmssd_dev'});
+    expect(await rows('metric_series'), isEmpty);
+    expect(await rows('metric_method'), isEmpty);
+  });
 }

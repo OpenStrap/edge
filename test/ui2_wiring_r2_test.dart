@@ -464,7 +464,7 @@ void main() {
                   workoutLive: true))));
       expect(find.text('A workout is still running'), findsOneWidget);
       expect(find.text('Nothing recorded for today'), findsNothing);
-      expect(find.text('Sync the band'), findsNothing);
+      expect(find.text('Sync your device'), findsNothing);
     });
   });
 
