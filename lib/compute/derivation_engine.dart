@@ -11007,7 +11007,9 @@ class DerivationEngine {
 
   @visibleForTesting
   static List<Map<String, num>> dayRespCurve(Substrate s,
-      {int sleepOnsetSec = 0, int sleepOffsetSec = 0}) {
+      {int sleepOnsetSec = 0,
+      int sleepOffsetSec = 0,
+      int tonightSleepOnsetSec = 0}) {
     // RESP-05 — the gate is per-FAMILY, and an unknown strap gets no cut rather
     // than gen4's (device.dart contract). Refusing the whole curve is the
     // correct output for every pre-schema-41 day and every import: we cannot
@@ -11036,6 +11038,7 @@ class DerivationEngine {
     const sleepWinMs = 600000.0;
     final sleepLoMs = sleepOnsetSec * 1000.0;
     final sleepHiMs = sleepOffsetSec * 1000.0;
+    final tonightMs = tonightSleepOnsetSec * 1000.0;
     final out = <Map<String, num>>[];
     var dayLo = 0, sleepLo = 0;
     var lastEmit = -1e18;
@@ -11046,12 +11049,16 @@ class DerivationEngine {
       while (ts[i] - ts[dayLo] > winMs) {
         dayLo++;
       }
-      while (ts[i] - ts[sleepLo] > sleepWinMs) {
+      final inMain =
+          sleepLoMs < sleepHiMs && ts[i] >= sleepLoMs && ts[i] < sleepHiMs;
+      final inTonight = tonightMs > 0 && ts[i] >= tonightMs;
+      final asleep = inMain || inTonight;
+      final sleepStartMs = inTonight ? tonightMs : sleepLoMs;
+      while (sleepLo < i &&
+          (ts[i] - ts[sleepLo] > sleepWinMs ||
+              (asleep && ts[sleepLo] < sleepStartMs))) {
         sleepLo++;
       }
-      final asleep = sleepLoMs < sleepHiMs &&
-          ts[i] >= sleepLoMs &&
-          ts[i] <= sleepHiMs;
       final lo = asleep ? sleepLo : dayLo;
       if (i - lo >= 30 && ts[i] - lastEmit > 300000) {
         // 5-min cadence
@@ -11996,7 +12003,9 @@ class DerivationEngine {
         tonightSleepOnsetSec: inp.tonightSleepOnsetSec);
     seriesPatch['hrv_day'] = dayHrvCurve(daySub);
     seriesPatch['resp_day'] = dayRespCurve(daySub,
-        sleepOnsetSec: onset, sleepOffsetSec: offset);
+        sleepOnsetSec: onset,
+        sleepOffsetSec: offset,
+        tonightSleepOnsetSec: inp.tonightSleepOnsetSec);
     seriesPatch['skin_temp_day'] = _daySkinTempCurve(daySub);
     bundlePatch['restlessness'] = _restlessness(sleepSub);
     // napSub extends a few hours past this day's calendar end so a nap/
