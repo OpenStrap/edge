@@ -1947,7 +1947,14 @@ import 'vendor_sleep.dart';
 // had every reading dropped, because the sparse substrate reads only rows
 // with HR. Each reading now joins the HR row of its minute. Wearables whose
 // temperature already rode on the HR rows, and every band day, unchanged.
-const int kAlgoVersion = 133;
+// 133 → 134 (analytics change): the sleep-regularity grid walks each hypnogram
+// segment in ELAPSED minutes instead of deriving its span from the clock-minute
+// difference of its endpoints (segmentClockMinutes in crossday_pipeline). Across
+// the autumn fall-back the clock steps back an hour, so a sub-hour segment
+// straddling it marked up to ~1390 clock-minutes observed/asleep instead of its
+// true ~10, inflating SRI; spring over-counted similarly. Only nights whose
+// sleep segments cross a DST change move; every other night's SRI is unchanged.
+const int kAlgoVersion = 134;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

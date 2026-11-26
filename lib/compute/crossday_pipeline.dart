@@ -797,6 +797,25 @@ double _nightClockMin(int epochSec, Map<String, dynamic> d) {
   return (_localTodMin(epochSec) + shiftMin) % 1440.0;
 }
 
+/// Clock-minutes-of-day [0,1440) that a hypnogram segment [startSec, endSec)
+/// (epoch SECONDS) covers, one entry per ELAPSED minute of the segment. Walking
+/// elapsed time and mapping each instant through [_nightClockMin] keeps DST
+/// honest: when the local clock steps back an hour in autumn (or forward in
+/// spring) it is not monotone in elapsed time, so deriving the span from the
+/// clock-minute DIFFERENCE of the endpoints over-counts — a 10-minute segment
+/// across the autumn fall-back spanned 1390 clock-minutes (#914). The repeated
+/// autumn hour maps two different instants to the same clock-minute; that is
+/// fine for coverage, since the caller only sets a flag. An empty or reversed
+/// segment covers nothing. Capped at a full grid (1440).
+List<int> segmentClockMinutes(int startSec, int endSec, Map<String, dynamic> d) {
+  if (endSec <= startSec) return const [];
+  final elapsedMin = math.min(((endSec - startSec) / 60).ceil(), 1440);
+  return [
+    for (var k = 0; k < elapsedMin; k++)
+      _nightClockMin(startSec + k * 60, d).floor() % 1440,
+  ];
+}
+
 /// How far a stored night's OWN local clock sits from the phone's CURRENT
 /// zone, in seconds [0,86400) — 0 when it was recorded in this zone, or when
 /// we cannot tell. Called by the record builder
@@ -1309,29 +1328,20 @@ bool _isNextDay(String a, String b) {
         final end = (seg['end'] as num?)?.toDouble();
         final stage = seg['stage'] as String?;
         if (start == null || end == null) continue;
-        // Segment bounds are epoch SECONDS; map to clock-minute-of-day [0,1440)
-        // on the clock the night was LIVED on (see _nightClockMin), so a trip
-        // does not shift every earlier night against the later ones.
-        final startMin = _nightClockMin(start.round(), d).floor();
-        // end is exclusive of the segment's trailing edge; cover [start,end).
-        final endMinRaw = _nightClockMin(end.round(), d).ceil();
-        // WRAP, don't clamp. Both bounds are clock-minutes-of-day in [0,1440),
-        // so a segment crossing local midnight reads e.g. start=1430,
-        // end=20 — and the old `for (m = startMin; m < endMin; m++)` simply
-        // never executed, silently DROPPING that segment (the comment claimed
-        // it "clamps into grid"; it didn't). Every night has exactly one such
-        // segment, so sleep-regularity was always computed with a hole at the
-        // boundary. Unwrap the end past 1440 and write back modulo the grid.
-        // `endMinRaw == startMin` stays a genuinely empty (sub-minute) segment.
-        final endMin =
-            endMinRaw < startMin ? endMinRaw + epochsPerDay : endMinRaw;
-        final span = math.min(endMin - startMin, epochsPerDay);
         // 'unobserved' is the band seeing nothing (off wrist, lost contact):
         // neither asleep nor awake, so those minutes stay uncovered.
         if (stage == 'unobserved') continue;
         final asleepSeg = stage != null && stage != 'wake';
-        for (var k = 0; k < span; k++) {
-          final m = (startMin + k) % epochsPerDay;
+        // Segment bounds are epoch SECONDS. Walk the segment in ELAPSED minutes
+        // and map each instant to its clock-minute-of-day (segmentClockMinutes),
+        // so a segment crossing local midnight AND one crossing a DST change are
+        // both covered by the same per-minute `% epochsPerDay`. The old code
+        // derived the span from the clock-minute DIFFERENCE of the two
+        // endpoints, which is wrong whenever the clock is not monotone in
+        // elapsed time: across the autumn fall-back the clock steps back an
+        // hour, so a 10-minute segment read endMin-startMin == 1390 and marked
+        // nearly the whole day observed/asleep (#914).
+        for (final m in segmentClockMinutes(start.round(), end.round(), d)) {
           cov[m] = true;
           if (asleepSeg) asleep[m] = true;
         }
