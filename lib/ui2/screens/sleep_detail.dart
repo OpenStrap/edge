@@ -50,6 +50,10 @@ const _recordNights = 14;
 /// enough to still be "you lately" rather than "you last season".
 const _window = 28;
 
+/// Other sleep shorter than this is not worth a line under the total (the nap
+/// detector's own floor is 15 min).
+const _kOtherSleepMinMin = 15;
+
 /// The window a "Change the times" correction means. Each picked clock time
 /// lands on whichever calendar day puts it nearest the time it corrects, so a
 /// bedtime moved across midnight (23:50 → 00:20, or 00:30 → 23:40) stays on
@@ -935,6 +939,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final tst = n['duration_min'] as num?;
     final eff = n['efficiency'] as num?;
     final inBed = n['in_bed_min'] as num?;
+    final allDay = n['total_asleep_min'] as num?;
     final from = clockOfTs(n['onset_ts'] as num?);
     final to = clockOfTs(n['wake_ts'] as num?);
     // Wall clock minus the minutes nobody watched. `efficiency_pct` has always
@@ -950,6 +955,17 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         const SizedBox(height: S.x1),
         Text(l?.sleepDetailTotalSleep ?? 'Total sleep',
             style: F.cap.copyWith(color: p.ink3)),
+        // A second sleep or naps the same day. Absent total stays absent: an
+        // unjudged nap day publishes no total, so nothing is claimed here.
+        if (tst != null &&
+            allDay != null &&
+            allDay - tst >= _kOtherSleepMinMin) ...[
+          const SizedBox(height: S.x2),
+          Text(
+              l?.sleepDetailOtherSleep(hm(allDay - tst), hm(allDay)) ??
+                  'Plus ${hm(allDay - tst)} of other sleep, ${hm(allDay)} in all',
+              style: F.body.copyWith(color: p.ink2)),
+        ],
         if (from.isNotEmpty && to.isNotEmpty) ...[
           const SizedBox(height: S.x4),
           Row(children: [

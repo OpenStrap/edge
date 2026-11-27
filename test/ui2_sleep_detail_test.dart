@@ -365,6 +365,34 @@ void main() {
     expect(find.text('ASLEEP OF THAT'), findsOneWidget);
   });
 
+  testWidgets('a second sleep the same day is added under the total, once',
+      (t) async {
+    // 443 min main + 240 min second sleep = 683 min (11h 23m) in all.
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        night: {..._night(), 'total_asleep_min': 683},
+      ),
+    );
+    expect(find.textContaining('Plus 4h'), findsOneWidget);
+    expect(find.textContaining('11h 23m in all'), findsOneWidget);
+  });
+
+  testWidgets('no line without a total, or for a few minutes of nap',
+      (t) async {
+    await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+    expect(find.textContaining('of other sleep'), findsNothing);
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        night: {..._night(), 'total_asleep_min': 443 + 10},
+      ),
+    );
+    expect(find.textContaining('of other sleep'), findsNothing);
+  });
+
   // ── SLP-02 · settling time, forced windows only ───────────────────────────
 
   testWidgets('sleep-onset latency is banded, and only on your own window',
