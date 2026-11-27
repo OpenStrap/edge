@@ -65,10 +65,12 @@ class ChartSpec {
 
   static double? _asNum(dynamic v) {
     if (v == null) return null;
-    if (v is num) return v.toDouble();
+    // NaN/Infinity read as a gap: jsonEncode throws on them, which would stop
+    // the whole chat from saving.
+    if (v is num) return v.isFinite ? v.toDouble() : null;
     if (v is String) {
       final d = double.tryParse(v.trim());
-      if (d != null) return d;
+      if (d != null) return d.isFinite ? d : null;
       // tolerate "62 ms" / "62ms": one number, then unit text with no more
       // digits. "12,345", "7:30", "2h 15m" and "1.2k" are not a single plain
       // number, so they read as absent rather than as 12, 7, 2 or 1.2.
@@ -234,6 +236,8 @@ class CoachEngine {
   String _sessionId = '';
   String _title = '';
   int _createdAt = 0;
+  /// `rev` of the session file as this engine last read or wrote it.
+  String _savedRev = '';
   String get sessionId => _sessionId;
 
   final Random _rand = Random();
@@ -447,9 +451,12 @@ class CoachEngine {
   Future<List<CoachSessionMeta>> listSessions() async {
     try {
       final f = await _indexFile();
-      if (!await f.exists()) return [];
+      if (!await f.exists()) return _sessionsFromFiles();
       final list = (jsonDecode(await f.readAsString()) as List)
           .map((e) => CoachSessionMeta.fromJson((e as Map).cast<String, dynamic>())).toList();
+      // A kill between a chat's write and the index write leaves the chat
+      // file out of the index; pick those up instead of orphaning them.
+      list.addAll(await _sessionsFromFiles(known: {for (final m in list) m.id}));
       list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       return list;
     } catch (_) {
@@ -460,7 +467,7 @@ class CoachEngine {
     }
   }
 
-  Future<List<CoachSessionMeta>> _sessionsFromFiles() async {
+  Future<List<CoachSessionMeta>> _sessionsFromFiles({Set<String> known = const {}}) async {
     final out = <CoachSessionMeta>[];
     try {
       final prefix = 'coach_s_${storageKey}_';
@@ -470,7 +477,8 @@ class CoachEngine {
         final name = e.uri.pathSegments.last;
         if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
         final id = name.substring(prefix.length, name.length - 5);
-        if (!idPattern.hasMatch(id)) continue;
+        if (!idPattern.hasMatch(id) || known.contains(id)) continue;
+        if (_deletedSessionIds.contains('$storageKey/$id')) continue;
         try {
           final j = jsonDecode(await e.readAsString()) as Map<String, dynamic>;
           out.add(CoachSessionMeta(id, (j['title'] ?? '').toString(),
@@ -484,10 +492,12 @@ class CoachEngine {
 
   /// Write to a temp file then rename, so a kill mid-write can't leave a
   /// truncated index behind.
-  Future<void> _writeIndex(List<CoachSessionMeta> metas) async {
-    final f = await _indexFile();
+  Future<void> _writeIndex(List<CoachSessionMeta> metas) async =>
+      _writeAtomic(await _indexFile(), jsonEncode(metas.map((m) => m.toJson()).toList()));
+
+  static Future<void> _writeAtomic(File f, String body) async {
     final tmp = File('${f.path}.tmp');
-    await tmp.writeAsString(jsonEncode(metas.map((m) => m.toJson()).toList()), flush: true);
+    await tmp.writeAsString(body, flush: true);
     await tmp.rename(f.path);
   }
 
@@ -506,6 +516,7 @@ class CoachEngine {
     _sessionId = _newId();
     _title = '';
     _createdAt = 0;
+    _savedRev = '';
     _history.clear();
     transcript.clear();
   }
@@ -522,6 +533,7 @@ class CoachEngine {
       _sessionId = id;
       _title = (j['title'] ?? '').toString();
       _createdAt = (j['createdAt'] as num?)?.toInt() ?? 0;
+      _savedRev = (j['rev'] ?? '').toString();
       _history
         ..clear()
         ..addAll(((j['history'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()));
@@ -559,13 +571,33 @@ class CoachEngine {
       if (cut > 0) _history.removeRange(0, cut);
     }
     try {
-      final f = await _sessionFile(_sessionId);
-      await f.writeAsString(jsonEncode({
-        'title': _title, 'createdAt': _createdAt, 'updatedAt': now,
+      var f = await _sessionFile(_sessionId);
+      // Another engine (a second coach screen) saved this chat since this one
+      // read it. Overwriting would drop its turns, so save ours as a new chat.
+      final onDisk = await _revOf(f);
+      if (onDisk != null && onDisk != _savedRev) {
+        _sessionId = _newId();
+        _createdAt = now;
+        f = await _sessionFile(_sessionId);
+      }
+      final rev = _newId();
+      await _writeAtomic(f, jsonEncode({
+        'rev': rev, 'title': _title, 'createdAt': _createdAt, 'updatedAt': now,
         'history': _history, 'transcript': transcript.map((e) => e.toJson()).toList(),
       }));
+      _savedRev = rev;
       await _updateIndex(_sessionId, _title, now, _preview());
     } catch (_) {}
+  }
+
+  static Future<String?> _revOf(File f) async {
+    try {
+      if (!await f.exists()) return null;
+      final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      return (j['rev'] ?? '').toString();
+    } catch (_) {
+      return null; // unreadable: nothing worth keeping, overwrite it
+    }
   }
 
   Future<void> _updateIndex(String id, String title, int updatedAt, String preview) async {
@@ -1329,15 +1361,13 @@ class CoachEngine {
     _fn('render',
         'Render a RICH figure from data you fetched. Pick a "type" and provide its '
         'payload. Types: line/area/bar/multi_series {x_labels,series:[{name,values}],unit}; '
-        'scatter {points:[{x,y,label?}],x_label,y_label}; '
-        'dual_axis {x_labels,left:{name,values,unit},right:{name,values,unit}}; '
-        'stacked_zone_bar {x_labels,zones:[{name,values}]}; '
+        'lanes {series:[{name,values}]} (2-3 quantities in different units); '
         'hypnogram {segments:[{start,end,stage}]} (stage∈wake|light|deep|rem, epoch sec); '
-        'kpi_grid {cards:[{label,value,unit?,delta?,baseline?,spark?:[n]}]}; '
-        'gauge {value,min?,max?,label?,unit?}; '
-        'heatmap {rows:[label],cols:[label],values:[[n]],unit?}; '
-        'range_band {label,value,min,max,unit?}; '
-        'table {columns:[..],rows:[[..]]}. Always include a "title".',
+        'zone_bar {zones:[5 numbers]} (minutes in HR zones 1-5); '
+        'gauge {value,min?,max?,unit?}; '
+        'kpi_grid {cards:[{label,value,unit?,baseline?}]}; '
+        'heatmap {weeks:[[7 numbers, Mon-Sun]],unit?} (null for a day with no data); '
+        'table {columns:[..],rows:[[..]]}. Nothing else renders. Always include a "title".',
         {
           'type': {'type': 'string'},
           'title': {'type': 'string'},
