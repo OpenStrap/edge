@@ -181,6 +181,17 @@ void main() {
         MiBand234SyncFailure.keyRejected);
   });
 
+  test('a band in the wrong state (0x02) is a retry, not a re-pair',
+      () async {
+    await MiBand234Link.instance.ingestForTest(_deviceId, _key, (i, v) {
+      if (v[0] == 0x02) return [_challengeFrame(_challenge)];
+      if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x02)];
+      return const [];
+    }, nowSeconds: () => _nowSec);
+    expect(MiBand234Link.instance.lastSyncFailure,
+        MiBand234SyncFailure.authUnanswered);
+  });
+
   test('a band that stops answering mid-handshake is told apart from a '
       'rejected key', () async {
     await MiBand234Link.instance.ingestForTest(
