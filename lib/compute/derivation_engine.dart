@@ -4314,7 +4314,7 @@ class DerivationEngine {
           final r = await backfillReadinessCalibration(
             // Both substrate sources, as `_deriveScope` reads them: a wearable
             // day with rows is the derive's, not the re-score's.
-            rawDays: await substrateDays(),
+            rawDays: substrateDays,
             zHistoryLoader: () async {
               final h = await _BaselineHistoryCache.load();
               return (day, fam) => h.valuesBefore('readiness_z', day,
@@ -4974,8 +4974,10 @@ class DerivationEngine {
     // the night while it was still going (the first light pass after 00:15
     // sees an hour of it). The day re-stages until it finalizes, so a pass
     // after the day's window has closed is always still to come.
+    // The edge is the band's OR the active wearable's: a wearable-only night
+    // has no band rows, and a band-only edge would never let it fold.
     final mayFold = SleepProfilePolicy.nightOver(
-          dataEdgeSec: await LocalDb.lastDecodedRecTs(),
+          dataEdgeSec: await _withWearableEdge(await LocalDb.lastDecodedRecTs()),
           dayEndSec: range.$2,
         ) &&
         SleepProfilePolicy.shouldFold(
@@ -6467,11 +6469,13 @@ class DerivationEngine {
                 prepared, profile, dataNowSec, history);
             done++;
             // false also covers declines and a tonight hold, which are not
-            // failures; a partial row is (its second half did not run).
+            // failures; a second half that did not run is, even when the
+            // carried-forward row was filed non-partial.
             if (!ok &&
-                ((await LocalDb.dayResult(dayId))?['partial'] as num?)
-                        ?.toInt() ==
-                    1) {
+                (_secondHalfFailed.contains(dayId) ||
+                    ((await LocalDb.dayResult(dayId))?['partial'] as num?)
+                            ?.toInt() ==
+                        1)) {
               failed++;
             }
           }
@@ -6723,6 +6727,15 @@ class DerivationEngine {
   /// Test seam: days [rescanRecent] fails as if their derive threw.
   @visibleForTesting
   static Set<String> debugFailRescanDays = {};
+
+  /// Test seam: days whose offloaded second half fails as if it timed out.
+  @visibleForTesting
+  static Set<String> debugFailSecondHalfDays = {};
+
+  /// Days whose last derive's second half failed. A carried-forward row can
+  /// be filed non-partial ([recoveryOutcome]), so [rescanRecent] reads this,
+  /// not the row, to know the day still sits on the old baseline.
+  final Set<String> _secondHalfFailed = {};
   static const _rescanRetriesCursor = 'baseline_sig_retries';
   static const _rescanMaxRetries = 3;
 
@@ -6969,6 +6982,7 @@ class DerivationEngine {
     bool suppliedSubstrate = false,
     bool allowSessionReuse = false,
   }) async {
+    _secondHalfFailed.remove(day.date);
     final daySub = day.daySub;
     final sleepSub = day.sleepSub;
     // Every edge this day is judged by (the wear window, aging, the stored
@@ -7380,6 +7394,9 @@ class DerivationEngine {
     // this day once its raw substrate is pruned.
     var secondHalfOk = true;
     try {
+      if (debugFailSecondHalfDays.contains(day.date)) {
+        throw TimeoutException('debugFailSecondHalfDays');
+      }
       final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
       final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
       // `liveSteps`/`stepSpans` were read above, before the pipeline input —
@@ -7743,6 +7760,7 @@ class DerivationEngine {
       await _persistWakeDayFeatures(dayId: day.date, wake: blocks.wake);
     } catch (e, st) {
       secondHalfOk = false;
+      _secondHalfFailed.add(day.date);
       _dropRetainedDay(day.date);
       _log('day-blocks (offloaded second half) failed for ${day.date} — '
           'persisting headline day (partial): $e');
@@ -8745,7 +8763,16 @@ class DerivationEngine {
     final fromSec = _localDayLabelToSec(first);
     final toSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final out = <String, List<String>>{};
-    for (final r in await LocalDb.sessionsInRange(fromSec, toSec)) {
+    // Only the three columns read here: no trace blobs, and no flag-off mask
+    // (it blanks scores, never status, start or type).
+    final rows = await (await LocalDb.instance).query(
+      'sessions',
+      columns: ['status', 'start_ts', 'type'],
+      where: 'start_ts >= ? AND start_ts <= ?',
+      whereArgs: [fromSec, toSec],
+      orderBy: 'start_ts DESC',
+    );
+    for (final r in rows) {
       if (r['status'] == 'live') continue;
       final start = (r['start_ts'] as num?)?.toInt();
       final type = r['type']?.toString();
@@ -10936,6 +10963,12 @@ class DerivationEngine {
         var ssd = 0.0;
         var nd = 0;
         for (var k = lo + 1; k <= i; k++) {
+          // Successive in TIME, not just in the list: beats more than half a
+          // beat further apart than the interval itself sit either side of a
+          // gap or a dropped beat, and their difference is not beat-to-beat.
+          // Half a beat of slack, because placed beat chains run a few
+          // percent short across record seams.
+          if (ts[k] - ts[k - 1] > 1.5 * rr[k]) continue;
           final d = rr[k] - rr[k - 1];
           // Malik 20% rule: a real beat-to-beat change is small; a successive
           // jump >20% (or >200 ms) is an ectopic/missed beat — skip that pair so
@@ -11182,6 +11215,9 @@ class DerivationEngine {
           Substrate s, int onsetSec, int offsetSec) =>
       _daytimeHrv(s, onsetSec, offsetSec);
 
+  @visibleForTesting
+  static Map<String, dynamic> restlessness(Substrate s) => _restlessness(s);
+
   /// Daytime HRV, MOTION-GATED. The gate is the feature, not a refinement: an
   /// RR series filtered only on plausibility lets a bin of walking into the
   /// average as low HRV, and the number then reads as stress when it is
@@ -11241,6 +11277,7 @@ class DerivationEngine {
     };
     final bins = <int, List<double>>{};
     double? prev;
+    var prevTs = 0.0;
     for (var k = 0; k < s.rrMs.length; k++) {
       final tSec = s.rrTsMs[k] ~/ 1000;
       if ((offsetSec > onsetSec && tSec >= onsetSec && tSec < offsetSec) ||
@@ -11257,11 +11294,15 @@ class DerivationEngine {
         prev = null;
         continue;
       }
-      if (prev != null) {
+      // Successive in TIME, not just in the list: daytime RR is sparse, and a
+      // beat a minute after the last one is not its neighbour (same half-beat
+      // slack as [dayHrvCurve]).
+      if (prev != null && s.rrTsMs[k] - prevTs <= 1.5 * v) {
         final d = v - prev;
         if (d.abs() <= 200) (bins[tSec ~/ binSec] ??= <double>[]).add(d * d);
       }
       prev = v;
+      prevTs = s.rrTsMs[k];
     }
     final timeline = <Map<String, dynamic>>[];
     final means = <double>[];
@@ -11328,7 +11369,15 @@ class DerivationEngine {
     }
     var restless = 0, bouts = 0, longestStill = 0, curStill = 0;
     var prevMoved = false;
+    int? prevMin;
     for (final m in keys) {
+      // A minute with no accel is unobserved, not still: a hole ends the
+      // still stretch and the bout on either side of it.
+      if (prevMin != null && m != prevMin + 1) {
+        curStill = 0;
+        prevMoved = false;
+      }
+      prevMin = m;
       final moved = (byMinMove[m] ?? 0) / (byMinTot[m] ?? 1) >= 0.20;
       if (moved) {
         restless++;

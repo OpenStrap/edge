@@ -185,7 +185,7 @@ void main() {
     try {
       final raw = await substrateDays();
       expect(raw, contains(edDay));
-      result = await backfillReadinessCalibration(rawDays: raw,
+      result = await backfillReadinessCalibration(rawDays: () async => raw,
           zHistoryLoader: () async => (day, family) => <double>[]);
     } finally { endWearableDayIndexPass(); }
     expect(result.rescored, 1, reason: 'pruned history still needs calibration');

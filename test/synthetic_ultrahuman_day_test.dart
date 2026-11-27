@@ -93,10 +93,15 @@ void main() {
     expect(await substrateDays(), containsAll(_dayIds));
     // Twice: the first pass derives the days concurrently, so the baselines
     // and the cross-day rollup only see each other on the second.
+    // A ring-only install has no band edge; the ring's own edge must still
+    // let its finished nights fold into the sleep profile.
+    final folds = <bool>[];
     for (var i = 0; i < 2; i++) {
-      expect(
-          await DerivationEngine().runDays(_profile, _dayIds, force: true), i == 0 ? 5 : 4);
+      final e = DerivationEngine()
+        ..debugOnStagingWalk = (fold, _, _) => folds.add(fold);
+      expect(await e.runDays(_profile, _dayIds, force: true), i == 0 ? 5 : 4);
     }
+    expect(folds, contains(true));
     final cells = (await dayCells(_dayId))!;
     // ignore: avoid_print
     print(const JsonEncoder.withIndent('  ').convert(cells));
@@ -400,6 +405,18 @@ void main() {
     expect(await LocalDb.getCursor('baseline_sig'), 'stale');
     expect(await DerivationEngine().rescanRecent(_profile), 5);
     expect(await LocalDb.getCursor('baseline_sig'), isNot('stale'));
+    // A second half that fails on a finished day carries its old row forward
+    // filed non-partial, but that row is still priced on the old baseline:
+    // it is retried, not settled.
+    await LocalDb.setCursor('baseline_sig', 'stale');
+    DerivationEngine.debugFailSecondHalfDays = {'2026-10-01'};
+    try {
+      await DerivationEngine().rescanRecent(_profile);
+    } finally {
+      DerivationEngine.debugFailSecondHalfDays = {};
+    }
+    expect((await LocalDb.dayResult('2026-10-01'))!['partial'], 0);
+    expect(await LocalDb.getCursor('baseline_sig'), 'stale');
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('the 5-minute stager reads a record against the night\'s levels', () {
