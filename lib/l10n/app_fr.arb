@@ -1798,6 +1798,7 @@
   "sleepDetailAsleepOfThat": "ENDORMI SUR CE TEMPS",
   "sleepDetailAsleep": "ENDORMI",
   "sleepDetailWatchedExplain": "Nous avons observé {watched} sur vos {inBed} passées au lit ; le reste n'est pas une mesure. Le sommeil, ainsi que les parts de phases ci-dessous, sont calculés sur le temps observé.",
+  "sleepDetailOtherSleep": "Plus {other} d'autre sommeil, {total} au total",
   "sleepDetailWindowMine": "Vous avez défini cette fenêtre",
   "sleepDetailWindowFallback": "Cette fenêtre a été déduite de la fréquence cardiaque",
   "sleepDetailStagedByRing": "Phases fournies par votre appareil",

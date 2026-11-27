@@ -4095,6 +4095,17 @@
       }
     }
   },
+  "sleepDetailOtherSleep": "Плюс {other} другого сна, всего {total}",
+  "@sleepDetailOtherSleep": {
+    "placeholders": {
+      "other": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
   "sleepDetailWindowMine": "Вы задали этот период",
   "sleepDetailWindowFallback": "Период определён по пульсу",
   "sleepDetailStagedByRing": "Стадии определены вашим устройством",

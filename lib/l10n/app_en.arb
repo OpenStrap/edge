@@ -8899,6 +8899,18 @@
   "@sleepDetailTotalSleep": {
     "description": "Caption under the big total-sleep-duration number."
   },
+  "sleepDetailOtherSleep": "Plus {other} of other sleep, {total} in all",
+  "@sleepDetailOtherSleep": {
+    "description": "Line under the total-sleep number when the day also holds naps or a second sleep: minutes asleep outside the main sleep, and the day's total.",
+    "placeholders": {
+      "other": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
   "sleepDetailInBed": "IN BED",
   "@sleepDetailInBed": {
     "description": "Inline metric label: time spent in bed."
