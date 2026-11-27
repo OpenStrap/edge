@@ -1948,12 +1948,15 @@ import 'vendor_sleep.dart';
 // with HR. Each reading now joins the HR row of its minute. Wearables whose
 // temperature already rode on the HR rows, and every band day, unchanged.
 // 133 → 134 (analytics change): the sleep-regularity grid walks each hypnogram
-// segment in ELAPSED minutes instead of deriving its span from the clock-minute
-// difference of its endpoints (segmentClockMinutes in crossday_pipeline). Across
-// the autumn fall-back the clock steps back an hour, so a sub-hour segment
-// straddling it marked up to ~1390 clock-minutes observed/asleep instead of its
-// true ~10, inflating SRI; spring over-counted similarly. Only nights whose
-// sleep segments cross a DST change move; every other night's SRI is unchanged.
+// segment through the minutes it TOUCHES, stepping elapsed time, instead of
+// deriving its span from the clock-minute difference of its endpoints
+// (segmentClockMinutes in crossday_pipeline). Across the autumn fall-back the
+// clock steps back an hour, so a sub-hour segment straddling it marked up to
+// ~1390 clock-minutes observed/asleep instead of its true ~10, inflating SRI;
+// spring over-counted similarly. The walk keeps touched-minute parity with the
+// old span on non-DST nights, so while the bump re-derives every day still on
+// disk (rows are immutable per version), only nights whose sleep segments cross
+// a DST change get a different SRI value.
 const int kAlgoVersion = 134;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

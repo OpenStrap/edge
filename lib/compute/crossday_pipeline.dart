@@ -798,21 +798,33 @@ double _nightClockMin(int epochSec, Map<String, dynamic> d) {
 }
 
 /// Clock-minutes-of-day [0,1440) that a hypnogram segment [startSec, endSec)
-/// (epoch SECONDS) covers, one entry per ELAPSED minute of the segment. Walking
-/// elapsed time and mapping each instant through [_nightClockMin] keeps DST
-/// honest: when the local clock steps back an hour in autumn (or forward in
-/// spring) it is not monotone in elapsed time, so deriving the span from the
-/// clock-minute DIFFERENCE of the endpoints over-counts — a 10-minute segment
-/// across the autumn fall-back spanned 1390 clock-minutes (#914). The repeated
-/// autumn hour maps two different instants to the same clock-minute; that is
-/// fine for coverage, since the caller only sets a flag. An empty or reversed
-/// segment covers nothing. Capped at a full grid (1440).
+/// (epoch SECONDS) TOUCHES — every minute `floor(startClock)..ceil(endClock)`,
+/// one entry per touched minute. We anchor the walk at the start of the minute
+/// `startSec` falls in and STEP through elapsed time, mapping each minute
+/// through [_nightClockMin]. This keeps two properties at once:
+///  - Touched-minute parity with the old `ceil(endClock) - floor(startClock)`
+///    span on ordinary nights: segments built from per-second labels start on
+///    arbitrary seconds, so a plain `ceil(elapsed/60)` walk from `startSec`
+///    dropped the last partly-touched minute (00:00:30–00:05:30 covered 0–4,
+///    not 0–5) and flipped sleep/wake boundary bits. The `startSec % 60` offset
+///    in the minute count restores the touched edge (reviewer measurement on
+///    #915).
+///  - DST honesty: across the autumn fall-back the clock steps back an hour, so
+///    it is NOT monotone in elapsed time. Deriving the span from the endpoints'
+///    clock-minute DIFFERENCE over-counted — a 10-minute segment spanned 1390
+///    clock-minutes (#914). Stepping elapsed time and mapping each minute marks
+///    only the minutes actually lived.
+/// The repeated autumn hour maps two instants to the same clock-minute; that is
+/// fine, since the caller only ever sets `cov`/`asleep` true (never false), so a
+/// boundary minute touched by both a sleep and a wake pass stays asleep. Assumes
+/// `clock_shift_sec` is a whole number of minutes. Empty/reversed segment covers
+/// nothing; capped at a full grid (1440).
 List<int> segmentClockMinutes(int startSec, int endSec, Map<String, dynamic> d) {
   if (endSec <= startSec) return const [];
-  final elapsedMin = math.min(((endSec - startSec) / 60).ceil(), 1440);
+  final base = startSec - (startSec % 60); // start of the first touched minute
+  final n = math.min(((startSec % 60) + (endSec - startSec) + 59) ~/ 60, 1440);
   return [
-    for (var k = 0; k < elapsedMin; k++)
-      _nightClockMin(startSec + k * 60, d).floor() % 1440,
+    for (var k = 0; k < n; k++) _nightClockMin(base + k * 60, d).floor() % 1440,
   ];
 }
 

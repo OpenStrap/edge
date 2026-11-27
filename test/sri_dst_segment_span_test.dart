@@ -142,4 +142,39 @@ void main() {
     expect(segmentClockMinutes(t, t, d), isEmpty);
     expect(segmentClockMinutes(t + 60, t, d), isEmpty);
   }, skip: skip);
+
+  // #915 review: segments are built from per-second labels, so they start/end on
+  // arbitrary seconds. The walk must cover every minute the segment TOUCHES
+  // (old floor(start)..ceil(end) semantics), including the last partly-touched
+  // minute — a naive ceil(elapsed/60) walk from startSec dropped it.
+  test('fractional-second segment covers every touched minute (parity)', () {
+    // 00:00:30 -> 00:05:10 EDT touches minutes 0..5 (not 0..4).
+    final mins = segmentClockMinutes(
+      _utcSec(2026, 6, 15, 4, 0) + 30,
+      _utcSec(2026, 6, 15, 4, 5) + 10,
+      d,
+    );
+    expect(mins.toSet(), {0, 1, 2, 3, 4, 5});
+    expect(mins.length, 6);
+  }, skip: skip);
+
+  test('adjacent sleep/wake segments share the boundary minute (asleep wins)',
+      () {
+    // A sleep segment ending at 00:05:30 and a wake segment starting there both
+    // touch minute 5. Since _crossDaySri only ever sets asleep[m] true, that
+    // boundary minute stays asleep — the old behaviour the walk must preserve.
+    final sleep = segmentClockMinutes(
+      _utcSec(2026, 6, 15, 4, 0),
+      _utcSec(2026, 6, 15, 4, 5) + 30,
+      d,
+    ).toSet();
+    final wake = segmentClockMinutes(
+      _utcSec(2026, 6, 15, 4, 5) + 30,
+      _utcSec(2026, 6, 15, 4, 10),
+      d,
+    ).toSet();
+    expect(sleep, contains(5));
+    expect(wake, contains(5));
+    expect(sleep.intersection(wake), {5}, reason: 'exactly one shared minute');
+  }, skip: skip);
 }
