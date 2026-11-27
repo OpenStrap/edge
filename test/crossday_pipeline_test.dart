@@ -450,12 +450,37 @@ void main() {
     });
   });
 
+  group("today's percentiles and breakdown need a row for today", () {
+    // With no derived row for today the last row is yesterday; ranking it as
+    // tonight showed yesterday's HRV/RHR as today's "percentile of you".
+    test('no is_today stamp → percentiles and breakdown are absent', () {
+      final bundle = buildCrossDayBundle(_synthDays(30), const {});
+      final pct = (bundle['percentiles'] as Map).cast<String, dynamic>();
+      for (final k in ['rmssd', 'rhr', 'readiness']) {
+        expect((pct[k] as Map)['value'], '—', reason: k);
+      }
+      expect((bundle['readiness_glassbox'] as Map)['value'], '—');
+    });
+
+    test('with the stamp → both rank today', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      final bundle = buildCrossDayBundle(days, const {});
+      final pct = (bundle['percentiles'] as Map).cast<String, dynamic>();
+      for (final k in ['rmssd', 'rhr', 'readiness']) {
+        expect((pct[k] as Map)['value'], isA<Map>(), reason: k);
+      }
+      expect((bundle['readiness_glassbox'] as Map)['value'], isA<Map>());
+    });
+  });
+
   group('percentile-of-you is oriented', () {
     test('a low resting HR reads as good, not as "among your worst"', () {
       // rhr is LOWER-is-better. Unoriented, the user's lowest resting HR in a
       // month came back labelled by its raw rank — the wrong end of the scale.
       final days = _synthDays(30);
       days.last['rhr'] = 40.0; // well below every other day in the series
+      days.last['is_today'] = true;
       final pct = ((buildCrossDayBundle(days, const {})['percentiles'] as Map)
           ['rhr'] as Map)['value'] as Map;
       expect(pct['label'], anyOf('among your best', 'better than usual'));
@@ -464,6 +489,7 @@ void main() {
     test('a high RMSSD still reads as good (higher-is-better is unchanged)', () {
       final days = _synthDays(30);
       days.last['rmssd'] = 120.0;
+      days.last['is_today'] = true;
       final pct = ((buildCrossDayBundle(days, const {})['percentiles'] as Map)
           ['rmssd'] as Map)['value'] as Map;
       expect(pct['label'], anyOf('among your best', 'better than usual'));
@@ -995,6 +1021,7 @@ void _wiredFamilies() {
       // Tonight is the ring's median night, not its worst.
       days.last['rmssd'] = 25.0;
       days.last['rhr'] = 63.0;
+      days.last['is_today'] = true;
       return days;
     }
 
@@ -1051,6 +1078,7 @@ void _wiredFamilies() {
         days[i]['rmssd_dev'] = (helio ? 40.0 : 70.0) + ((i % 5) - 2) * 2.0;
       }
       days.last['rmssd_dev'] = 40.0;
+      days.last['is_today'] = true;
       return days;
     }
 
