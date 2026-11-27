@@ -47,6 +47,7 @@ import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
 import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
+import 'json_fallback.dart';
 import 'activity_store.dart';
 import 'attach_copy.dart';
 import 'backup_extras.dart';
@@ -10441,6 +10442,62 @@ class LocalDb {
     return rows.isEmpty ? null : _withDate(rows.first);
   }
 
+  static bool? _json1;
+
+  /// Test seam: force the JSON1 answer (null re-probes).
+  @visibleForTesting
+  static set debugJson1(bool? v) => _json1 = v;
+
+  /// Whether this phone's SQLite has JSON1 (`json_valid`, `json_type`,
+  /// `json_extract`, `json_each`). sqflite on Android uses the phone's own
+  /// SQLite and some builds ship without it, so every query that names a
+  /// json_* function throws there. Readers on the derive, import and records
+  /// paths ask this first and fall back to `json_fallback.dart`. Probed once
+  /// per process.
+  static Future<bool> hasJson1([DatabaseExecutor? executor]) async {
+    final known = _json1;
+    if (known != null) return known;
+    final db = executor ?? await instance;
+    try {
+      await db.rawQuery("SELECT json_valid('{}') FROM json_each('[1]')");
+      return _json1 = true;
+    } on DatabaseException catch (e) {
+      final m = e.toString();
+      if (m.contains('no such function') || m.contains('no such table')) {
+        return _json1 = false;
+      }
+      rethrow;
+    }
+  }
+
+  /// Every served day's bundle, a few at a time, so a long history is never
+  /// all in memory at once (a bundle carries its curves). Oldest day first.
+  static Future<void> _eachServedBundleBatch(
+    Database db,
+    Future<void> Function(List<String> days, List<Object?> payloads) each, {
+    int size = 20,
+  }) async {
+    final ids = [
+      for (final r in await db.rawQuery(
+        'SELECT r.day_id FROM day_result r $_servedDayJoin ORDER BY r.day_id',
+      ))
+        '${r['day_id']}',
+    ];
+    for (var i = 0; i < ids.length; i += size) {
+      final end = i + size > ids.length ? ids.length : i + size;
+      final chunk = ids.sublist(i, end);
+      final rows = await db.rawQuery(
+        'SELECT r.day_id, r.payload_json FROM day_result r $_servedDayJoin '
+        'WHERE r.day_id IN (${List.filled(chunk.length, '?').join(',')})',
+        chunk,
+      );
+      await each(
+        [for (final r in rows) '${r['day_id']}'],
+        [for (final r in rows) r['payload_json']],
+      );
+    }
+  }
+
   /// The two numbers a re-derive needs to keep a stored night on the clock it
   /// was lived on: the served row's sleep onset instant (ms) and the
   /// `sleep_onset_sec` clock it froze. Read with json_extract, so the bundle is
@@ -10450,6 +10507,19 @@ class LocalDb {
   static Future<({num? onsetMs, num? onsetClockSec})?> storedNightClock(
       String dayId) async {
     final db = await instance;
+    if (!await hasJson1(db)) {
+      final rows = await db.rawQuery(
+        'SELECT payload_json, skipped FROM day_result '
+        'WHERE day_id = ? AND algo_version <= ? '
+        'ORDER BY algo_version DESC LIMIT 1',
+        [dayId, _servedAlgoCeiling],
+      );
+      if (rows.isEmpty) return null;
+      return storedNightClockOf(
+        rows.first['payload_json'],
+        skippedColumn: (rows.first['skipped'] as num?)?.toInt() == 1,
+      );
+    }
     // Nested CASE: json_extract raises on a malformed document and only CASE
     // branches are evaluated lazily.
     final rows = await db.rawQuery(
@@ -10574,6 +10644,23 @@ class LocalDb {
       }
     }
     final db = await instance;
+    if (!await hasJson1(db)) {
+      final rows = await db.rawQuery(
+        'SELECT r.day_id, r.payload_json FROM day_result r '
+        '$_servedNewestDaysJoin ORDER BY r.day_id DESC',
+        [limit],
+      );
+      // Off the UI isolate: a bundle carries its curves, and this is the
+      // slow-phone path.
+      final payloads = [for (final r in rows) r['payload_json']];
+      final facts = await Isolate.run(
+        () => [for (final p in payloads) dayScalarsOf(p, keys)],
+      );
+      return [
+        for (var i = 0; i < rows.length; i++)
+          _withDate({'day_id': rows[i]['day_id'], ...facts[i]}),
+      ];
+    }
     // Nested CASE rather than AND: json_type/json_extract RAISE on a malformed
     // document, and SQLite only promises lazy evaluation for CASE branches —
     // one corrupt bundle must null its own day, not fail the whole read.
@@ -10679,11 +10766,52 @@ class LocalDb {
     ];
   }
 
+  /// `v_hypnogram` for a phone without JSON1: every served day's sleep stage
+  /// segments, read off the bundle in Dart (off the UI isolate), ordered the
+  /// way the spreadsheet export orders them.
+  static Future<List<Map<String, Object?>>> hypnogramRowsNoJson1() async {
+    final db = await instance;
+    final rows = <Map<String, Object?>>[];
+    await _eachServedBundleBatch(db, (days, payloads) async {
+      rows.addAll(await Isolate.run(() => [
+            for (var i = 0; i < days.length; i++)
+              ...hypnogramRowsOf(days[i], payloads[i]),
+          ]));
+    });
+    final order = {for (var i = 0; i < rows.length; i++) rows[i]: i};
+    num? start(Map<String, Object?> r) => r['start_ts'] is num ? r['start_ts'] as num : null;
+    rows.sort((a, b) {
+      final d = (a['date'] as String).compareTo(b['date'] as String);
+      if (d != 0) return d;
+      final x = start(a), y = start(b);
+      if (x == null || y == null) {
+        if (x == null && y != null) return -1;
+        if (y == null && x != null) return 1;
+      } else if (x != y) {
+        return x.compareTo(y);
+      }
+      return order[a]!.compareTo(order[b]!);
+    });
+    return rows;
+  }
+
   /// Day labels whose LATEST-version bundle records a real sleep total
   /// (`sleep.accounting.value.tst_sec` present). Extracted IN SQLite via
   /// json_extract, so only the scalar crosses the boundary — never the payload.
   static Future<Set<String>> daysWithSleepTst() async {
     final db = await instance;
+    if (!await hasJson1(db)) {
+      final out = <String>{};
+      await _eachServedBundleBatch(db, (days, payloads) async {
+        final has = await Isolate.run(
+          () => [for (final p in payloads) hasSleepTst(p)],
+        );
+        for (var i = 0; i < days.length; i++) {
+          if (has[i]) out.add(days[i]);
+        }
+      });
+      return out;
+    }
     final rows = await db.rawQuery(
       'SELECT r.day_id FROM day_result r '
       '$_servedDayJoin '
@@ -14149,6 +14277,7 @@ class LocalDb {
         'raw_max_rec_ts': rawByDay[dayId],
         'skipped': decoded['skipped'] == true,
         'skip_reason': decoded['reason'],
+        'skip_detail': decoded['detail'],
         'rhr': row['rhr'] ?? scalars['rhr'],
         'rmssd': row['rmssd'] ?? scalars['rmssd'],
         'readiness': row['readiness'] ?? scalars['readiness'],
@@ -14727,6 +14856,15 @@ class LocalDb {
     Object? algoVersion,
   ) async {
     final db = await instance;
+    if (!await hasJson1(db)) {
+      final bundle = await db.rawQuery(
+        'SELECT payload_json FROM day_result WHERE day_id = ? AND algo_version = ?',
+        [dayId, algoVersion],
+      );
+      return bundle.isEmpty
+          ? const {}
+          : freshnessFactsOf(bundle.first['payload_json']);
+    }
     final rows = await db.rawQuery(
       "SELECT json_type(p, '\$.skipped') = 'true' AS skipped, "
       "COALESCE(json_type(p, '\$.sleep.accounting.value.tst_sec'), 'null') "
@@ -14743,6 +14881,13 @@ class LocalDb {
     );
     return rows.isEmpty ? const {} : rows.first;
   }
+
+  @visibleForTesting
+  static Future<Map<String, Object?>> pastDayFreshnessFactsForTest(
+    String dayId,
+    Object? algoVersion,
+  ) =>
+      _pastDayFreshnessFacts(dayId, algoVersion);
 
   /// The three [rawStats] fields freshness reads. [rawStats] also counts
   /// `samples` and takes MIN(rec_ts) for the diagnostics screen, which a

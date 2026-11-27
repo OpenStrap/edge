@@ -20,9 +20,11 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart' show Database;
 
 import '../ui2/activity/catalogue.dart' show exerciseByKey;
 import 'db.dart';
+import 'json_fallback.dart' show journalTagsOf;
 import 'series_codec.dart';
 
 /// One exportable table: a filename stem, a header, and the query behind it.
@@ -416,7 +418,7 @@ Future<CsvExportResult> exportCsvFiles(
     try {
       final add = set.addColumns;
       final rows = [
-        for (final r in await db.rawQuery(set.sql))
+        for (final r in await _noJson1Rows(db, set) ?? await db.rawQuery(set.sql))
           add == null ? r : {...r, ...add(r)},
       ];
       // No rows means no file. A header-only CSV is not "your data", and
@@ -440,6 +442,28 @@ Future<CsvExportResult> exportCsvFiles(
     }
   }
   return CsvExportResult(paths: paths, failed: failed);
+}
+
+/// The two sets whose SQL reads JSON (sleep stages, journal tags), answered in
+/// Dart on a phone whose SQLite has no JSON1. Null: run the SQL as usual.
+Future<List<Map<String, Object?>>?> _noJson1Rows(
+  Database db,
+  CsvExportSet set,
+) async {
+  if (set.name != 'sleep' && set.name != 'journal') return null;
+  if (await LocalDb.hasJson1(db)) return null;
+  if (set.name == 'sleep') return LocalDb.hypnogramRowsNoJson1();
+  final rows = await db.rawQuery(
+    'SELECT date, tags_json, note FROM journal ORDER BY date ASC',
+  );
+  return [
+    for (final r in rows)
+      {
+        'date': r['date'],
+        'tags': journalTagsOf(r['tags_json']),
+        'note': r['note'],
+      },
+  ];
 }
 
 Future<(Directory, int)> _newRunDir(DateTime? now) async {

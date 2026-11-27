@@ -5,9 +5,11 @@
 // once the file is in a spreadsheet, and a column of zeroes where a metric was
 // never computed is a fabrication the user will then average.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion;
 import 'package:openstrap_edge/data/csv_export.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
@@ -412,6 +414,67 @@ void main() {
       expect(lines[1], contains(',Alternating dumbbell hammer curl,'));
       expect(lines[2], contains(',retired_lift,,'),
           reason: 'an unknown key has no name, so the field is empty');
+    });
+
+    test('sleep stages and journal export through Dart when JSON1 is off',
+        () async {
+      // LAST in the group, with the newest stamps: runs are pruned newest-first,
+      // so earlier stamps would delete these files before they are read.
+      final db = await LocalDb.instance;
+      await LocalDb.putDayResult(
+        dayId: '2026-03-01',
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode({
+          'series': {
+            'hypnogram': [
+              {'start': 200, 'end': 300, 'stage': 'rem'},
+              {'start': 100, 'end': 200, 'stage': 'light'},
+            ],
+          },
+        }),
+        windowJson: '{}',
+      );
+      await db.insert('journal', {
+        'date': '2026-03-01',
+        'tags_json': '["a","b"]',
+        'note': 'n',
+        'updated_at': 1,
+      });
+      final real = [
+        for (final n in ['sleep', 'journal'])
+          kCsvExportSets.firstWhere((s) => s.name == n),
+      ];
+      // Same names and columns, SQL that can only fail: if the Dart path is
+      // really taken, that SQL is never run.
+      final brokenSql = [
+        for (final s in real)
+          CsvExportSet(
+            name: s.name,
+            title: s.title,
+            columns: s.columns,
+            sql: 'SELECT x FROM a_table_that_does_not_exist',
+          ),
+      ];
+      try {
+        LocalDb.debugJson1 = true;
+        final viaSql = await exportCsvFiles(real, now: DateTime(2027, 1, 1));
+        LocalDb.debugJson1 = false;
+        final viaDart =
+            await exportCsvFiles(brokenSql, now: DateTime(2027, 1, 2));
+        expect(viaDart.failed, isEmpty);
+        expect(viaDart.paths, hasLength(2));
+        for (var i = 0; i < 2; i++) {
+          expect(await File(viaDart.paths[i]).readAsBytes(),
+              equals(await File(viaSql.paths[i]).readAsBytes()));
+        }
+        // And with JSON1 on, the broken SQL does run, and fails.
+        LocalDb.debugJson1 = true;
+        final broken =
+            await exportCsvFiles(brokenSql, now: DateTime(2027, 1, 3));
+        expect(broken.failed, hasLength(2));
+      } finally {
+        LocalDb.debugJson1 = null;
+      }
     });
   });
 }
