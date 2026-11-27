@@ -585,6 +585,13 @@ void main() {
       expect(HrsLink.deriveTier(null, kThermometer.id), isNull);
     });
 
+    test('a band with signals but no rr intervals is not beat-to-beat', () {
+      for (final id in ['pebble', 'colmi']) {
+        expect(declaredSignals(id), isNotEmpty);
+        expect(HrsLink.deriveTier(null, id), isNull, reason: id);
+      }
+    });
+
     test('an explicit tier always wins over the derivation', () {
       expect(HrsLink.deriveTier('explicit', kThermometer.id), 'explicit');
       expect(HrsLink.deriveTier('explicit', kBleHrs.id), 'explicit');
