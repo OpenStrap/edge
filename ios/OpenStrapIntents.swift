@@ -53,11 +53,12 @@ enum OpenStrapShared {
   /// Spoken, so it is words rather than the phone's "7h 05m" — but a 45-minute
   /// nap is not "0 hours 45 minutes".
   static var sleepText: String {
-    guard sleepMin >= 0 else { return "no sleep data yet" }
+    guard sleepMin > 0 else { return "no sleep data yet" }
     let h = sleepMin / 60, m = sleepMin % 60
-    if h == 0 { return "\(m) minutes" }
+    let mins = "\(m) \(m == 1 ? "minute" : "minutes")"
+    if h == 0 { return mins }
     if m == 0 { return h == 1 ? "1 hour" : "\(h) hours" }
-    return "\(h) \(h == 1 ? "hour" : "hours") \(m) minutes"
+    return "\(h) \(h == 1 ? "hour" : "hours") \(mins)"
   }
   static var noData: String { "I don't have today's numbers yet. Open OpenStrap and sync your band." }
 
@@ -193,7 +194,7 @@ struct SleepIntent: AppIntent {
   static var openAppWhenRun = false
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    guard OpenStrapShared.hasData, OpenStrapShared.sleepMin >= 0 else {
+    guard OpenStrapShared.hasData, OpenStrapShared.sleepMin > 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
         ring: "sleep", noun: "Sleep", heldOver: true)))
     }
