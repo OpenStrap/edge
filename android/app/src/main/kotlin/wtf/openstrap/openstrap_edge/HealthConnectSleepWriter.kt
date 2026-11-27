@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.records.metadata.Metadata
+import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -49,6 +51,20 @@ internal fun sleepCleanupRange(
         return SleepCleanupRange(minOf(previousWake.plusSeconds(1), start), cleanupEnd)
     }
     return SleepCleanupRange(cleanupStart, cleanupEnd)
+}
+
+/**
+ * Inserts the new night first and deletes the stale records only once it
+ * landed, so a failed insert leaves the old night in place instead of none.
+ */
+internal suspend fun <T> insertThenDeleteStale(
+    stale: List<T>,
+    insert: suspend () -> Boolean,
+    delete: suspend (List<T>) -> Unit,
+): Boolean {
+    if (!insert()) return false
+    if (stale.isNotEmpty()) delete(stale)
+    return true
 }
 
 /** Writes one Health Connect sleep parent containing all normalized stages. */
@@ -97,14 +113,21 @@ object HealthConnectSleepWriter {
                                 ?.toLong()?.let(Instant::ofEpochMilli),
                         )
 
-                        // This removes both records created by this writer and legacy
-                        // one-stage fragments whose intervals fall inside the real
-                        // overnight window, including the portion before midnight.
-                        client.deleteRecords(
-                            SleepSessionRecord::class,
-                            TimeRangeFilter.between(cleanupRange.start, cleanupRange.end),
+                        // Stale = records created by this writer and legacy one-stage
+                        // fragments that start inside the real overnight window,
+                        // including the portion before midnight.
+                        val stale = readOwnSleepIds(context, client, cleanupRange)
+                        insertThenDeleteStale(
+                            stale,
+                            insert = { client.insertRecords(listOf(session)).recordIdsList.size == 1 },
+                            delete = { ids ->
+                                client.deleteRecords(
+                                    SleepSessionRecord::class,
+                                    recordIdsList = ids,
+                                    clientRecordIdsList = emptyList(),
+                                )
+                            },
                         )
-                        client.insertRecords(listOf(session)).recordIdsList.size == 1
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -145,6 +168,30 @@ object HealthConnectSleepWriter {
                 false
             }
         }
+    }
+
+    private suspend fun readOwnSleepIds(
+        context: Context,
+        client: HealthConnectClient,
+        range: SleepCleanupRange,
+    ): List<String> {
+        val out = ArrayList<String>()
+        var pageToken: String? = null
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    SleepSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(range.start, range.end),
+                    dataOriginFilter = setOf(DataOrigin(context.packageName)),
+                    pageToken = pageToken,
+                ),
+            )
+            response.records
+                .filter { !it.startTime.isBefore(range.start) && it.startTime.isBefore(range.end) }
+                .mapTo(out) { it.metadata.id }
+            pageToken = response.pageToken
+        } while (pageToken != null)
+        return out
     }
 
     private fun buildSession(call: MethodCall): SleepSessionRecord? {
