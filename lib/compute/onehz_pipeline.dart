@@ -1366,6 +1366,9 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       // Mifflin basal minute, which does. See the long note below.
       : heightCm == null
       ? needInputNote('height_cm')
+      // The %HRR flex gate needs a resting end, as in the engine.
+      : rhrForTrimp == null
+      ? needInputNote('resting_hr')
       : null;
   final zonesAbsentNote = perMin.isEmpty
       ? needInputNote('wake_hr')
@@ -1686,9 +1689,9 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
                       inBedSec == 0
                   ? null
                   : 100.0 * wakeSec / inBedSec,
-              'nrem_pct': tstSec == null || tstSec == 0
+              'nrem_pct': nremSec == null || tstSec == null || tstSec == 0
                   ? null
-                  : 100.0 * (nremSec ?? 0) / tstSec,
+                  : 100.0 * nremSec / tstSec,
               'rem_pct': remSec == null || tstSec == null || tstSec == 0
                   ? null
                   : 100.0 * remSec / tstSec,
