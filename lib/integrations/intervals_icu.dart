@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
@@ -14,6 +15,10 @@ import '../gps/route_models.dart';
 import 'tcx.dart';
 
 // Public OAuth client (PKCE, no secret), so the id is not sensitive.
+// Cloudflare in front of intervals.icu refuses some default client strings
+// (error 1010), so say who we are.
+const String kIntervalsUserAgent = 'OpenStrap-Edge';
+
 const String kIntervalsClientId = String.fromEnvironment('INTERVALS_CLIENT_ID', defaultValue: '2017');
 
 /// `metric_series` key -> intervals.icu wellness field, with the unit scale.
@@ -74,6 +79,7 @@ class IntervalsIcu extends ChangeNotifier {
   static const _apple = IOSOptions(accessibility: KeychainAccessibility.first_unlock);
   static const _macos = MacOsOptions(accessibility: KeychainAccessibility.first_unlock);
   static const _kAuth = 'intervals_icu_auth';
+  static const _kAuto = 'intervals_icu_auto_push';
   static const _base = 'https://intervals.icu';
   static const _scope = 'ACTIVITY:WRITE,WELLNESS:WRITE';
 
@@ -84,6 +90,20 @@ class IntervalsIcu extends ChangeNotifier {
   /// Set when intervals.icu answered 401/403: the key or token is dead and
   /// the user has to reconnect. Cleared by the next successful sign-in.
   bool authFailed = false;
+
+  /// Hourly wellness push after a derive pass. On once connected; the user can
+  /// turn it off and still send by hand.
+  bool autoPush = true;
+
+  Future<void> setAutoPush(bool on) async {
+    autoPush = on;
+    notifyListeners();
+    try {
+      await (await SharedPreferences.getInstance()).setBool(_kAuto, on);
+    } catch (e) {
+      debugPrint('intervals.icu auto-push pref not saved: $e');
+    }
+  }
 
   IntervalsIcu({http.Client? client, @visibleForTesting IntervalsAuth? auth})
       : _http = client ?? http.Client(),
@@ -98,6 +118,9 @@ class IntervalsIcu extends ChangeNotifier {
   bool get usesApiKey => _auth?.apiKey ?? false;
 
   Future<void> load() async {
+    try {
+      autoPush = (await SharedPreferences.getInstance()).getBool(_kAuto) ?? true;
+    } catch (_) {}
     try {
       final raw = await _secure.read(key: _kAuth, iOptions: _apple, mOptions: _macos);
       if (raw == null) return;
@@ -134,7 +157,7 @@ class IntervalsIcu extends ChangeNotifier {
       throw IntervalsException('Enter your athlete id and API key.');
     }
     final r = await _http.get(Uri.parse('$_base/api/v1/athlete/${a.athleteId}'),
-        headers: {'Authorization': a.header});
+        headers: {'Authorization': a.header, 'User-Agent': kIntervalsUserAgent});
     if (r.statusCode == 401 || r.statusCode == 403) {
       throw IntervalsException('intervals.icu rejected that athlete id or API key.');
     }
@@ -156,7 +179,7 @@ class IntervalsIcu extends ChangeNotifier {
         'code_challenge_method': 'S256',
       }),
     );
-    final r = await _http.post(Uri.parse('$_base/api/oauth/token'), body: {
+    final r = await _http.post(Uri.parse('$_base/api/oauth/token'), headers: {'User-Agent': kIntervalsUserAgent}, body: {
       'client_id': kIntervalsClientId,
       'code': got.code,
       'code_verifier': got.verifier,
@@ -183,7 +206,7 @@ class IntervalsIcu extends ChangeNotifier {
   Future<void> putWellness(String day, Map<String, Object> body) async {
     final a = _need;
     final r = await _http.put(Uri.parse('$_base/api/v1/athlete/${a.athleteId}/wellness/$day'),
-        headers: {'Authorization': a.header, 'Content-Type': 'application/json'}, body: jsonEncode(body));
+        headers: {'Authorization': a.header, 'Content-Type': 'application/json', 'User-Agent': kIntervalsUserAgent}, body: jsonEncode(body));
     _check(r, 'wellness push');
   }
 
@@ -230,7 +253,7 @@ class IntervalsIcu extends ChangeNotifier {
         await load();
       }
       final now = DateTime.now();
-      if (!signedIn || authFailed || (_lastAuto != null && now.difference(_lastAuto!).inMinutes < 60)) return;
+      if (!signedIn || !autoPush || authFailed || (_lastAuto != null && now.difference(_lastAuto!).inMinutes < 60)) return;
       _lastAuto = now;
       await pushRecent(days: 2);
     } catch (e) {
@@ -260,6 +283,7 @@ class IntervalsIcu extends ChangeNotifier {
           'external_id': 'openstrap-$sessionId',
         }))
       ..headers['Authorization'] = a.header
+      ..headers['User-Agent'] = kIntervalsUserAgent
       ..files.add(http.MultipartFile.fromString('file', tcx,
           filename: 'openstrap-$sessionId.tcx'));
     final r = await http.Response.fromStream(await _http.send(req));

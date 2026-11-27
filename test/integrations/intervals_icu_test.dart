@@ -81,4 +81,23 @@ void main() {
   test('client id defaults to the registered public client', () {
     expect(kIntervalsClientId, '2017');
   });
+
+  test('every request names the app', () async {
+    final seen = <String?>[];
+    final i = IntervalsIcu(client: MockClient((r) async {
+      seen.add(r.headers['User-Agent']);
+      return http.Response('{}', 200);
+    }), auth: key);
+    await i.putWellness('2026-11-20', {'id': '2026-11-20'});
+    await i.uploadTcx('s9', '<x/>');
+    expect(seen, [kIntervalsUserAgent, kIntervalsUserAgent]);
+  });
+
+  test('automatic push can be turned off and sends nothing', () async {
+    var calls = 0;
+    final i = IntervalsIcu(client: MockClient((r) async { calls++; return http.Response('{}', 200); }), auth: key);
+    i.autoPush = false;
+    await i.pushAfterDerive();
+    expect(calls, 0);
+  });
 }

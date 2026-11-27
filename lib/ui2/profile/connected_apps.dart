@@ -107,6 +107,10 @@ class _ConnectedAppsState extends State<ConnectedApps> {
                     title: Text(uiText(s, 'Send the last 7 days now')),
                     onTap: () => Navigator.pop(s, 'push')),
                 ListTile(
+                    leading: Icon(_intervals.autoPush ? LucideIcons.pause : LucideIcons.play),
+                    title: Text(uiText(s, _intervals.autoPush ? 'Stop sending automatically' : 'Send automatically')),
+                    onTap: () => Navigator.pop(s, 'auto')),
+                ListTile(
                     leading: const Icon(LucideIcons.unlink),
                     title: Text(uiText(s, 'Disconnect')),
                     onTap: () => Navigator.pop(s, 'out')),
@@ -116,6 +120,8 @@ class _ConnectedAppsState extends State<ConnectedApps> {
           if (choice == 'push') {
             final n = await _intervals.pushRecent();
             _say(n == 0 ? 'Nothing to send yet.' : 'Sent $n days to intervals.icu.');
+          } else if (choice == 'auto') {
+            await _intervals.setAutoPush(!_intervals.autoPush);
           } else if (choice == 'out') {
             await _intervals.signOut();
           }
@@ -286,7 +292,9 @@ class _ConnectedAppsState extends State<ConnectedApps> {
                       sub: _intervals.authFailed
                           ? t('Sign-in expired. Tap to reconnect.')
                           : _intervals.signedIn
-                          ? t('Sends recovery, HRV, resting heart rate and sleep each day')
+                          ? t(_intervals.autoPush
+                              ? 'Sends recovery, HRV, resting heart rate and sleep each day'
+                              : 'Connected. Automatic sending is off.')
                           : t('Send recovery and sleep, upload workouts'),
                       value: _intervals.signedIn ? on : '',
                       onTap: _tapIntervals),
