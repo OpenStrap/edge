@@ -1,4 +1,5 @@
 import '../../integrations/doctor_report.dart';
+import '../../sync/reset_gate.dart';
 import '../activity/share.dart' show shareOrigin;
 import '../../l10n/display_text.dart';
 // HEALTH — observation-oriented. "What is happening, what is changing, is
@@ -711,8 +712,15 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     _sharingReport = true;
     final origin = shareOrigin(c);
     final messenger = ScaffoldMessenger.of(c);
+    final gen = ResetGate.generation;
     try {
       final f = await buildDoctorReport();
+      if (ResetGate.changedSince(gen)) {
+        try {
+          await f.delete();
+        } catch (_) {}
+        return; // a reset began: do not hand the record to the share sheet
+      }
       await Share.shareXFiles([XFile(f.path, mimeType: 'application/pdf')],
           subject: 'Health summary', sharePositionOrigin: origin);
     } catch (e) {

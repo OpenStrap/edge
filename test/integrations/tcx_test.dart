@@ -46,4 +46,28 @@ void main() {
     expect(tcxSport('mountain_biking'), 'Biking');
     expect(tcxSport('yoga'), 'Other');
   });
+
+  test('heart rate with no GPS fix stays in as HR-only points, in time order', () {
+    final x = XmlDocument.parse(buildTcx(TcxActivity(
+      sport: 'Running',
+      start: t0,
+      durationSec: 60,
+      hr: [for (final s in [0, 20, 40]) TcxHr(t0.add(Duration(seconds: s)), 120 + s)],
+      gps: [TcxPoint(t0, 12.5, 77.5)],
+    )));
+    final pts = x.findAllElements('Trackpoint').toList();
+    expect(pts.length, 3);
+    expect(pts[0].getElement('Position'), isNotNull);
+    expect(pts[1].getElement('Position'), isNull);
+    expect(pts[1].getElement('HeartRateBpm')!.getElement('Value')!.innerText, '140');
+    expect(pts[2].getElement('Time')!.innerText, '2026-11-20T07:00:40Z');
+  });
+
+  test('indoor bike is Biking, and no Creator block is written', () {
+    expect(tcxSport('indoor_bike'), 'Biking');
+    expect(tcxSport('yoga'), 'Other');
+    final x = XmlDocument.parse(
+        buildTcx(TcxActivity(sport: 'Other', start: t0, durationSec: 1, hr: [TcxHr(t0, 90)])));
+    expect(x.findAllElements('Creator'), isEmpty);
+  });
 }

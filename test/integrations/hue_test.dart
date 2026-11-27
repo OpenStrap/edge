@@ -57,4 +57,10 @@ void main() {
       throwsA(isA<HueException>()),
     );
   });
+
+  test('bridge clock offset rounds to a quarter hour', () {
+    expect(hueBridgeOffset(const Duration(minutes: 330, seconds: 40)), const Duration(minutes: 330));
+    expect(hueBridgeOffset(const Duration(seconds: 50)), Duration.zero);
+    expect(hueBridgeOffset(const Duration(minutes: -300, seconds: -20)), const Duration(minutes: -300));
+  });
 }

@@ -18,6 +18,7 @@ import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
 import 'package:openstrap_edge/ui2/guides/help_screen.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
+import 'package:openstrap_edge/ui2/profile/connected_apps.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/screens/ai_briefing.dart';
 import 'package:openstrap_edge/ui2/screens/coach.dart';
@@ -220,20 +221,20 @@ void main() {
       await t.tap(find.byType(ProfileAvatar));
       await settleLiveGuide(t);
       expect(find.byType(ProfileHome), findsOneWidget);
-      await _reveal(t, _row('AI coach'));
-      expect(find.text('Not set up'), findsOneWidget);
-      final coachRect = t.getRect(_row('AI coach'));
+      // The coach is set up from Connected apps, which sits beside Help.
+      await _reveal(t, _row('Connected apps'));
+      final coachRect = t.getRect(_row('Connected apps'));
       final helpRect = t.getRect(_row('Help'));
       expect(coachRect.bottom, lessThanOrEqualTo(helpRect.top));
       final coachSemantics = t
-          .getSemantics(_row('AI coach'))
+          .getSemantics(_row('Connected apps'))
           .getSemanticsData();
-      expect(coachSemantics.label, contains('AI coach. Not set up'));
+      expect(coachSemantics.label, contains('Connected apps'));
       expect(coachSemantics.label, isNot(contains('Help')));
       expect(coachSemantics.hasAction(SemanticsAction.tap), isTrue);
       final helpLabel = t.getSemantics(_row('Help')).getSemanticsData().label;
       expect(helpLabel, contains('Help'));
-      expect(helpLabel, isNot(contains('AI coach')));
+      expect(helpLabel, isNot(contains('Connected apps')));
       await t.tap(_row('Help'));
       await settleLiveGuide(t);
       expect(find.byType(HelpScreen), findsOneWidget);
@@ -242,9 +243,16 @@ void main() {
       // Tap near the lower edge adjacent to Help, not only the row centre.
       await t.tapAt(Offset(coachRect.center.dx, coachRect.bottom - 2));
       await settleLiveGuide(t);
+      expect(find.byType(ConnectedApps), findsOneWidget);
+      expect(find.text('Not set up'), findsOneWidget);
+      await t.tap(_row('AI coach'));
+      await settleLiveGuide(t);
       await _setup(t, config);
-      expect(find.byType(ProfileHome), findsOneWidget);
+      expect(find.byType(ConnectedApps), findsOneWidget);
       expect(find.text('test-coach'), findsOneWidget);
+      app.navigator.pop();
+      await settleLiveGuide(t);
+      expect(find.byType(ProfileHome), findsOneWidget);
       app.navigator.pop();
       await settleLiveGuide(t);
       await _reveal(t, _press('Ask the coach'));

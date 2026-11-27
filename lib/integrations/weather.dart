@@ -89,7 +89,10 @@ Future<String> weatherForCoach({int pastDays = 7, http.Client? client}) async {
   if (perm != LocationPermission.always && perm != LocationPermission.whileInUse) {
     return 'No location permission, so no weather. Do not guess the weather.';
   }
-  final pos = await Geolocator.getLastKnownPosition() ??
+  // A cached fix from an earlier outing is the wrong place's weather.
+  final last = await Geolocator.getLastKnownPosition();
+  final recent = last != null && DateTime.now().difference(last.timestamp).inHours < 6;
+  final pos = (recent ? last : null) ??
       await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(
               accuracy: LocationAccuracy.low, timeLimit: Duration(seconds: 10)));

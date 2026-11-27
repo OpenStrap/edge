@@ -1428,7 +1428,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (id == null || _posting) return;
     _posting = true;
     final messenger = ScaffoldMessenger.of(c);
-    void say(String m) => messenger.showSnackBar(SnackBar(content: Text(uiText(c, m))));
+    void say(String m) {
+      // After an await the screen may be gone: no context, no snackbar.
+      if (!c.mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(uiText(c, m))));
+    }
     try {
       final repo = c.read<AppState>().repo;
       final String body, name;
@@ -1473,7 +1477,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (id == null || _posting) return;
     _posting = true;
     final messenger = ScaffoldMessenger.of(c);
-    void say(String m) => messenger.showSnackBar(SnackBar(content: Text(uiText(c, m))));
+    void say(String m) {
+      // After an await the screen may be gone: no context, no snackbar.
+      if (!c.mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(uiText(c, m))));
+    }
     try {
       final repo = c.read<AppState>().repo;
       final act = await tcxActivityForSession(id, routeOf: repo?.getWorkoutRoute);
@@ -1481,8 +1489,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         say('This workout has no heart rate or route left on the phone to send.');
         return;
       }
-      await IntervalsIcu.instance.uploadWorkout(id, name: a.name, routeOf: repo?.getWorkoutRoute);
-      say('Sent to intervals.icu.');
+      final sent = await IntervalsIcu.instance.uploadWorkout(id, name: a.name, routeOf: repo?.getWorkoutRoute);
+      say(sent
+          ? 'Sent to intervals.icu.'
+          : 'This workout has no heart rate or route left on the phone to send.');
     } catch (e) {
       say('$e');
     } finally {
@@ -1605,8 +1615,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(LucideIcons.upload, size: 16, color: p.ink2),
                     const SizedBox(width: S.x2),
-                    Text(uiText(c, label),
-                        style: F.body.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                    // Flexible: at large text sizes the label wraps, not overflows.
+                    Flexible(
+                      child: Text(uiText(c, label),
+                          style: F.body.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                    ),
                   ]),
                 ),
               ),

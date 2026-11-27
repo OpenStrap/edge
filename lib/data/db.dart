@@ -3006,9 +3006,16 @@ class LocalDb {
   /// Saved readings, newest first, WITHOUT packets.
   static Future<List<Map<String, Object?>>> listEcgReadings({
     int limit = 200,
+    int? fromTs,
+    int? toTs,
   }) async {
     final db = await instance;
-    return db.query('ecg_reading', orderBy: 'start_ts DESC', limit: limit);
+    final where = [if (fromTs != null) 'start_ts >= ?', if (toTs != null) 'start_ts < ?'];
+    return db.query('ecg_reading',
+        where: where.isEmpty ? null : where.join(' AND '),
+        whereArgs: [?fromTs, ?toTs],
+        orderBy: 'start_ts DESC',
+        limit: limit);
   }
 
   /// One reading row, or null.

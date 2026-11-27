@@ -1183,7 +1183,7 @@ class CoachEngine {
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Add to calendar',
             summary: 'Add "${args['title']}" on ${start.toString().substring(0, 16)} '
-                'until ${end.toString().substring(11, 16)}.',
+                'until ${end.toString().substring(0, 16)}.',
             args: args,
           ), () => addCalendarEvent(
               title: '${args['title'] ?? 'Recovery'}',

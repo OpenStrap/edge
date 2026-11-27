@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/med_store.dart';
+import '../sync/reset_gate.dart';
 
 class DoctorMetric {
   const DoctorMetric(this.label, this.unit, this.points, {this.decimals = 0});
@@ -75,12 +76,15 @@ const _specs = <(String key, String label, String unit, int dec, double scale)>[
 ];
 
 Future<File> buildDoctorReport({int days = 90, DateTime? now}) async {
+  final gen = ResetGate.generation;
   final at = now ?? DateTime.now();
   final to = dayLabelOf(at);
-  final from = dayLabelOf(at.subtract(Duration(days: days - 1)));
+  // Calendar days, not 24 h steps: a DST change must not move the window.
+  final from = dayLabelBefore(to, days - 1)!;
   final metrics = <DoctorMetric>[];
   for (final s in _specs) {
-    final rows = await LocalDb.metricSeries(s.$1, from: from);
+    // Own-measured days only: a vendor snapshot is not our measurement.
+    final rows = await LocalDb.metricSeries(s.$1, from: from, measuredOnly: true);
     metrics.add(DoctorMetric(s.$2, s.$3, [
       for (final r in rows)
         if ((r['date'] as String).compareTo(to) <= 0)
@@ -96,13 +100,16 @@ Future<File> buildDoctorReport({int days = 90, DateTime? now}) async {
   } catch (_) {}
 
   final events = <DoctorEvent>[];
-  for (final r in await LocalDb.metricSeries('irregular_rhythm_flag', from: from)) {
-    if ((r['value'] as num) == 1) {
+  for (final r in await LocalDb.metricSeries('irregular_rhythm_flag', from: from, measuredOnly: true)) {
+    if ((r['value'] as num) == 1 && (r['date'] as String).compareTo(to) <= 0) {
       events.add(DoctorEvent(r['date'] as String,
           'Irregular heart rhythm screen flagged (overnight pulse timing)'));
     }
   }
-  for (final e in await LocalDb.listEcgReadings(limit: 500)) {
+  for (final e in await LocalDb.listEcgReadings(
+      limit: 500,
+      fromTs: localDayStartSec(from),
+      toTs: localDayEndSec(to))) {
     final d = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(
         (e['start_ts'] as int) * 1000));
     if (d.compareTo(from) < 0 || d.compareTo(to) > 0) continue;
@@ -118,8 +125,7 @@ Future<File> buildDoctorReport({int days = 90, DateTime? now}) async {
   for (final d in defs) {
     var taken = 0, of = 0;
     for (var i = 0; i < days; i++) {
-      final day = at.subtract(Duration(days: i));
-      final lbl = dayLabelOf(day);
+      final lbl = dayLabelBefore(to, i)!;
       final slots = slotsForDay(
         [d],
         lbl,
@@ -145,8 +151,18 @@ Future<File> buildDoctorReport({int days = 90, DateTime? now}) async {
     events: events,
     meds: meds,
   );
+  final bytes = await renderDoctorReport(data);
+  // A reset that began while this was built must not leave a copy of the
+  // record behind, so refuse before and after the write.
+  if (ResetGate.changedSince(gen)) throw StateError('Data was deleted while the report was being built.');
   final file = File('${(await getTemporaryDirectory()).path}/openstrap-report-$to.pdf');
-  await file.writeAsBytes(await renderDoctorReport(data), flush: true);
+  await file.writeAsBytes(bytes, flush: true);
+  if (ResetGate.changedSince(gen)) {
+    try {
+      await file.delete();
+    } catch (_) {}
+    throw StateError('Data was deleted while the report was being built.');
+  }
   return file;
 }
 
@@ -161,8 +177,7 @@ List<String> _row(DoctorMetric m, DoctorReportData d) {
     return [m.label, 'not measured', '', '', '', '', '', '0'];
   }
   String cut(int days) {
-    final to = DateTime.parse(d.to);
-    final lo = dayLabelOf(to.subtract(Duration(days: days - 1)));
+    final lo = dayLabelBefore(d.to, days - 1) ?? d.to;
     final x = _mean([for (final e in p) if (e.date.compareTo(lo) >= 0) e.v]);
     return x == null ? '-' : _fmt(x, m.decimals);
   }

@@ -5726,6 +5726,7 @@ class AppState extends ChangeNotifier {
         // Every weekday got disabled since the last arm — the strap doesn't
         // give up its old alarm on its own (PR #329 review).
         _clearArmedAlarmState();
+        unawaited(hueSunriseFor(null)); // the bridge's sunrise goes with the alarm
         notifyListeners();
         return true;
       }

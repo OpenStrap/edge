@@ -80,6 +80,9 @@ class LoopbackAuth {
       final redirectUri = 'http://$host:${v4.port}$path';
       final state = oauthRandom(), verifier = oauthRandom();
       final got = Completer<Map<String, String>>();
+      // A cancel can fail this before the await below is reached; the await
+      // still delivers the error, this only stops it counting as unhandled.
+      got.future.ignore();
       var open_ = _servers.length;
       for (final s in _servers) {
         // Every listener closed (cancel) without a redirect.

@@ -4050,5 +4050,22 @@
   "coachAppleNoEcg": "El modelo de Apple en el dispositivo no puede leer la curva de un ECG. Para analizar esta lectura, desactiva Apple Intelligence en los ajustes de IA del coach y usa otro modelo.",
   "aiBriefingUnknownBody": "Esta nota se guardó antes de que la app registrara adónde van los resúmenes, así que no puede decir adónde se enviaron estas cifras.",
   "alarmAllDays": "Todos los días",
-  "alarmCopiedToAllDays": "Hora de despertar copiada a todos los días"
+  "alarmCopiedToAllDays": "Hora de despertar copiada a todos los días",
+  "coachSignInOpenRouter": "Iniciar sesión con OpenRouter",
+  "healthShareDoctorReport": "Compartir un informe para tu médico",
+  "profileConnectedApps": "Apps conectadas",
+  "profileConnectedAppsSub": "Coach de IA, intervals.icu, tiempo, calendario, Hue",
+  "connectedAppsSendLast7": "Enviar los últimos 7 días ahora",
+  "connectedAppsDisconnect": "Desconectar",
+  "connectedAppsConnectIntervals": "Conectar intervals.icu",
+  "connectedAppsIntervalsKeyHelp": "En intervals.icu abre Ajustes, luego Ajustes de desarrollador, y copia tu ID de atleta y tu clave de API.",
+  "connectedAppsAthleteId": "ID de atleta",
+  "connectedAppsApiKey": "Clave de API",
+  "connectedAppsConnect": "Conectar",
+  "connectedAppsHuePress": "Pulsa el botón de tu puente Hue",
+  "connectedAppsHuePressBody": "El botón redondo de arriba. Esperando hasta 30 segundos.",
+  "connectedAppsHueWhichLights": "¿Qué luces siguen tu sueño?",
+  "connectedAppsHueForget": "Olvidar este puente",
+  "connectedAppsNoBridge": "No se encontró ningún puente",
+  "connectedAppsBridgeIp": "Dirección IP del puente"
 }

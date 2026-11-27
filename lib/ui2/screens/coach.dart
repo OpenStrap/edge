@@ -1180,17 +1180,23 @@ class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
   Future<void> _signInOpenRouter() async {
     _openRouter?.cancel();
     final auth = _openRouter = LoopbackAuth(host: 'localhost');
+    final base = _base.text.trim();
     setState(() => _msg = null);
     try {
       final key = await openRouterSignIn(
           auth, (uri) => launchUrl(uri, mode: LaunchMode.inAppBrowserView));
+      // A newer attempt owns the browser now: leave it alone.
+      if (!identical(_openRouter, auth)) return;
       await _closeBrowser();
-      if (!mounted) return;
+      // The key belongs to OpenRouter: drop it if the provider was changed
+      // while the browser was open.
+      if (!mounted || !identical(_openRouter, auth) || _base.text.trim() != base) return;
       setState(() => _key.text = key);
       await _fetch();
     } catch (e) {
+      if (!identical(_openRouter, auth)) return;
       await _closeBrowser();
-      if (mounted) setState(() => _msg = '$e');
+      if (mounted && identical(_openRouter, auth)) setState(() => _msg = '$e');
     } finally {
       if (identical(_openRouter, auth)) _openRouter = null;
     }

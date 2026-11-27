@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -13,8 +14,11 @@ import 'package:http/io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class HueException implements Exception {
-  HueException(this.message);
+  HueException(this.message, {this.type});
   final String message;
+
+  /// The bridge's own error type (3 = that resource is not there), if it sent one.
+  final int? type;
   @override
   String toString() => message;
 }
@@ -27,13 +31,22 @@ class HueRoom {
 
 // ---- pure helpers (unit-tested) -------------------------------------------
 
-/// Bridge schedule time, "YYYY-MM-DDTHH:MM:SS". ponytail: assumes phone and
-/// bridge share a timezone (bridge localtime has no zone); wrong if travelling.
+/// Bridge schedule time, "YYYY-MM-DDTHH:MM:SS", in whatever clock [t] is in.
+/// The bridge reads it in ITS timezone, so callers shift [t] by
+/// [hueBridgeOffset] first.
 String hueLocaltime(DateTime t) {
   String p(int n) => n.toString().padLeft(2, '0');
   final l = t.toLocal();
   return '${l.year.toString().padLeft(4, '0')}-${p(l.month)}-${p(l.day)}'
       'T${p(l.hour)}:${p(l.minute)}:${p(l.second)}';
+}
+
+/// How far the bridge's wall clock is from the phone's, from the two readings
+/// taken together, rounded to 15 minutes (the finest timezone step) so request
+/// time and clock drift do not leak in. Zero when they agree.
+Duration hueBridgeOffset(Duration raw) {
+  final q = (raw.inMinutes / 15).round() * 15;
+  return Duration(minutes: q);
 }
 
 /// Deciseconds, capped at the v1 maximum of 65535 (~109 min).
@@ -111,22 +124,39 @@ String _errText(Object? decoded) {
 // ---- bridge ----------------------------------------------------------------
 
 class HueBridge {
-  HueBridge(this.ip, this.user, {http.Client? client}) : _c = client ?? _pinned(ip);
+  HueBridge(this.ip, this.user, {this.fingerprint, http.Client? client}) {
+    _c = client ?? _pinned(ip, fingerprint, (f) => _seen = f);
+  }
 
   final String ip;
   final String user;
-  final http.Client _c;
+
+  /// SHA-256 of the bridge's certificate, pinned the first time we talk to it.
+  final String? fingerprint;
+  late final http.Client _c;
+  String? _seen;
 
   static const _apple = IOSOptions(accessibility: KeychainAccessibility.first_unlock);
   static const _store = FlutterSecureStorage();
   static const _kBridge = 'hue.bridge';
   static const _kSched = 'hue.schedules';
 
-  /// Self-signed bridge cert: accepted for this one host only.
-  static http.Client _pinned(String ip) => IOClient(
+  /// The bridge's cert is self-signed. It is accepted for this one host, and
+  /// only if it is the same certificate we saw when linking: [onSeen] gets the
+  /// first one, and a different one later is refused, so someone on the
+  /// network cannot stand in for the bridge and read the link key.
+  static http.Client _pinned(String ip, String? pinned, void Function(String) onSeen) => IOClient(
         HttpClient()
           ..connectionTimeout = const Duration(seconds: 8)
-          ..badCertificateCallback = (_, host, _) => host == ip,
+          ..badCertificateCallback = (cert, host, _) {
+            if (host != ip) return false;
+            final f = sha256.convert(cert.der).toString();
+            if (pinned == null) {
+              onSeen(f);
+              return true;
+            }
+            return f == pinned;
+          },
       );
 
   static Future<List<String>> discover({http.Client? client}) async {
@@ -153,7 +183,8 @@ class HueBridge {
     Duration every = const Duration(seconds: 2),
     http.Client? client,
   }) async {
-    final c = client ?? _pinned(ip);
+    String? seen;
+    final c = client ?? _pinned(ip, null, (f) => seen ??= f);
     final end = DateTime.now().add(wait);
     try {
       while (true) {
@@ -168,8 +199,9 @@ class HueBridge {
         }
         final u = hueSuccess(d, 'username');
         if (u != null) {
-          final b = HueBridge(ip, u);
-          await _store.write(key: _kBridge, value: jsonEncode({'ip': ip, 'user': u}), iOptions: _apple);
+          final b = HueBridge(ip, u, fingerprint: seen);
+          await _store.write(
+              key: _kBridge, value: jsonEncode({'ip': ip, 'user': u, 'fp': seen}), iOptions: _apple);
           return b;
         }
         if (hueErrorType(d) != 101) throw HueException('The bridge refused to link: ${_errText(d)}');
@@ -187,7 +219,7 @@ class HueBridge {
     final s = await _store.read(key: _kBridge, iOptions: _apple);
     if (s == null) return null;
     final m = jsonDecode(s) as Map;
-    return HueBridge(m['ip'] as String, m['user'] as String);
+    return HueBridge(m['ip'] as String, m['user'] as String, fingerprint: m['fp'] as String?);
   }
 
   Future<void> forget() async {
@@ -205,7 +237,13 @@ class HueBridge {
       final d = jsonDecode(r.body);
       final t = hueErrorType(d);
       if (t == 1) throw HueException('Hue link expired. Link the bridge again.');
-      if (t != null) throw HueException('Hue bridge error: ${_errText(d)}');
+      if (t != null) throw HueException('Hue bridge error: ${_errText(d)}', type: t);
+      // A bridge that had no pin yet (linked by an older build) is pinned on
+      // first use from here on.
+      if (fingerprint == null && _seen != null) {
+        await _store.write(
+            key: _kBridge, value: jsonEncode({'ip': ip, 'user': user, 'fp': _seen}), iOptions: _apple);
+      }
       return d;
     } on HueException {
       rethrow;
@@ -229,26 +267,47 @@ class HueBridge {
     return s == null ? {} : Map<String, String>.from(jsonDecode(s) as Map);
   }
 
+  /// The bridge's clock minus the phone's, so a schedule lands at the right
+  /// wall-clock time when the phone is in another timezone than the bridge.
+  Future<Duration> _clockOffset() async {
+    try {
+      final c = await _send('GET', '/config') as Map;
+      final theirs = DateTime.tryParse('${c['localtime']}');
+      if (theirs == null) return Duration.zero;
+      final n = DateTime.now();
+      // Both read as plain wall-clock numbers, in UTC so no zone gets applied.
+      DateTime wall(DateTime t) => DateTime.utc(t.year, t.month, t.day, t.hour, t.minute, t.second);
+      return hueBridgeOffset(wall(theirs).difference(wall(n)));
+    } catch (_) {
+      return Duration.zero;
+    }
+  }
+
   Future<void> _schedule(String kind, DateTime at, String groupId, Map<String, Object> action) async {
     await _drop(kind);
     if (!at.isAfter(DateTime.now())) return; // already past
+    final shifted = at.add(await _clockOffset());
     final d = await _send('POST', '/schedules',
-        scheduleBody(name: 'openstrap $kind', user: user, groupId: groupId, action: action, at: at));
+        scheduleBody(name: 'openstrap $kind', user: user, groupId: groupId, action: action, at: shifted));
     final id = hueSuccess(d, 'id');
     if (id == null) throw HueException('The bridge did not accept the schedule.');
     final ids = await _ids()..[kind] = id;
     await _store.write(key: _kSched, value: jsonEncode(ids), iOptions: _apple);
   }
 
+  /// Removes the schedule from the bridge, and the saved id only once that
+  /// worked or the bridge says it is gone already. Any other failure keeps the
+  /// id and is passed on, so nothing is replaced while the old one still runs.
   Future<void> _drop(String kind) async {
     final ids = await _ids();
-    final id = ids.remove(kind);
+    final id = ids[kind];
     if (id == null) return;
     try {
       await _send('DELETE', '/schedules/$id');
-    } on HueException {
-      // gone already (autodelete after firing) or bridge unreachable; forget it
+    } on HueException catch (e) {
+      if (e.type != 3) rethrow; // 3: no such schedule (it fired and deleted itself)
     }
+    ids.remove(kind);
     await _store.write(key: _kSched, value: jsonEncode(ids), iOptions: _apple);
   }
 
@@ -256,13 +315,23 @@ class HueBridge {
     required DateTime wake,
     required String groupId,
     Duration ramp = const Duration(minutes: 30),
-  }) =>
-      _schedule('sunrise', wake.subtract(ramp), groupId, sunriseBody(ramp));
+  }) {
+    final now = DateTime.now();
+    var start = wake.subtract(ramp);
+    // An alarm set closer than the ramp: start now and rise over what is left.
+    if (!start.isAfter(now) && wake.isAfter(now.add(const Duration(minutes: 1)))) {
+      start = now.add(const Duration(seconds: 5));
+      ramp = wake.difference(start);
+    }
+    return _schedule('sunrise', start, groupId, sunriseBody(ramp));
+  }
 
   Future<void> scheduleWindDown({required DateTime at, required String groupId}) =>
       _schedule('winddown', at, groupId, windDownBody());
 
   Future<void> clearSunrise() => _drop('sunrise');
+
+  Future<void> clearWindDown() => _drop('winddown');
 
   Future<void> clearSchedules() async {
     await _drop('sunrise');
@@ -281,26 +350,52 @@ Future<void> setHueRoom(String? id) async {
   id == null ? await prefs.remove(_kRoom) : await prefs.setString(_kRoom, id);
 }
 
-/// Best effort, both of these: a bridge that is off, moved or unpaired must
-/// never get in the way of the alarm or the reminder that called it.
-Future<void> hueSunriseFor(DateTime? wake) async {
-  try {
-    final b = await HueBridge.load();
-    final room = await hueRoom();
-    if (b == null || room == null) return;
-    wake == null ? await b.clearSunrise() : await b.scheduleSunrise(wake: wake, groupId: room);
-  } catch (e) {
-    debugPrint('[hue] sunrise: $e');
-  }
+// One bridge change at a time, in the order they were asked for: a cancel
+// must not run before the create it follows, and two creates must not both
+// leave a schedule behind.
+Future<void> _hueTail = Future.value();
+
+Future<void> _hueSerial(Future<void> Function() f) {
+  final r = _hueTail.then((_) => f());
+  _hueTail = r.then((_) {}, onError: (_) {});
+  return r;
 }
 
-Future<void> hueWindDownAt(DateTime at) async {
-  try {
-    final b = await HueBridge.load();
-    final room = await hueRoom();
-    if (b == null || room == null) return;
-    await b.scheduleWindDown(at: at, groupId: room);
-  } catch (e) {
-    debugPrint('[hue] wind-down: $e');
-  }
+/// Best effort, all of these: a bridge that is off, moved or unpaired must
+/// never get in the way of the alarm or the reminder that called it.
+Future<void> hueSunriseFor(DateTime? wake) => _hueSerial(() async {
+      try {
+        final b = await HueBridge.load();
+        final room = await hueRoom();
+        if (b == null || room == null) return;
+        wake == null ? await b.clearSunrise() : await b.scheduleSunrise(wake: wake, groupId: room);
+      } catch (e) {
+        debugPrint('[hue] sunrise: $e');
+      }
+    });
+
+Future<void> hueWindDownAt(DateTime? at) => _hueSerial(() async {
+      try {
+        final b = await HueBridge.load();
+        final room = await hueRoom();
+        if (b == null || room == null) return;
+        at == null ? await b.clearWindDown() : await b.scheduleWindDown(at: at, groupId: room);
+      } catch (e) {
+        debugPrint('[hue] wind-down: $e');
+      }
+    });
+
+/// Cancels every schedule on the bridge (room changed, bridge forgotten).
+/// Returns false when some could not be cancelled, so the caller can say so.
+Future<bool> hueClearAll() async {
+  var ok = true;
+  await _hueSerial(() async {
+    try {
+      await (await HueBridge.load())?.clearSchedules();
+    } catch (e) {
+      debugPrint('[hue] clear: $e');
+      ok = false;
+    }
+  });
+  return ok;
 }

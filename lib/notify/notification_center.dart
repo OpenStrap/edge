@@ -272,6 +272,8 @@ class NotificationCenter {
     final windDownMin = windDownSlot(prefs, bedtimeMinOfDay);
     if (windDownMin == null) {
       await svc.cancel(NotificationService.idWindDown);
+      // The bridge holds its own copy of the wind-down: cancel that too.
+      unawaited(hueWindDownAt(null));
     }
     // The check-in and the medication band follow the same rule as the
     // movement nudge below: cancel what the user just switched off, and
@@ -517,7 +519,7 @@ class NotificationCenter {
     final now = DateTime.now();
     var at = DateTime(now.year, now.month, now.day, minuteOfDay ~/ 60, minuteOfDay % 60);
     if (!at.isAfter(now)) at = at.add(const Duration(days: 1));
-    unawaited(hueWindDownAt(at));
+    await hueWindDownAt(at);
   }
 
   /// The wind-down copy. Names the LEARNED bedtime, not the slot plus the

@@ -4050,5 +4050,22 @@
   "coachAppleNoEcg": "Apples Modell auf dem Gerät kann keine EKG-Kurve lesen. Um diese Messung zu analysieren, schalte Apple Intelligence in den KI-Einstellungen des Coachs aus und nutze ein anderes Modell.",
   "aiBriefingUnknownBody": "Diese Notiz wurde gespeichert, bevor die App festhielt, wohin Briefings gehen. Daher kann sie nicht sagen, wohin diese Werte gesendet wurden.",
   "alarmAllDays": "Alle Tage",
-  "alarmCopiedToAllDays": "Weckzeit auf alle Tage übertragen"
+  "alarmCopiedToAllDays": "Weckzeit auf alle Tage übertragen",
+  "coachSignInOpenRouter": "Mit OpenRouter anmelden",
+  "healthShareDoctorReport": "Bericht für deinen Arzt teilen",
+  "profileConnectedApps": "Verbundene Apps",
+  "profileConnectedAppsSub": "KI-Coach, intervals.icu, Wetter, Kalender, Hue",
+  "connectedAppsSendLast7": "Die letzten 7 Tage jetzt senden",
+  "connectedAppsDisconnect": "Trennen",
+  "connectedAppsConnectIntervals": "intervals.icu verbinden",
+  "connectedAppsIntervalsKeyHelp": "Öffne auf intervals.icu die Einstellungen, dann die Entwicklereinstellungen, und kopiere deine Athleten-ID und deinen API-Schlüssel.",
+  "connectedAppsAthleteId": "Athleten-ID",
+  "connectedAppsApiKey": "API-Schlüssel",
+  "connectedAppsConnect": "Verbinden",
+  "connectedAppsHuePress": "Drücke die Taste an deiner Hue Bridge",
+  "connectedAppsHuePressBody": "Die runde Taste oben. Wir warten bis zu 30 Sekunden.",
+  "connectedAppsHueWhichLights": "Welche Lampen folgen deinem Schlaf?",
+  "connectedAppsHueForget": "Diese Bridge entfernen",
+  "connectedAppsNoBridge": "Keine Bridge gefunden",
+  "connectedAppsBridgeIp": "IP-Adresse der Bridge"
 }

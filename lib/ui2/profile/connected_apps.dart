@@ -22,7 +22,8 @@ class ConnectedApps extends StatefulWidget {
 
 class _ConnectedAppsState extends State<ConnectedApps> {
   final _intervals = IntervalsIcu.instance;
-  bool _weather = false, _calendar = false, _busy = false;
+  // Busy until the first load finishes, so a tap cannot be overwritten by it.
+  bool _weather = false, _calendar = false, _busy = true;
   HueBridge? _hue;
   String? _hueRoomName;
 
@@ -30,7 +31,9 @@ class _ConnectedAppsState extends State<ConnectedApps> {
   void initState() {
     super.initState();
     _intervals.addListener(_refresh);
-    _load();
+    _load().whenComplete(() {
+      if (mounted) setState(() => _busy = false); // even if a lookup threw
+    });
   }
 
   @override
@@ -44,7 +47,7 @@ class _ConnectedAppsState extends State<ConnectedApps> {
   }
 
   Future<void> _load() async {
-    await Future.wait([_intervals.load()]);
+    await _intervals.load();
     final w = await weatherEnabled(), cal = await calendarEnabled();
     final hue = await HueBridge.load();
     String? roomName;
@@ -60,6 +63,7 @@ class _ConnectedAppsState extends State<ConnectedApps> {
       _calendar = cal;
       _hue = hue;
       _hueRoomName = roomName;
+      _busy = false;
     });
   }
 
@@ -176,6 +180,7 @@ class _ConnectedAppsState extends State<ConnectedApps> {
           return;
         }
         await setWeatherEnabled(!_weather);
+        if (!mounted) return;
         setState(() => _weather = !_weather);
       });
 
@@ -184,6 +189,7 @@ class _ConnectedAppsState extends State<ConnectedApps> {
           _say('Calendar access was refused. Allow it in the phone settings.');
           return;
         }
+        if (!mounted) return;
         setState(() => _calendar = !_calendar);
       });
 
@@ -209,13 +215,22 @@ class _ConnectedAppsState extends State<ConnectedApps> {
             if (mounted) Navigator.of(context).pop();
           }
         }
-        final rooms = await hue.rooms();
+        var rooms = const <HueRoom>[];
+        String? roomsError;
+        try {
+          rooms = await hue.rooms();
+        } catch (e) {
+          // A saved bridge that cannot be reached can still be forgotten.
+          if (_hue == null) rethrow;
+          roomsError = '$e';
+        }
         if (!mounted) return;
         final pick = await showModalBottomSheet<String>(
           context: context,
           builder: (s) => SafeArea(
             child: ListView(shrinkWrap: true, children: [
               ListTile(title: Text(uiText(s, 'Which lights follow your sleep?'), style: F.over)),
+              if (roomsError != null) ListTile(title: Text(roomsError)),
               for (final r in rooms)
                 ListTile(title: Text(r.name), onTap: () => Navigator.pop(s, r.id)),
               if (_hue != null)
@@ -227,17 +242,25 @@ class _ConnectedAppsState extends State<ConnectedApps> {
           ),
         );
         if (pick == '__forget') {
-          await hue.clearSchedules().catchError((_) {});
+          final cleared = await hueClearAll();
           await hue.forget();
           await setHueRoom(null);
+          if (!mounted) return;
           setState(() => _hue = _hueRoomName = null);
+          if (!cleared) {
+            _say('The bridge could not be reached, so a scheduled light change may still run once.');
+          }
           return;
         }
         if (pick == null) {
           setState(() => _hue = hue);
           return;
         }
+        // Schedules already on the bridge point at the old room: drop them, the
+        // next alarm and wind-down arm the new one.
+        await hueClearAll();
         await setHueRoom(pick);
+        if (!mounted) return;
         setState(() {
           _hue = hue;
           _hueRoomName = rooms.firstWhere((r) => r.id == pick).name;

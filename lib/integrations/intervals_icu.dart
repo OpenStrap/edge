@@ -1,6 +1,7 @@
 // intervals.icu: sign-in (OAuth PKCE once the app is registered, API key
 // until then), daily wellness push and workout upload (TCX).
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -86,6 +87,11 @@ class IntervalsIcu extends ChangeNotifier {
   final http.Client _http;
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
   IntervalsAuth? _auth;
+  // Bumped by every sign-in and sign-out, so a storage read that started
+  // before one cannot put old credentials back.
+  int _authGen = 0;
+  static const _timeout = Duration(seconds: 20);
+  static const _uploadTimeout = Duration(seconds: 90);
 
   /// Set when intervals.icu answered 401/403: the key or token is dead and
   /// the user has to reconnect. Cleared by the next successful sign-in.
@@ -117,18 +123,24 @@ class IntervalsIcu extends ChangeNotifier {
   String? get athleteId => _auth?.athleteId;
   bool get usesApiKey => _auth?.apiKey ?? false;
 
-  Future<void> load() async {
+  /// Reads the saved sign-in. True when the read worked (even if nothing was
+  /// saved); false when storage failed, so the caller can try again later.
+  Future<bool> load() async {
     try {
       autoPush = (await SharedPreferences.getInstance()).getBool(_kAuto) ?? true;
     } catch (_) {}
+    final gen = _authGen;
     try {
       final raw = await _secure.read(key: _kAuth, iOptions: _apple, mOptions: _macos);
-      if (raw == null) return;
+      if (gen != _authGen) return true; // signed in or out while reading
+      if (raw == null) return true;
       final j = jsonDecode(raw) as Map;
       _auth = IntervalsAuth(j['id'] as String, j['secret'] as String, apiKey: j['key'] == true);
       notifyListeners();
+      return true;
     } catch (e) {
       debugPrint('intervals.icu load failed: $e');
+      return false;
     }
   }
 
@@ -138,13 +150,16 @@ class IntervalsIcu extends ChangeNotifier {
         value: jsonEncode({'id': a.athleteId, 'secret': a.secret, 'key': a.apiKey}),
         iOptions: _apple,
         mOptions: _macos);
+    _authGen++;
     _auth = a;
     authFailed = false;
     notifyListeners();
   }
 
   Future<void> signOut() async {
+    _authGen++;
     await _secure.delete(key: _kAuth, iOptions: _apple, mOptions: _macos);
+    _authGen++;
     _auth = null;
     authFailed = false;
     notifyListeners();
@@ -156,8 +171,8 @@ class IntervalsIcu extends ChangeNotifier {
     if (a.athleteId.isEmpty || a.secret.isEmpty) {
       throw IntervalsException('Enter your athlete id and API key.');
     }
-    final r = await _http.get(Uri.parse('$_base/api/v1/athlete/${a.athleteId}'),
-        headers: {'Authorization': a.header, 'User-Agent': kIntervalsUserAgent});
+    final r = await _send(() => _http.get(Uri.parse('$_base/api/v1/athlete/${a.athleteId}'),
+        headers: {'Authorization': a.header, 'User-Agent': kIntervalsUserAgent}));
     if (r.statusCode == 401 || r.statusCode == 403) {
       throw IntervalsException('intervals.icu rejected that athlete id or API key.');
     }
@@ -179,19 +194,31 @@ class IntervalsIcu extends ChangeNotifier {
         'code_challenge_method': 'S256',
       }),
     );
-    final r = await _http.post(Uri.parse('$_base/api/oauth/token'), headers: {'User-Agent': kIntervalsUserAgent}, body: {
+    final r = await _send(() => _http.post(Uri.parse('$_base/api/oauth/token'), headers: {'User-Agent': kIntervalsUserAgent}, body: {
       'client_id': kIntervalsClientId,
       'code': got.code,
       'code_verifier': got.verifier,
       'redirect_uri': got.redirectUri,
-    });
+    }));
     if (r.statusCode >= 300) throw IntervalsException('intervals.icu sign-in failed (${r.statusCode}).');
     await _store(parseIntervalsToken(r.body));
   }
 
-  void _check(http.Response r, String what) {
+  /// Runs one request with a time limit, so a stalled connection ends in an
+  /// error the caller can show and retry instead of waiting forever.
+  Future<http.Response> _send(Future<http.Response> Function() go, {Duration? limit}) async {
+    try {
+      return await go().timeout(limit ?? _timeout);
+    } on TimeoutException {
+      throw IntervalsException('intervals.icu did not answer. Try again in a moment.');
+    }
+  }
+
+  /// [a] is the sign-in the request was made with: an old request that fails
+  /// after a new sign-in must not mark the new one dead.
+  void _check(http.Response r, String what, IntervalsAuth a) {
     if (r.statusCode == 401 || r.statusCode == 403) {
-      if (!authFailed) {
+      if (identical(_auth, a) && !authFailed) {
         authFailed = true;
         notifyListeners();
       }
@@ -205,9 +232,9 @@ class IntervalsIcu extends ChangeNotifier {
   @visibleForTesting
   Future<void> putWellness(String day, Map<String, Object> body) async {
     final a = _need;
-    final r = await _http.put(Uri.parse('$_base/api/v1/athlete/${a.athleteId}/wellness/$day'),
-        headers: {'Authorization': a.header, 'Content-Type': 'application/json', 'User-Agent': kIntervalsUserAgent}, body: jsonEncode(body));
-    _check(r, 'wellness push');
+    final r = await _send(() => _http.put(Uri.parse('$_base/api/v1/athlete/${a.athleteId}/wellness/$day'),
+        headers: {'Authorization': a.header, 'Content-Type': 'application/json', 'User-Agent': kIntervalsUserAgent}, body: jsonEncode(body)));
+    _check(r, 'wellness push', a);
   }
 
   /// Wellness values per day (label yyyy-MM-dd) from `metric_series`, for
@@ -222,24 +249,28 @@ class IntervalsIcu extends ChangeNotifier {
     return out;
   }
 
-  /// Pushes one day. Nothing is sent when no wellness value exists for it.
-  Future<void> pushWellness(String day) async {
-    final v = (await _series(day))[day];
-    if (v == null) return;
-    await putWellness(day, intervalsWellnessBody(day, v));
+  Future<void> _tail = Future.value();
+
+  /// One wellness push at a time, each reading its values when its turn
+  /// comes, so an older snapshot cannot land after a newer one.
+  Future<T> _serial<T>(Future<T> Function() f) {
+    final r = _tail.then((_) => f());
+    _tail = r.then((_) {}, onError: (_) {});
+    return r;
   }
 
-  /// Pushes the last [days] days that have values; returns how many went.
-  Future<int> pushRecent({int days = 7}) async {
-    final now = DateTime.now();
-    final from = dayLabelOf(DateTime(now.year, now.month, now.day - days));
-    var n = 0;
-    for (final e in (await _series(from)).entries) {
-      await putWellness(e.key, intervalsWellnessBody(e.key, e.value));
-      n++;
-    }
-    return n;
-  }
+  /// Pushes the last [days] calendar days (today included) that have values;
+  /// returns how many went.
+  Future<int> pushRecent({int days = 7}) => _serial(() async {
+        final now = DateTime.now();
+        final from = dayLabelOf(DateTime(now.year, now.month, now.day - (days - 1)));
+        var n = 0;
+        for (final e in (await _series(from)).entries) {
+          await putWellness(e.key, intervalsWellnessBody(e.key, e.value));
+          n++;
+        }
+        return n;
+      });
 
   DateTime? _lastAuto;
   bool _loaded = false;
@@ -248,14 +279,11 @@ class IntervalsIcu extends ChangeNotifier {
   /// never loud. Light passes run every few minutes during a drain.
   Future<void> pushAfterDerive() async {
     try {
-      if (!_loaded) {
-        _loaded = true;
-        await load();
-      }
+      if (!_loaded) _loaded = await load();
       final now = DateTime.now();
       if (!signedIn || !autoPush || authFailed || (_lastAuto != null && now.difference(_lastAuto!).inMinutes < 60)) return;
-      _lastAuto = now;
       await pushRecent(days: 2);
+      _lastAuto = now; // only a push that worked holds the next one back
     } catch (e) {
       debugPrint('intervals.icu auto push failed: $e');
     }
@@ -286,7 +314,7 @@ class IntervalsIcu extends ChangeNotifier {
       ..headers['User-Agent'] = kIntervalsUserAgent
       ..files.add(http.MultipartFile.fromString('file', tcx,
           filename: 'openstrap-$sessionId.tcx'));
-    final r = await http.Response.fromStream(await _http.send(req));
-    _check(r, 'upload');
+    final r = await _send(() async => http.Response.fromStream(await _http.send(req)), limit: _uploadTimeout);
+    _check(r, 'upload', a);
   }
 }

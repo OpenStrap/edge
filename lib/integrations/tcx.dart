@@ -42,7 +42,7 @@ class TcxActivity {
 /// App `sessions.type` key to TCX Sport.
 String tcxSport(String type) {
   if (type.contains('running') || type == 'run') return 'Running';
-  if (type.contains('cycling') || type.contains('biking') || type == 'cycle') return 'Biking';
+  if (type.contains('cycling') || type.contains('biking') || type.contains('bike') || type == 'cycle') return 'Biking';
   return 'Other';
 }
 
@@ -67,6 +67,19 @@ String buildTcx(TcxActivity a) {
       }
       pts.add((p.time, bpm, p));
     }
+    // Heart rate where the route has no fix (GPS lost under cover, or a
+    // route that only covers part of the session) stays in as HR-only points.
+    final fixes = a.gps.map((p) => p.time).toList()..sort();
+    var j = 0;
+    for (final h in hr) {
+      while (j + 1 < fixes.length && fixes[j + 1].isBefore(h.time)) {
+        j++;
+      }
+      final near = [fixes[j], if (j + 1 < fixes.length) fixes[j + 1]]
+          .any((t) => t.difference(h.time).abs().inSeconds <= 3);
+      if (!near) pts.add((h.time, h.bpm, null));
+    }
+    pts.sort((x, y) => x.$1.compareTo(y.$1));
   } else {
     for (final h in hr) {
       pts.add((h.time, h.bpm, null));
@@ -83,6 +96,8 @@ String buildTcx(TcxActivity a) {
     ..writeln('<Lap StartTime="${_t(start)}">')
     ..writeln('<TotalTimeSeconds>${a.durationSec}</TotalTimeSeconds>')
     ..writeln('<DistanceMeters>${(a.distanceM ?? 0).toStringAsFixed(1)}</DistanceMeters>');
+  // Calories is left out when unknown rather than written as a made-up 0;
+  // importers accept a lap without it.
   if (a.calories != null) b.writeln('<Calories>${a.calories}</Calories>');
   if (hrs.isNotEmpty) {
     final avg = (hrs.reduce((x, y) => x + y) / hrs.length).round();
@@ -106,9 +121,6 @@ String buildTcx(TcxActivity a) {
   b
     ..writeln('</Track>')
     ..writeln('</Lap>')
-    ..writeln('<Creator xsi:type="Device_t" '
-        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-        '<Name>OpenStrap</Name></Creator>')
     ..writeln('</Activity></Activities>')
     ..writeln('</TrainingCenterDatabase>');
   return b.toString();
