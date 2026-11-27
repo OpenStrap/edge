@@ -206,9 +206,16 @@ Future<Map<String, dynamic>> collectBriefingInputs(
     // had just looked at them. Nothing but findings goes now — see
     // nightly_sweep.dart for the bar one has to clear, and note that an empty
     // map here is the normal, correct answer on most days.
+    final series = await collectSweepSeries(repo, now ?? DateTime.now(),
+        wallNow: wallNow);
+    // No metric has a value for today yet (band not synced, derive not in):
+    // "nothing stood out" would be a verdict on a day nobody measured, and it
+    // would be cached for the rest of the day. Throw so nothing is stored.
+    if (series.isEmpty) {
+      throw CoachException('Nothing measured for today yet.');
+    }
     return sweepInputs(
-      sweepFindings(await collectSweepSeries(repo, now ?? DateTime.now(),
-          wallNow: wallNow)),
+      sweepFindings(series),
       recommendedBedtime: await _recommendedBedtime(repo),
     );
   }
@@ -257,6 +264,9 @@ const Map<String,
 ///
 /// [wallNow] is the real clock (defaults to now). When the day being read has
 /// not ended by it, cumulative metrics are marked partial.
+///
+/// A failed read throws. Dropping it would turn "could not read" into "no
+/// finding", and the evening sweep caches that as "Nothing stood out".
 Future<List<SweepSeries>> collectSweepSeries(
   LocalRepository repo,
   DateTime now, {
@@ -267,49 +277,47 @@ Future<List<SweepSeries>> collectSweepSeries(
       today.compareTo(todayLabel(wallNow ?? DateTime.now())) >= 0;
   final out = <SweepSeries>[];
   for (final e in kSweepMetrics.entries) {
-    try {
-      final chart = await repo.getChart(e.key);
-      final points = chart['points'];
-      if (points is! List) continue;
-      var cutoff = 0;
-      final breaks = chart['algo_breaks'];
-      if (breaks is List) {
-        for (final b in breaks) {
-          final t = b is Map ? _num(b['t'])?.toInt() : null;
-          if (t == null || t <= cutoff) continue;
-          // Only breaks up to the day being read. A past day swept against a
-          // LATER bump had a cutoff after its whole history: 0 days, always.
-          final day =
-              todayLabel(DateTime.fromMillisecondsSinceEpoch(t * 1000));
-          if (day.compareTo(today) <= 0) cutoff = t;
-        }
+    final chart = await repo.getChart(e.key);
+    final points = chart['points'];
+    if (points is! List) continue;
+    var cutoff = 0;
+    final breaks = chart['algo_breaks'];
+    if (breaks is List) {
+      for (final b in breaks) {
+        final t = b is Map ? _num(b['t'])?.toInt() : null;
+        if (t == null || t <= cutoff) continue;
+        // Only breaks up to the day being read. A past day swept against a
+        // LATER bump had a cutoff after its whole history: 0 days, always.
+        final day =
+            todayLabel(DateTime.fromMillisecondsSinceEpoch(t * 1000));
+        if (day.compareTo(today) <= 0) cutoff = t;
       }
-      double? todayValue;
-      final history = <double>[];
-      for (final p in points) {
-        if (p is! Map) continue;
-        final t = _num(p['t'])?.toInt();
-        final v = _num(p['v'])?.toDouble();
-        if (t == null || v == null || !v.isFinite) continue;
-        final day = todayLabel(DateTime.fromMillisecondsSinceEpoch(t * 1000));
-        if (day == today) {
-          todayValue = v;
-        } else if (day.compareTo(today) < 0 && t >= cutoff) {
-          history.add(v);
-        }
+    }
+    double? todayValue;
+    final history = <double>[];
+    for (final p in points) {
+      if (p is! Map) continue;
+      final t = _num(p['t'])?.toInt();
+      final v = _num(p['v'])?.toDouble();
+      if (t == null || v == null || !v.isFinite) continue;
+      final day = todayLabel(DateTime.fromMillisecondsSinceEpoch(t * 1000));
+      if (day == today) {
+        todayValue = v;
+      } else if (day.compareTo(today) < 0 && t >= cutoff) {
+        history.add(v);
       }
-      if (todayValue == null) continue;
-      final m = e.value;
-      out.add(SweepSeries(
-        key: m.key,
-        label: m.label,
-        unit: m.unit,
-        decimals: m.dp,
-        today: todayValue,
-        history: history,
-        partial: m.cumulative && inProgress,
-      ));
-    } catch (_) {/* a series we cannot read is a series with no finding */}
+    }
+    if (todayValue == null) continue;
+    final m = e.value;
+    out.add(SweepSeries(
+      key: m.key,
+      label: m.label,
+      unit: m.unit,
+      decimals: m.dp,
+      today: todayValue,
+      history: history,
+      partial: m.cumulative && inProgress,
+    ));
   }
   return out;
 }

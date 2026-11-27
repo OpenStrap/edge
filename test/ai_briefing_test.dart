@@ -11,6 +11,7 @@ import 'package:openstrap_edge/ai/briefing.dart';
 import 'package:openstrap_edge/ai/briefing_engine.dart';
 import 'package:openstrap_edge/ai/nightly_sweep.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
+import 'package:openstrap_edge/coach/coach_engine.dart' show CoachException;
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
@@ -60,6 +61,33 @@ class _FakeRepo extends LocalRepository {
   }) async => charts[metric] ?? const {'points': <Map<String, dynamic>>[]};
   @override
   Future<Map<String, dynamic>> getInsights() async => insights;
+}
+
+/// Park the evening slot on a stale day so a read for today is null unless
+/// the test itself writes one.
+void _clearEveningSlot() => BriefingStore.write(Briefing(
+      day: '1999-01-01',
+      period: BriefingPeriod.evening,
+      oneLiner: 'stale',
+      breakdownMd: '',
+      generatedAtMs: 0,
+      inputs: const {},
+    ));
+
+/// One metric reads, the rest fail (locked DB, executor error).
+class _ThrowingChartRepo extends _FakeRepo {
+  _ThrowingChartRepo({super.today, super.charts});
+  @override
+  Future<Map<String, dynamic>> getChart(
+    String metric, {
+    int? from,
+    int? to,
+    Set<String> signals = const {},
+  }) async {
+    final c = charts[metric];
+    if (c == null) throw StateError('database is locked');
+    return c;
+  }
 }
 
 /// [history] values ending YESTERDAY, then today's — the shape getChart
@@ -519,6 +547,33 @@ void main() {
       expect(b.inputs, isEmpty);
       expect(b.calledModel, isFalse,
           reason: 'the "what was sent" screen reads this');
+    });
+
+    test('a day with nothing measured yet is not cached as nothing stood out',
+        () async {
+      _clearEveningSlot();
+      final engine = BriefingEngine(
+        config: CoachConfig(),
+        repo: _FakeRepo(today: _sampleToday()),
+        complete: ({required system, required user}) async => 'x',
+      );
+      await expectLater(
+          engine.generate(BriefingPeriod.evening), throwsA(isA<CoachException>()));
+      expect(BriefingStore.read(BriefingPeriod.evening), isNull);
+    });
+
+    test('a failed series read is not cached as nothing stood out', () async {
+      _clearEveningSlot();
+      final engine = BriefingEngine(
+        config: CoachConfig(),
+        repo: _ThrowingChartRepo(
+          today: _sampleToday(),
+          charts: {'resting_hr': _series(_steady(54, 45), 54)},
+        ),
+        complete: ({required system, required user}) async => 'x',
+      );
+      await expectLater(engine.generate(BriefingPeriod.evening), throwsA(anything));
+      expect(BriefingStore.read(BriefingPeriod.evening), isNull);
     });
 
     test('a finding does reach the model, and only findings do', () async {
