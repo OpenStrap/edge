@@ -46,7 +46,7 @@ private struct SleepSmallView: View {
     let r = snap.sleep
     VStack(spacing: 6) {
       SW.Dial(r: r, symbol: "moon.fill", accent: p.sleep, size: 60, line: 8)
-      SW.RingText(label: "Sleep", r: r, accent: p.sleep, valueSize: 22)
+      SW.RingText(label: String(localized: "Sleep"), r: r, accent: p.sleep, valueSize: 22)
       // Efficiency only when the night has one. It is the share of time in bed
       // actually asleep, and there is no honest placeholder for it.
       if r.measured, snap.efficiency >= 0 {
@@ -70,7 +70,7 @@ private struct SleepRectangularView: View {
       Text("Last night").font(.system(size: 11, weight: .semibold)).widgetAccentable()
       Text(r.value).font(.system(size: 16, weight: .bold))
       Text(r.measured
-           ? [r.sub, snap.efficiency >= 0 ? "\(snap.efficiency)% efficient" : nil]
+           ? [r.sub, snap.efficiency >= 0 ? String(localized: "\(snap.efficiency)% efficient") : nil]
               .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "   ")
            : r.why)
         .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
@@ -108,14 +108,14 @@ struct OpenStrapSleepWidgetEntryView: View {
           // arc, because an arc at zero reads as a night with no sleep in it.
           VStack(spacing: 0) {
             Image(systemName: "moon.fill").font(.system(size: 13)).widgetAccentable()
-            Text(r.measured ? r.value : "SLEEP")
+            Text(r.measured ? r.value : String(localized: "SLEEP"))
               .font(.system(size: 10, weight: .semibold)).minimumScaleFactor(0.6)
           }
         }
       case .accessoryRectangular: SleepRectangularView(snap: entry.snap)
       case .accessoryInline:
         Text(entry.snap.sleep.measured
-             ? "Slept \(entry.snap.sleep.value)"
+             ? String(localized: "Slept \(entry.snap.sleep.value)")
              : "OpenStrap · \(entry.snap.sleep.value.lowercased())")
       default: SleepSmallView(snap: entry.snap)
       }

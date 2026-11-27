@@ -53,13 +53,16 @@ enum OpenStrapShared {
   /// Spoken, so it is words rather than the phone's "7h 05m" — but a 45-minute
   /// nap is not "0 hours 45 minutes".
   static var sleepText: String {
-    guard sleepMin >= 0 else { return "no sleep data yet" }
-    let h = sleepMin / 60, m = sleepMin % 60
-    if h == 0 { return "\(m) minutes" }
-    if m == 0 { return h == 1 ? "1 hour" : "\(h) hours" }
-    return "\(h) \(h == 1 ? "hour" : "hours") \(m) minutes"
+    guard sleepMin >= 0 else { return String(localized: "no sleep data yet") }
+    // Spelled out by the system in the user's language ("7 hours, 12 minutes").
+    let f = DateComponentsFormatter()
+    f.unitsStyle = .full
+    f.allowedUnits = [.hour, .minute]
+    return f.string(from: TimeInterval(sleepMin * 60)) ?? "\(sleepMin)"
   }
-  static var noData: String { "I don't have today's numbers yet. Open OpenStrap and sync your band." }
+  static var noData: String {
+    String(localized: "I don't have today's numbers yet. Open OpenStrap and sync your band.")
+  }
 
   /// What to say when the phone has today's snapshot but is holding one number
   /// back, or nil when the number is simply missing and [noData] is right.
@@ -85,12 +88,14 @@ enum OpenStrapShared {
     case 1:
       // State 1 carries either a provisional number or the word for a
       // baseline still filling, with "2 of 4 nights" under it.
-      if Int(value) != nil { return "\(noun) is still finishing up. Ask again a little later." }
+      if Int(value) != nil {
+        return String(localized: "\(noun) is still finishing up. Ask again a little later.")
+      }
       return sub.isEmpty
-        ? "\(noun) is still calibrating."
-        : "\(noun) is still calibrating, \(sub) so far."
+        ? String(localized: "\(noun) is still calibrating.")
+        : String(localized: "\(noun) is still calibrating, \(sub) so far.")
     case 2:
-      return why.isEmpty ? nil : "\(noun) isn't scored yet. \(why)"
+      return why.isEmpty ? nil : String(localized: "\(noun) isn't scored yet. \(why)")
     default:
       return nil
     }
@@ -160,11 +165,11 @@ struct RecoveryIntent: AppIntent {
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.readiness >= 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
-        ring: "recovery", noun: "Recovery", heldOver: true)))
+        ring: "recovery", noun: String(localized: "Recovery"), heldOver: true)))
     }
     // "Recovery, out of 100": the app's own name and unit, not a percentage.
     let band = OpenStrapShared.readinessBand
-    let line = "Your recovery is \(OpenStrapShared.readiness) out of 100."
+    let line = String(localized: "Your recovery is \(OpenStrapShared.readiness) out of 100.")
     return .result(dialog: IntentDialog(
       stringLiteral: band.isEmpty ? line : "\(line) \(band)."))
   }
@@ -179,7 +184,7 @@ struct StrainIntent: AppIntent {
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.strain >= 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
-        ring: "strain", noun: "Strain", heldOver: false)))
+        ring: "strain", noun: String(localized: "Strain"), heldOver: false)))
     }
     let s = String(format: "%.1f", OpenStrapShared.strain)
     return .result(dialog: "Today's strain so far is \(s) out of twenty-one.")
@@ -195,7 +200,7 @@ struct SleepIntent: AppIntent {
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.sleepMin >= 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
-        ring: "sleep", noun: "Sleep", heldOver: true)))
+        ring: "sleep", noun: String(localized: "Sleep"), heldOver: true)))
     }
     return .result(dialog: "You slept \(OpenStrapShared.sleepText) last night.")
   }

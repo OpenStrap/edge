@@ -32,6 +32,8 @@
 		7A75696EB0AB2F0DFBECE037 /* ShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB57590968BB44C5559E37A /* ShortcutUITests.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
+		0A11CE5700000000000000A3 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 0A11CE5700000000000000A1 /* Localizable.xcstrings */; };
+		0A11CE5700000000000000A4 /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 0A11CE5700000000000000A2 /* AppShortcuts.xcstrings */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCE55E7000000000000F11E /* AccessorySetup.swift */; };
 		B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */; };
@@ -146,6 +148,8 @@
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		97C146FB1CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0A11CE5700000000000000A1 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		0A11CE5700000000000000A2 /* AppShortcuts.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = AppShortcuts.xcstrings; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9AB0D2B3B0A362AED6D7BFB0 /* ShortcutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShortcutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -330,6 +334,8 @@
 				534897562FDC1A450033A4D9 /* Runner.entitlements */,
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
 				97C146FD1CF9000F007C117D /* Assets.xcassets */,
+				0A11CE5700000000000000A1 /* Localizable.xcstrings */,
+				0A11CE5700000000000000A2 /* AppShortcuts.xcstrings */,
 				97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */,
 				97C147021CF9000F007C117D /* Info.plist */,
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
@@ -521,6 +527,13 @@
 			knownRegions = (
 				en,
 				Base,
+				de,
+				es,
+				fr,
+				hi,
+				ru,
+				th,
+				"zh-Hans",
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
@@ -575,6 +588,8 @@
 				97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */,
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
+				0A11CE5700000000000000A3 /* Localizable.xcstrings in Resources */,
+				0A11CE5700000000000000A4 /* AppShortcuts.xcstrings in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				511D97990D2F790E7357E9B4 /* GoogleService-Info.plist in Resources */,
 			);

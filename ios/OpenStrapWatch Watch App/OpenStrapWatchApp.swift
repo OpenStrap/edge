@@ -111,14 +111,14 @@ struct WatchGlanceView: View {
           if !m.fresh { empty } else {
             readinessHero
             HStack(spacing: 10) {
-              MetricCard(p: p, title: "STRAIN", value: m.strainText,
+              MetricCard(p: p, title: String(localized: "STRAIN"), value: m.strainText,
                          fraction: m.strainFraction, accent: C.purple)
-              MetricCard(p: p, title: "SLEEP", value: m.sleepText,
+              MetricCard(p: p, title: String(localized: "SLEEP"), value: m.sleepText,
                          fraction: m.sleepFraction, accent: C.blue)
             }
             HStack(spacing: 8) {
               StatCell(p: p, label: "HRV", value: m.hrvText, unit: "ms")
-              StatCell(p: p, label: "RHR", value: m.rhrText, unit: "bpm")
+              StatCell(p: p, label: String(localized: "RHR"), value: m.rhrText, unit: "bpm")
             }
             if !m.coachLine.isEmpty { coach }
           }
@@ -140,7 +140,7 @@ struct WatchGlanceView: View {
       Image(systemName: "heart.text.square")
         .font(.system(size: 32))
         .foregroundStyle(p.inkMuted)
-      Text(m.hasData ? "No recent data" : "No data yet")
+      Text(m.hasData ? String(localized: "No recent data") : String(localized: "No data yet"))
         .font(.system(size: 16, weight: .semibold, design: .rounded))
         .foregroundStyle(p.ink)
       Text("Open OpenStrap on your iPhone and sync your band.")
@@ -166,7 +166,7 @@ struct WatchGlanceView: View {
     let label: String = {
       if m.readiness >= 0 && !m.band.isEmpty { return m.band.uppercased() }
       if pending && !m.recoverySub.isEmpty { return m.recoverySub.uppercased() }
-      return "RECOVERY"
+      return String(localized: "RECOVERY")
     }()
     return VStack(spacing: 6) {
       ZStack {
