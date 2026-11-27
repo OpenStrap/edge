@@ -337,7 +337,12 @@ void main() {
         adapter: adapter,
         deviceId: deviceId,
         buildArchive: (raw, at) => ArchiveRecord(
-            hex: '00', packetType: 0, capturedAt: at, reason: 'test_raw'),
+            hex: raw
+                .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                .join(),
+            packetType: 0,
+            capturedAt: at,
+            reason: 'test_raw'),
       );
       final link = ReplayBandLink();
       final future = host.run(link);
@@ -348,10 +353,13 @@ void main() {
     }
 
     test('not when only archive frames were banked', () async {
-      expect(await pokesAfter(_WearableAdapter(withSample: false)), 0);
       final db = await LocalDb.instance;
-      expect(await db.query(LocalDb.rawArchiveTable), isNotEmpty,
-          reason: 'the frames are still archived');
+      final before = (await db.query(LocalDb.rawArchiveTable)).length;
+      expect(await pokesAfter(_WearableAdapter(withSample: false)), 0);
+      final rows = await db.query(LocalDb.rawArchiveTable);
+      expect(rows.length, before + 1, reason: 'the frame is still archived');
+      expect(rows.any((r) => r['hex'] == '010203' || (r['frame'] is List && (r['frame'] as List).join(',') == '1,2,3')), isTrue,
+          reason: 'with its own bytes');
     });
 
     test('when a sample was banked', () async {
