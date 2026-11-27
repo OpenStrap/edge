@@ -296,7 +296,7 @@ enum PedometerBridge {
 // Band-gesture actions on iOS. Media control is deliberately NOT offered: iOS has no
 // public API to control a third-party player (Spotify et al.) — only Apple Music via
 // systemMusicPlayer — so advertising it would be misleading. The only sanctioned
-// no-risk action here today is "ring my phone" (system alert sound + vibrate). System
+// no-risk action here today is "ring my phone" (repeating beep + vibrate). System
 // volume and call control aren't possible from a sandboxed iOS app and are omitted.
 enum ActionBridge {
   private static let channelName = "openstrap/device_actions"
@@ -319,9 +319,8 @@ enum ActionBridge {
   private static func perform(_ action: String) -> Bool {
     switch action {
     case "ring_phone":
-      AudioServicesPlaySystemSound(SystemSoundID(1005)) // loud alert tone
       AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-      return true
+      return ring()
     case "torch":
       // Torch via AVCaptureDevice — toggling it does NOT start a capture session, so
       // it needs no camera authorization / NSCameraUsageDescription. (Verifeid on device.)
@@ -339,6 +338,52 @@ enum ActionBridge {
     default:
       return false
     }
+  }
+
+  // A system sound is one short tone and the silent switch mutes it, which is the
+  // usual state of a lost phone. So: a .playback session (not muted by the switch)
+  // and a beep that repeats for ~20 s. Returns false when audio couldn't start
+  // (e.g. iOS refusing playback from the background) instead of claiming success.
+  private static var ringEngine: AVAudioEngine?
+
+  private static func ring() -> Bool {
+    ringEngine?.stop()
+    let session = AVAudioSession.sharedInstance()
+    let engine = AVAudioEngine()
+    let player = AVAudioPlayerNode()
+    let rate = 44_100.0
+    guard let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1),
+          let beep = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(rate)) else {
+      return false
+    }
+    // 1 s cycle: 0.5 s of 2.8 kHz tone, 0.5 s silence.
+    beep.frameLength = beep.frameCapacity
+    let samples = beep.floatChannelData![0]
+    for i in 0..<Int(rate) {
+      samples[i] = i < Int(rate / 2) ? Float(sin(2 * Double.pi * 2_800 * Double(i) / rate)) : 0
+    }
+    engine.attach(player)
+    engine.connect(player, to: engine.mainMixerNode, format: format)
+    do {
+      try session.setCategory(.playback, options: [])
+      try session.setActive(true)
+      try engine.start()
+    } catch {
+      return false
+    }
+    for n in 0..<20 {
+      player.scheduleBuffer(beep, completionHandler: n == 19 ? {
+        DispatchQueue.main.async {
+          guard ringEngine === engine else { return }
+          engine.stop()
+          ringEngine = nil
+          try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
+      } : nil)
+    }
+    player.play()
+    ringEngine = engine
+    return true
   }
 }
 
