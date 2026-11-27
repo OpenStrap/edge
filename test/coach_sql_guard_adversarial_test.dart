@@ -141,7 +141,25 @@ void main() {
       'self-reference in a comma table list, second CTE':
           'WITH a AS (SELECT 1 n), b(n) AS (SELECT 1 UNION ALL '
           'SELECT b.n+1 FROM a, b) SELECT * FROM b',
+      'self-reference in a comma join after an ON clause':
+          'WITH x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM v_daily a '
+          'JOIN v_daily b ON 1, x) SELECT count(*) FROM x',
+      'self-reference in a comma join after a USING clause':
+          'WITH x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM v_daily a '
+          'JOIN v_daily b USING (date), x) SELECT count(*) FROM x',
+      'unlisted table in a comma join after an ON clause':
+          'SELECT * FROM v_daily a JOIN v_daily b ON a.date = b.date, '
+          'sqlite_master',
     };
+
+    test('GROUP BY / ORDER BY lists after an ON join are not table refs', () {
+      expect(
+          CoachDb.guardAndPrepare(
+              'SELECT a.date, count(*) FROM v_daily a JOIN v_daily b '
+              'ON a.date IN (b.date, a.date) GROUP BY a.date, b.date '
+              'ORDER BY a.date, 2'),
+          contains('LIMIT'));
+    });
 
     test('a CTE reading an EARLIER sibling CTE is still allowed', () {
       expect(
