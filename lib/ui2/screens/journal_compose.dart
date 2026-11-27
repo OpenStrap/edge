@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ai/briefing.dart' show BriefingStore;
 import '../../ai/journal_ai.dart';
 import '../../coach/coach_config.dart';
 import '../../compute/inputs/measurement_inputs.dart' show weighingChain, weighings;
@@ -284,6 +285,7 @@ class _JournalComposeState extends State<JournalCompose> {
       ..removeAll(_loadedTags.difference(_tags))
       ..addAll(_tags);
     await repo.postJournal(_date, tags.toList(), _note.text.trim());
+    BriefingStore.markJournalDone(_date);
   }
 
   @override

@@ -174,8 +174,13 @@ class BriefingStore {
 
   // ── journal "done for today" (suppresses tonight's pre-sleep nudge) ─────────
 
-  static void markJournalDone([String? day]) =>
-      Prefs.setString(_kJournalDoneDay, day ?? todayLabel());
+  /// Called by the journal writers (compose screen, coach log_journal). Only
+  /// today counts: the key holds one day, so editing an older entry must not
+  /// wipe tonight's mark.
+  static void markJournalDone([String? day]) {
+    final d = day ?? todayLabel();
+    if (d == todayLabel()) Prefs.setString(_kJournalDoneDay, d);
+  }
 
   static bool journalDoneToday([String? day]) =>
       Prefs.getString(_kJournalDoneDay, '') == (day ?? todayLabel());

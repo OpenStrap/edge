@@ -562,6 +562,9 @@ void main() {
     BriefingStore.markJournalDone();
     expect(BriefingStore.journalDoneToday(), isTrue);
     expect(BriefingStore.journalDoneToday('1999-01-01'), isFalse);
+    // editing an old entry must not wipe today's mark
+    BriefingStore.markJournalDone('1999-01-01');
+    expect(BriefingStore.journalDoneToday(), isTrue);
   });
 
   group('SentPayload describes the briefing, not today\'s settings', () {
