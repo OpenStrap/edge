@@ -66,6 +66,7 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
+import 'adapters/signals.dart' show InputSignal;
 import '../sync/reset_gate.dart';
 import 'adapters/host.dart' show BandHost, HrsReading;
 import 'band_identity.dart';
@@ -792,8 +793,8 @@ class HrsLink {
   /// [tier] defaults to null and is only worth passing explicitly when a
   /// caller knows better than the entry's own declared signals. Left null, it
   /// is derived from [declaredSignals]: `'beatToBeat'` for a strap that
-  /// actually declares one (today, only [kBleHrs]), null for anything that
-  /// declares none — same "NULL is a refusal, not a default" rule
+  /// declares RR intervals (today, only [kBleHrs]), null for anything that
+  /// does not — same "NULL is a refusal, not a default" rule
   /// `oura_link.dart` states for its own row. A band whose measurement
   /// quality differs from that must say so rather than inherit it — the tier
   /// is what decides precedence between two sources, so a wrong one is a
@@ -808,7 +809,10 @@ class HrsLink {
   /// `BluetoothDevice` to connect.
   @visibleForTesting
   static String? deriveTier(String? explicit, String adapterId) =>
-      explicit ?? (declaredSignals(adapterId).isEmpty ? null : 'beatToBeat');
+      explicit ??
+      (declaredSignals(adapterId).contains(InputSignal.rrIntervals)
+          ? 'beatToBeat'
+          : null);
 
   /// Why a connected peripheral that has [entry]'s characteristics is still
   /// not [entry], as a user-facing sentence, or null when nothing says so.
