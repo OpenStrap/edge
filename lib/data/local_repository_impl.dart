@@ -38,6 +38,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
 import 'db.dart';
+import 'json_fallback.dart' show crossdayInputFirstDateOf;
 import 'activity_store.dart';
 import '../models/activity_suggestion.dart';
 import '../health/health_export.dart';
@@ -229,10 +230,17 @@ class LocalRepositoryImpl extends LocalRepository {
     // 90 rows can span more than 90 calendar days: the input's oldest wins.
     // Only the oldest input date is needed: read it in SQL instead of
     // decoding the whole 90-day input on the UI isolate.
-    final first = (await db.rawQuery(
-      "SELECT json_extract(payload_json, '\$.days[0].date') AS d "
-      "FROM baselines WHERE key = 'crossday_input' AND json_valid(payload_json)",
-    )).firstOrNull?['d'];
+    final Object? first;
+    if (await LocalDb.hasJson1(db)) {
+      first = (await db.rawQuery(
+        "SELECT json_extract(payload_json, '\$.days[0].date') AS d "
+        "FROM baselines WHERE key = 'crossday_input' AND json_valid(payload_json)",
+      )).firstOrNull?['d'];
+    } else {
+      first = crossdayInputFirstDateOf((await db.rawQuery(
+        "SELECT payload_json FROM baselines WHERE key = 'crossday_input'",
+      )).firstOrNull?['payload_json']);
+    }
     if (first is String && first.compareTo(from) < 0) from = first;
     if (!notOurs.any((d) => d.compareTo(from) >= 0)) return cd;
     return {

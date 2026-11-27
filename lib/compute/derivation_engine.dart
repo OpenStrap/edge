@@ -4163,6 +4163,7 @@ class DerivationEngine {
             dayEndSec,
             dataNowSec,
             reason: _skipReasonForError(e),
+            detail: _skipDetail(e),
           );
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
@@ -8501,6 +8502,7 @@ class DerivationEngine {
     int dayEndSec,
     int dataNowSec, {
     required String reason,
+    String? detail,
   }) async {
     try {
       final existing = await LocalDb.dayResult(dayId);
@@ -8512,7 +8514,12 @@ class DerivationEngine {
       await LocalDb.putDayResult(
         dayId: dayId,
         algoVersion: kAlgoVersion,
-        payloadJson: jsonEncode({'skipped': true, 'reason': reason}),
+        // `detail` is the exception text: a bare "error" hid the cause of #912.
+        payloadJson: jsonEncode({
+          'skipped': true,
+          'reason': reason,
+          'detail': ?detail,
+        }),
         windowJson: '{}',
         // Structural failures (a day that can never be prepared / blows the
         // prepare budget) still finalize once aged out, so they aren't retried
@@ -12568,6 +12575,12 @@ class DerivationEngine {
     final d = DateTime.tryParse(day);
     if (d == null) return 0;
     return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
+  }
+
+  /// The exception, trimmed to what fits in a skip marker.
+  static String _skipDetail(Object error) {
+    final s = error.toString();
+    return s.length <= 240 ? s : s.substring(0, 240);
   }
 
   String _skipReasonForError(Object error) {
