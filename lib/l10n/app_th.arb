@@ -17361,5 +17361,22 @@
   "coachAppleNoEcg": "โมเดลบนอุปกรณ์ของ Apple อ่านคลื่น ECG ไม่ได้ หากต้องการวิเคราะห์การวัดนี้ ให้ปิด Apple Intelligence ในการตั้งค่า AI ของโค้ชแล้วใช้โมเดลอื่น",
   "aiBriefingUnknownBody": "บันทึกนี้ถูกบันทึกไว้ก่อนที่แอปจะเริ่มจดว่าสรุปถูกส่งไปที่ใด จึงบอกไม่ได้ว่าตัวเลขเหล่านี้ถูกส่งไปที่ใด",
   "alarmAllDays": "ทุกวัน",
-  "alarmCopiedToAllDays": "คัดลอกเวลาตื่นไปทุกวันแล้ว"
+  "alarmCopiedToAllDays": "คัดลอกเวลาตื่นไปทุกวันแล้ว",
+  "coachSignInOpenRouter": "ลงชื่อเข้าใช้ด้วย OpenRouter",
+  "healthShareDoctorReport": "แชร์รายงานสำหรับแพทย์ของคุณ",
+  "profileConnectedApps": "แอปที่เชื่อมต่อ",
+  "profileConnectedAppsSub": "โค้ช AI, intervals.icu, สภาพอากาศ, ปฏิทิน, Hue",
+  "connectedAppsSendLast7": "ส่งข้อมูล 7 วันล่าสุดตอนนี้",
+  "connectedAppsDisconnect": "ยกเลิกการเชื่อมต่อ",
+  "connectedAppsConnectIntervals": "เชื่อมต่อ intervals.icu",
+  "connectedAppsIntervalsKeyHelp": "บน intervals.icu เปิดการตั้งค่า จากนั้นเปิดการตั้งค่านักพัฒนา แล้วคัดลอกรหัสนักกีฬาและคีย์ API ของคุณ",
+  "connectedAppsAthleteId": "รหัสนักกีฬา",
+  "connectedAppsApiKey": "คีย์ API",
+  "connectedAppsConnect": "เชื่อมต่อ",
+  "connectedAppsHuePress": "กดปุ่มบนบริดจ์ Hue ของคุณ",
+  "connectedAppsHuePressBody": "ปุ่มกลมด้านบน รอได้สูงสุด 30 วินาที",
+  "connectedAppsHueWhichLights": "ไฟดวงไหนจะทำตามการนอนของคุณ",
+  "connectedAppsHueForget": "ลืมบริดจ์นี้",
+  "connectedAppsNoBridge": "ไม่พบบริดจ์",
+  "connectedAppsBridgeIp": "ที่อยู่ IP ของบริดจ์"
 }

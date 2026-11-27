@@ -4051,5 +4051,22 @@
   "coachAppleNoEcg": "Apple का ऑन-डिवाइस मॉडल ECG वेवफ़ॉर्म नहीं पढ़ सकता। इस रीडिंग का विश्लेषण करने के लिए कोच की AI सेटिंग्स में Apple Intelligence बंद करें और कोई दूसरा मॉडल इस्तेमाल करें।",
   "aiBriefingUnknownBody": "यह नोट ऐप के यह दर्ज करने से पहले सहेजा गया था कि ब्रीफ़िंग कहाँ जाती हैं, इसलिए यह नहीं बता सकता कि ये आंकड़े कहाँ भेजे गए थे।",
   "alarmAllDays": "सभी दिन",
-  "alarmCopiedToAllDays": "जागने का समय सभी दिनों में कॉपी किया गया"
+  "alarmCopiedToAllDays": "जागने का समय सभी दिनों में कॉपी किया गया",
+  "coachSignInOpenRouter": "OpenRouter से साइन इन करें",
+  "healthShareDoctorReport": "अपने डॉक्टर के लिए रिपोर्ट साझा करें",
+  "profileConnectedApps": "जुड़े हुए ऐप",
+  "profileConnectedAppsSub": "AI कोच, intervals.icu, मौसम, कैलेंडर, Hue",
+  "connectedAppsSendLast7": "पिछले 7 दिन अभी भेजें",
+  "connectedAppsDisconnect": "डिस्कनेक्ट करें",
+  "connectedAppsConnectIntervals": "intervals.icu कनेक्ट करें",
+  "connectedAppsIntervalsKeyHelp": "intervals.icu पर सेटिंग्स, फिर डेवलपर सेटिंग्स खोलें और अपना एथलीट ID और API कुंजी कॉपी करें।",
+  "connectedAppsAthleteId": "एथलीट ID",
+  "connectedAppsApiKey": "API कुंजी",
+  "connectedAppsConnect": "कनेक्ट करें",
+  "connectedAppsHuePress": "अपने Hue ब्रिज का बटन दबाएँ",
+  "connectedAppsHuePressBody": "ऊपर का गोल बटन। 30 सेकंड तक प्रतीक्षा कर रहे हैं।",
+  "connectedAppsHueWhichLights": "कौन सी लाइटें आपकी नींद के साथ चलें?",
+  "connectedAppsHueForget": "इस ब्रिज को भूल जाएँ",
+  "connectedAppsNoBridge": "कोई ब्रिज नहीं मिला",
+  "connectedAppsBridgeIp": "ब्रिज का IP पता"
 }

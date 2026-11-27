@@ -57,6 +57,14 @@ const Map<String, String> kPrefsNotBackedUp = {
       'the new install has not asked yet',
   'health_weight_grant_seen': 'the WEIGHT grant is per install; the new '
       'install observes its own',
+  'intervals_icu_auto_push': 'belongs to this phone\'s intervals.icu sign-in, '
+      'which does not travel; connect again on the new phone',
+  'hue_room': 'names a room on the bridge linked to this phone; link the '
+      'bridge again on the new phone',
+  'integration_weather_on': 'needs location access granted on this phone; '
+      'turn it on again here',
+  'integration_calendar_on': 'needs calendar access granted on this phone; '
+      'turn it on again here',
 };
 
 const Map<String, String> kSecretsNotBackedUp = {
@@ -72,6 +80,10 @@ const Map<String, String> kSecretsNotBackedUp = {
       'read from secure storage; enter the key again on this phone',
   'lib/ble/helio_strap_link.dart': 'Helio strap auth key is a credential; '
       'pair the strap again on this phone',
+  'lib/integrations/intervals_icu.dart': 'intervals.icu token or API key is a '
+      'credential; connect again on the new phone',
+  'lib/integrations/hue.dart': 'Hue bridge link key and certificate pin are '
+      'credentials for one bridge; link the bridge again on the new phone',
 };
 
 /// The app root reloads presentation controllers after AppState adopts prefs.

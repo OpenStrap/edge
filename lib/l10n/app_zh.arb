@@ -4051,5 +4051,22 @@
   "coachAppleNoEcg": "Apple 设备端模型无法读取心电图波形。要分析这条记录，请在教练的 AI 设置中关闭 Apple Intelligence，并使用其他模型。",
   "aiBriefingUnknownBody": "这条记录保存于应用开始记录简报发送去向之前，因此无法说明这些数值被发送到了哪里。",
   "alarmAllDays": "每天",
-  "alarmCopiedToAllDays": "起床时间已复制到每一天"
+  "alarmCopiedToAllDays": "起床时间已复制到每一天",
+  "coachSignInOpenRouter": "使用 OpenRouter 登录",
+  "healthShareDoctorReport": "分享给医生的报告",
+  "profileConnectedApps": "已连接的应用",
+  "profileConnectedAppsSub": "AI 教练、intervals.icu、天气、日历、Hue",
+  "connectedAppsSendLast7": "立即发送最近 7 天",
+  "connectedAppsDisconnect": "断开连接",
+  "connectedAppsConnectIntervals": "连接 intervals.icu",
+  "connectedAppsIntervalsKeyHelp": "在 intervals.icu 打开“设置”，再打开“开发者设置”，复制你的运动员 ID 和 API 密钥。",
+  "connectedAppsAthleteId": "运动员 ID",
+  "connectedAppsApiKey": "API 密钥",
+  "connectedAppsConnect": "连接",
+  "connectedAppsHuePress": "按下 Hue 桥接器上的按钮",
+  "connectedAppsHuePressBody": "顶部的圆形按钮。最多等待 30 秒。",
+  "connectedAppsHueWhichLights": "哪些灯跟随你的睡眠？",
+  "connectedAppsHueForget": "忘记此桥接器",
+  "connectedAppsNoBridge": "未找到桥接器",
+  "connectedAppsBridgeIp": "桥接器 IP 地址"
 }

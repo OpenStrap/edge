@@ -37,6 +37,8 @@ import '../../coach/coach_engine.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'ai_briefing.dart';
+import '../../integrations/oauth_loopback.dart';
+import '../../integrations/openrouter.dart';
 import 'coach_figures.dart';
 import 'home_screen.dart' show go, pad, repoOf;
 import 'journal_compose.dart' show OsTextField;
@@ -941,6 +943,7 @@ class CoachSetup extends StatefulWidget {
 class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
   late final TextEditingController _base;
   late final TextEditingController _key;
+  LoopbackAuth? _openRouter;
   late final TextEditingController _search;
   late final TextEditingController _timeout;
   late CoachApi _api;
@@ -1067,6 +1070,7 @@ class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _openRouter?.cancel();
     if (_signingIn) _chatgptAuth.cancelSignIn();
     _base.dispose();
     _key.dispose();
@@ -1171,6 +1175,33 @@ class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
   /// The redirect lands on a loopback listener inside this app, so the page
   /// opens in an in-app browser (SFSafariViewController / Custom Tab): with
   /// the system browser in front, iOS suspends the app and the listener dies.
+  /// Fills the key field with a key the user approves on openrouter.ai, then
+  /// lists models; Save stores it like a pasted key.
+  Future<void> _signInOpenRouter() async {
+    _openRouter?.cancel();
+    final auth = _openRouter = LoopbackAuth(host: 'localhost');
+    final base = _base.text.trim();
+    setState(() => _msg = null);
+    try {
+      final key = await openRouterSignIn(
+          auth, (uri) => launchUrl(uri, mode: LaunchMode.inAppBrowserView));
+      // A newer attempt owns the browser now: leave it alone.
+      if (!identical(_openRouter, auth)) return;
+      await _closeBrowser();
+      // The key belongs to OpenRouter: drop it if the provider was changed
+      // while the browser was open.
+      if (!mounted || !identical(_openRouter, auth) || _base.text.trim() != base) return;
+      setState(() => _key.text = key);
+      await _fetch();
+    } catch (e) {
+      if (!identical(_openRouter, auth)) return;
+      await _closeBrowser();
+      if (mounted && identical(_openRouter, auth)) setState(() => _msg = '$e');
+    } finally {
+      if (identical(_openRouter, auth)) _openRouter = null;
+    }
+  }
+
   Future<void> _signInChatGpt() async {
     final chatgpt = _chatgptAuth;
     if (!await confirmChatGptTerms(context) || !mounted) return;
@@ -1611,6 +1642,16 @@ class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
                           : (l?.coachApiKeyLabel ?? 'API key'),
                       hint: 'sk-…',
                     ),
+                    if (coachEndpointOrigin(_base.text.trim()) == 'https://openrouter.ai') ...[
+                      const SizedBox(height: S.x3),
+                      BigButton(
+                        uiText(c, 'Sign in with OpenRouter'),
+                        icon: LucideIcons.logIn,
+                        color: kCoachAccent,
+                        soft: true,
+                        onTap: _loading ? null : _signInOpenRouter,
+                      ),
+                    ],
                     const SizedBox(height: S.x3),
                     // The one sentence that decides whether a cloud key is a
                     // reasonable choice. It is here, next to the field, and not

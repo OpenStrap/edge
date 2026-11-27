@@ -18414,5 +18414,73 @@
   "alarmAllDays": "All days",
   "@alarmAllDays": {"description": "Snackbar action: copy the wake time just set to every weekday."},
   "alarmCopiedToAllDays": "Wake time copied to every day",
-  "@alarmCopiedToAllDays": {"description": "Snackbar: wake time copied to every weekday."}
+  "@alarmCopiedToAllDays": {"description": "Snackbar: wake time copied to every weekday."},
+  "coachSignInOpenRouter": "Sign in with OpenRouter",
+  "@coachSignInOpenRouter": {
+    "description": "Button on the coach setup screen that signs in to OpenRouter instead of pasting a key"
+  },
+  "healthShareDoctorReport": "Share a report for your doctor",
+  "@healthShareDoctorReport": {
+    "description": "Button on the health screen that shares a 90-day PDF summary"
+  },
+  "profileConnectedApps": "Connected apps",
+  "@profileConnectedApps": {
+    "description": "Profile row that opens the screen for connecting other services"
+  },
+  "profileConnectedAppsSub": "AI coach, intervals.icu, weather, calendar, Hue",
+  "@profileConnectedAppsSub": {
+    "description": "Subtitle of the Connected apps row in Profile"
+  },
+  "connectedAppsSendLast7": "Send the last 7 days now",
+  "@connectedAppsSendLast7": {
+    "description": "Option in the intervals.icu menu that pushes the last week of wellness data"
+  },
+  "connectedAppsDisconnect": "Disconnect",
+  "@connectedAppsDisconnect": {
+    "description": "Option in the intervals.icu menu that signs out"
+  },
+  "connectedAppsConnectIntervals": "Connect intervals.icu",
+  "@connectedAppsConnectIntervals": {
+    "description": "Title of the dialog that asks for the intervals.icu athlete ID and API key"
+  },
+  "connectedAppsIntervalsKeyHelp": "On intervals.icu open Settings, then Developer Settings, and copy your athlete ID and API key.",
+  "@connectedAppsIntervalsKeyHelp": {
+    "description": "Help text in the intervals.icu connect dialog"
+  },
+  "connectedAppsAthleteId": "Athlete ID",
+  "@connectedAppsAthleteId": {
+    "description": "Field label for the intervals.icu athlete ID"
+  },
+  "connectedAppsApiKey": "API key",
+  "@connectedAppsApiKey": {
+    "description": "Field label for the intervals.icu API key"
+  },
+  "connectedAppsConnect": "Connect",
+  "@connectedAppsConnect": {
+    "description": "Confirm button in the connect dialogs"
+  },
+  "connectedAppsHuePress": "Press the button on your Hue bridge",
+  "@connectedAppsHuePress": {
+    "description": "Title of the dialog shown while linking a Hue bridge"
+  },
+  "connectedAppsHuePressBody": "The round button on top. Waiting up to 30 seconds.",
+  "@connectedAppsHuePressBody": {
+    "description": "Body of the dialog shown while linking a Hue bridge"
+  },
+  "connectedAppsHueWhichLights": "Which lights follow your sleep?",
+  "@connectedAppsHueWhichLights": {
+    "description": "Heading of the Hue room picker"
+  },
+  "connectedAppsHueForget": "Forget this bridge",
+  "@connectedAppsHueForget": {
+    "description": "Option that unlinks the Hue bridge"
+  },
+  "connectedAppsNoBridge": "No bridge found",
+  "@connectedAppsNoBridge": {
+    "description": "Title of the dialog that asks for a Hue bridge IP when none is found"
+  },
+  "connectedAppsBridgeIp": "Bridge IP address",
+  "@connectedAppsBridgeIp": {
+    "description": "Field label for the Hue bridge IP address"
+  }
 }

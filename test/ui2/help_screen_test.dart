@@ -36,7 +36,7 @@ void main() { setUp(() => SharedPreferences.setMockInitialValues({}));
       await t.pumpAndSettle(); final l = lookupAppLocalizations(const Locale('en'));
       Finder group(String title) => find.byWidgetPredicate((w) => w is Section && w.title == title);
       final quickRows = t.widgetList<SetRow>(find.descendant(of: group(l.profileQuickAccessGroup), matching: find.byType(SetRow))).toList();
-      expect(quickRows.map((r) => r.title), [l.profileMyDevices, l.profileEditProfile, l.profileAiCoach, l.profileHelpRow, l.profileLanguage]);
+      expect(quickRows.map((r) => r.title), [l.profileMyDevices, l.profileEditProfile, 'Connected apps', l.profileHelpRow, l.profileLanguage]);
       final help = quickRows.singleWhere((r) => r.title == l.profileHelpRow);
       expect(help.icon, LucideIcons.circleHelp); expect(help.color, C.blue);
       expect(find.descendant(of: group(l.profileYourDataGroup), matching: find.text(l.profileHelpRow)), findsNothing);

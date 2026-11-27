@@ -23,16 +23,21 @@ import '../../state/locale_controller.dart';
 import 'package:intl/intl.dart';
 import '../../l10n/date_text.dart';
 import '../../l10n/decimal_text.dart';
-import 'dart:convert' show utf8;
-import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../data/db.dart';
+import 'dart:convert' show utf8;
+import 'dart:typed_data' show Uint8List;
+
+import 'package:file_picker/file_picker.dart';
+import '../../data/day_label.dart' show dayLabelOf;
 import '../../gps/gpx_export.dart';
+import '../../integrations/intervals_icu.dart';
+import '../../integrations/tcx.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
@@ -1409,50 +1414,89 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (c.mounted && picked) Navigator.of(c).pop();
   }
 
-  /// Guards against a double tap firing two competing native share sheets —
-  /// `share_plus` completes the first pending share as `unavailable` the
-  /// moment a second one starts. A plain field, not `setState`: nothing on
-  /// screen needs to repaint over this, it only needs to stay clear through
-  /// every exit (including a thrown error) — see the `finally` below.
-  bool _exportingGpx = false;
+  /// Guards a double tap from posting the same session twice at once. A
+  /// plain field, not `setState`: nothing repaints over it.
+  bool _posting = false;
 
-  /// Scoped export: the GPS route this phone already recorded, as a GPX file
-  /// handed to the OS share sheet — so it can be manually uploaded to Strava
-  /// or anywhere else that reads GPX. There is no Strava account involved:
-  /// no OAuth, no upload call, just a file.
-  Future<void> _exportGpx(BuildContext c) async {
+  /// Saves this session as a file through the system save dialog (Files on
+  /// iOS, any folder on Android). With [strava], then opens Strava's web
+  /// uploader, where the user picks that file: the one route into Strava with
+  /// no API account and no user cap. TCX carries heart rate and the route, so
+  /// it also works for indoor sessions; GPX is the route alone, for map apps.
+  Future<void> _saveFile(BuildContext c, {required bool strava}) async {
     final id = r.sessionId;
-    if (id == null || _exportingGpx) return;
-    _exportingGpx = true;
-    final l = AppLocalizations.of(c);
-    final origin = shareOrigin(c);
+    if (id == null || _posting) return;
+    _posting = true;
     final messenger = ScaffoldMessenger.of(c);
-    try {
-      final route = await c.read<AppState>().repo?.getWorkoutRoute(id);
+    void say(String m) {
+      // After an await the screen may be gone: no context, no snackbar.
       if (!c.mounted) return;
-      if (route == null || route.points.length < 2) {
-        messenger.showSnackBar(SnackBar(
-            content: Text(l?.activitySummaryNoRouteBody ??
-                'Location was off, or this activity was not recorded with '
-                    'GPS.')));
+      messenger.showSnackBar(SnackBar(content: Text(uiText(c, m))));
+    }
+    try {
+      final repo = c.read<AppState>().repo;
+      final String body, name;
+      if (strava) {
+        final act = await tcxActivityForSession(id, routeOf: repo?.getWorkoutRoute);
+        if (act == null) {
+          say('This workout has no heart rate or route left on the phone to send.');
+          return;
+        }
+        body = buildTcx(act);
+        name = '${a.typeKey}-${dayLabelOf(act.start.toLocal())}.tcx';
+      } else {
+        final route = await repo?.getWorkoutRoute(id);
+        if (route == null || route.points.length < 2) {
+          say('Location was off, or this activity was not recorded with GPS.');
+          return;
+        }
+        body = buildGpx(route, name: a.name);
+        name = '${a.typeKey}-${dayLabelOf(DateTime.fromMillisecondsSinceEpoch(route.points.first.tsMs))}.gpx';
+      }
+      final saved = await FilePicker.platform
+          .saveFile(fileName: name, bytes: Uint8List.fromList(utf8.encode(body)));
+      if (saved == null) return; // cancelled
+      if (!strava) {
+        say('Saved $name.');
         return;
       }
-      final gpx = buildGpx(route, name: a.name);
-      await Share.shareXFiles(
-        [
-          XFile.fromData(Uint8List.fromList(utf8.encode(gpx)),
-              mimeType: 'application/gpx+xml', name: '${a.typeKey}.gpx'),
-        ],
-        sharePositionOrigin: origin,
-      );
+      await launchUrl(Uri.parse('https://www.strava.com/upload/select'),
+          mode: LaunchMode.externalApplication);
+      say('Saved. On Strava, tap Choose file and pick $name.');
     } catch (e) {
-      if (!c.mounted) return;
-      messenger.showSnackBar(SnackBar(
-          content: Text(
-              l?.activityShareOpenFailed ?? 'Could not open the share sheet.')));
-      debugPrint('gpx export failed: $e');
+      say('$e');
     } finally {
-      _exportingGpx = false;
+      _posting = false;
+    }
+  }
+
+  /// Sends this session to intervals.icu as a TCX (heart rate, and the route
+  /// when there is one).
+  Future<void> _sendToIntervals(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null || _posting) return;
+    _posting = true;
+    final messenger = ScaffoldMessenger.of(c);
+    void say(String m) {
+      // After an await the screen may be gone: no context, no snackbar.
+      if (!c.mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(uiText(c, m))));
+    }
+    try {
+      final repo = c.read<AppState>().repo;
+      final act = await tcxActivityForSession(id, routeOf: repo?.getWorkoutRoute);
+      if (act == null) {
+        say('This workout has no heart rate or route left on the phone to send.');
+        return;
+      }
+      final sent = await IntervalsIcu.instance.uploadWorkout(id, name: a.name, routeOf: repo?.getWorkoutRoute);
+      say(sent
+          ? 'Sent to intervals.icu.'
+          : 'This workout has no heart rate or route left on the phone to send.');
+    } catch (e) {
+      say('$e');
+    } finally {
+      _posting = false;
     }
   }
 
@@ -1505,7 +1549,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // zero-span route (every fix at the same spot — a stationary GPS lock),
     // which would hide the export for a session `getWorkoutRoute` can still
     // export.
-    final canExportGpx = r.sessionId != null &&
+    final canPost = r.sessionId != null;
+    final canExportGpx = canPost &&
         (arch == Arch.route || arch == Arch.journey) &&
         r.geo.length >= 2;
     final l = AppLocalizations.of(c);
@@ -1552,24 +1597,29 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 ),
               ),
             ),
-            // A dedicated, plainly-labeled button rather than a bare icon in the
-            // nav bar — this is the one export action worth naming outright.
-            // Text only: no Strava logo/imagery, per the no-brand-assets policy
-            // (the brand name as plain text is fine, brand marks are not).
-          if (canExportGpx)
+          // Plainly labelled rows, text only: no brand marks (no-brand-assets
+          // policy; the names as plain text are fine).
+          // Strava: save the file, then open the web uploader.
+          for (final (label, onTap) in <(String, VoidCallback)>[
+            if (canPost) ('Upload to Strava', () => _saveFile(c, strava: true)),
+            if (canPost && IntervalsIcu.instance.signedIn)
+              ('Send to intervals.icu', () => _sendToIntervals(c)),
+            if (canExportGpx) ('Export GPX', () => _saveFile(c, strava: false)),
+          ])
             Padding(
               padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, 0),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Pressable(
-                  onTap: () => _exportGpx(c),
+                  onTap: onTap,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(LucideIcons.upload, size: 16, color: p.ink2),
                     const SizedBox(width: S.x2),
-                    Text(
-                        l?.activitySummaryShareToStrava ?? 'Share to Strava',
-                        style: F.body.copyWith(
-                            color: p.ink2, fontWeight: FontWeight.w600)),
+                    // Flexible: at large text sizes the label wraps, not overflows.
+                    Flexible(
+                      child: Text(uiText(c, label),
+                          style: F.body.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                    ),
                   ]),
                 ),
               ),

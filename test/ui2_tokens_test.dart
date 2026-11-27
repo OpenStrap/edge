@@ -205,6 +205,8 @@ const _notComponents = {
   // onboarding routes
   'BootSplash', 'WelcomeScreen', 'WelcomeView', 'PairingScreen', 'PairingView',
   'ProfileSetupScreen', 'ProfileSetupView',
+  // Connected apps: a settings screen that signs in to and reads each service.
+  'ConnectedApps',
   // profile routes
   'ProfileHome', 'ProfileHomeView', 'MoreSettings', 'MoreSettingsView',
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',

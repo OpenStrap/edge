@@ -27,6 +27,8 @@ import '../sync/reset_gate.dart';
 import 'coach_actions.dart';
 import 'coach_chat_completions.dart';
 import 'coach_chatgpt.dart';
+import '../integrations/calendar.dart';
+import '../integrations/weather.dart';
 import 'coach_config.dart';
 import 'coach_apple.dart';
 import 'coach_db.dart';
@@ -177,7 +179,9 @@ class CoachSessionMeta {
 /// coach unable to read today's data on a provider that never sends `"{}"`.
 /// Everything that writes is NOT here: an empty or missing argument for those
 /// would run on fabricated defaults. Malformed text still refuses for all.
-const kNoArgumentReadTools = {'get_today', 'get_medications', 'get_nutrition'};
+const kNoArgumentReadTools = {
+  'get_today', 'get_medications', 'get_nutrition', 'get_weather', 'get_calendar',
+};
 
 class CoachEngine {
   final CoachConfig config;
@@ -1052,6 +1056,13 @@ class CoachEngine {
               await LocalDb.instance, args['date']);
         case 'get_medications':
           return await CoachActions.medications(await LocalDb.instance);
+        // context — opt-in, from Connected apps; each says so when off.
+        case 'get_weather':
+          return await weatherForCoach(
+              pastDays: CoachActions.num_(args['past_days'])?.round() ?? 7);
+        case 'get_calendar':
+          return await calendarForCoach(
+              daysAhead: CoachActions.num_(args['days_ahead'])?.round() ?? 2);
         // data — one saved ECG reading, by id. Bound query + bounded payload;
         // the packet tables stay unreachable through run_sql.
         case 'get_ecg_reading':
@@ -1163,6 +1174,21 @@ class CoachEngine {
                 '${args['state']}.',
             args: args,
           ), () async => CoachActions.markMedication(await LocalDb.instance, args));
+        case 'add_calendar_event':
+          final start = DateTime.tryParse('${args['start'] ?? ''}');
+          final end = DateTime.tryParse('${args['end'] ?? ''}');
+          if (start == null || end == null) {
+            return 'Error: start and end must be ISO local date-times. Nothing was added.';
+          }
+          return await _action(confirm, ActionRequest(
+            tool: name, title: 'Add to calendar',
+            summary: 'Add "${args['title']}" on ${start.toString().substring(0, 16)} '
+                'until ${end.toString().substring(0, 16)}.',
+            args: args,
+          ), () => addCalendarEvent(
+              title: '${args['title'] ?? 'Recovery'}',
+              start: start, end: end,
+              note: args['note'] is String ? args['note'] as String : null));
         case 'set_step_goal':
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Set step goal',
@@ -1221,6 +1247,8 @@ class CoachEngine {
       case 'get_today': return 'Reading today…';
       case 'get_nutrition': return 'Reading your food log…';
       case 'get_medications': return 'Reading your medications…';
+      case 'get_weather': return 'Checking the weather…';
+      case 'get_calendar': return 'Reading your calendar…';
       case 'plot_chart': return 'Plotting…';
       case 'render': return 'Rendering ${args['type'] ?? 'figure'}…';
       default: return 'Working…';
@@ -1418,6 +1446,27 @@ class CoachEngine {
     _fn('start_workout', 'Start a live workout (asks the user to confirm).', {'type': {'type': 'string'}}),
     _fn('end_workout', 'End the active workout (asks the user to confirm).', {'workout_id': {'type': 'string'}}, ['workout_id']),
     _fn('set_step_goal', 'Set the daily step goal (asks the user to confirm).', {'goal': {'type': 'integer'}}, ['goal']),
+    _fn('get_weather',
+        'Daily weather, air quality (US AQI, PM2.5) and pollen where the user '
+        'is, for the past N days plus today and tomorrow. Use it to test an '
+        'outside explanation for a low HRV, high RHR or bad night; say it is a '
+        'possible factor, never the cause. Off unless the user enabled it.',
+        {'past_days': {'type': 'integer', 'description': '1-30, default 7'}}),
+    _fn('get_calendar',
+        'The user\'s calendar events from now to N days ahead (titles, times). '
+        'Use it to plan training or rest around what is booked. Off unless '
+        'the user enabled it.',
+        {'days_ahead': {'type': 'integer', 'description': '1-14, default 2'}}),
+    _fn('add_calendar_event',
+        'Add one event to the user\'s calendar, e.g. a recovery block or a '
+        'bedtime reminder (asks the user to confirm).',
+        {
+          'title': {'type': 'string'},
+          'start': {'type': 'string', 'description': 'local ISO date-time, e.g. 2026-11-22T21:30'},
+          'end': {'type': 'string', 'description': 'local ISO date-time'},
+          'note': {'type': 'string'},
+        },
+        ['title', 'start', 'end']),
   ];
 }
 

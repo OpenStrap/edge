@@ -9197,5 +9197,22 @@
   "coachAppleNoEcg": "Модель Apple на устройстве не может читать кривую ЭКГ. Чтобы проанализировать эту запись, выключите Apple Intelligence в настройках ИИ коуча и используйте другую модель.",
   "aiBriefingUnknownBody": "Эта заметка сохранена до того, как приложение стало записывать, куда уходят сводки, поэтому оно не может сказать, куда были отправлены эти данные.",
   "alarmAllDays": "Все дни",
-  "alarmCopiedToAllDays": "Время подъёма скопировано на все дни"
+  "alarmCopiedToAllDays": "Время подъёма скопировано на все дни",
+  "coachSignInOpenRouter": "Войти через OpenRouter",
+  "healthShareDoctorReport": "Поделиться отчётом для врача",
+  "profileConnectedApps": "Подключённые приложения",
+  "profileConnectedAppsSub": "ИИ-тренер, intervals.icu, погода, календарь, Hue",
+  "connectedAppsSendLast7": "Отправить последние 7 дней сейчас",
+  "connectedAppsDisconnect": "Отключить",
+  "connectedAppsConnectIntervals": "Подключить intervals.icu",
+  "connectedAppsIntervalsKeyHelp": "На intervals.icu откройте «Настройки», затем «Настройки разработчика» и скопируйте ID спортсмена и ключ API.",
+  "connectedAppsAthleteId": "ID спортсмена",
+  "connectedAppsApiKey": "Ключ API",
+  "connectedAppsConnect": "Подключить",
+  "connectedAppsHuePress": "Нажмите кнопку на мосте Hue",
+  "connectedAppsHuePressBody": "Круглая кнопка сверху. Ждём до 30 секунд.",
+  "connectedAppsHueWhichLights": "Какой свет должен следовать за вашим сном?",
+  "connectedAppsHueForget": "Забыть этот мост",
+  "connectedAppsNoBridge": "Мост не найден",
+  "connectedAppsBridgeIp": "IP-адрес моста"
 }

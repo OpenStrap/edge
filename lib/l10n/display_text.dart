@@ -155,6 +155,23 @@ String localizedText(AppLocalizations? l, String text) {
     return l.findingLowReadinessScoredDetail(int.parse(lowScore[1]!));
   }
   return switch (text) {
+    "Sign in with OpenRouter" => l.coachSignInOpenRouter,
+    "Share a report for your doctor" => l.healthShareDoctorReport,
+    "Connected apps" => l.profileConnectedApps,
+    "AI coach, intervals.icu, weather, calendar, Hue" => l.profileConnectedAppsSub,
+    "Send the last 7 days now" => l.connectedAppsSendLast7,
+    "Disconnect" => l.connectedAppsDisconnect,
+    "Connect intervals.icu" => l.connectedAppsConnectIntervals,
+    "On intervals.icu open Settings, then Developer Settings, and copy your athlete ID and API key." => l.connectedAppsIntervalsKeyHelp,
+    "Athlete ID" => l.connectedAppsAthleteId,
+    "API key" => l.connectedAppsApiKey,
+    "Connect" => l.connectedAppsConnect,
+    "Press the button on your Hue bridge" => l.connectedAppsHuePress,
+    "The round button on top. Waiting up to 30 seconds." => l.connectedAppsHuePressBody,
+    "Which lights follow your sleep?" => l.connectedAppsHueWhichLights,
+    "Forget this bridge" => l.connectedAppsHueForget,
+    "No bridge found" => l.connectedAppsNoBridge,
+    "Bridge IP address" => l.connectedAppsBridgeIp,
     "Apple Intelligence on this iPhone" => l.coachAppleTitle,
     "Needs iOS 26 and Apple Intelligence turned on. No key needed." => l.coachAppleSub,
     "Checking Apple Intelligence…" => l.coachAppleChecking,

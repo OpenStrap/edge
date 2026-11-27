@@ -78,6 +78,9 @@ const _mustStay = {
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',
   // Permission and grant are per install.
   'health_weight_perm_asked', 'health_weight_grant_seen',
+  // Tied to a sign-in, bridge or permission that is per install.
+  'intervals_icu_auto_push', 'hue_room',
+  'integration_weather_on', 'integration_calendar_on',
 };
 
 // Interpolated keys, including ones hidden behind key-building helpers.
