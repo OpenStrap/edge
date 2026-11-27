@@ -793,8 +793,8 @@ class HrsLink {
   /// [tier] defaults to null and is only worth passing explicitly when a
   /// caller knows better than the entry's own declared signals. Left null, it
   /// is derived from [declaredSignals]: `'beatToBeat'` for a strap that
-  /// declares RR intervals (today, only [kBleHrs]), null for anything that
-  /// does not — same "NULL is a refusal, not a default" rule
+  /// declares RR intervals (today [kBleHrs], coros and polar_pmd), null for
+  /// anything that does not — same "NULL is a refusal, not a default" rule
   /// `oura_link.dart` states for its own row. A band whose measurement
   /// quality differs from that must say so rather than inherit it — the tier
   /// is what decides precedence between two sources, so a wrong one is a
