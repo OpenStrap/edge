@@ -35,6 +35,9 @@ import 'dart:convert';
 
 num? _num(Object? v) => v is num ? v : null;
 
+/// `json_extract` hands a JSON true/false back as 1/0.
+num? _extracted(Object? v) => v is bool ? (v ? 1 : 0) : _num(v);
+
 /// `LocalDb.storedNightClock`: the onset instant and the clock it froze, or
 /// null for a malformed bundle, a skip marker, or a skipped row.
 ({num? onsetMs, num? onsetClockSec})? storedNightClockOf(
@@ -44,8 +47,10 @@ num? _num(Object? v) => v is num ? v : null;
   final (ok, doc) = _parse(payload);
   if (!ok || skippedColumn || _lookup(doc, ['skipped']).$2 == true) return null;
   return (
-    onsetMs: _num(_lookup(doc, ['sleep', 'window', 'value', 'onset_ms']).$2),
-    onsetClockSec: _num(_lookup(doc, ['scalars', 'sleep_onset_sec']).$2),
+    onsetMs:
+        _extracted(_lookup(doc, ['sleep', 'window', 'value', 'onset_ms']).$2),
+    onsetClockSec:
+        _extracted(_lookup(doc, ['scalars', 'sleep_onset_sec']).$2),
   );
 }
 
@@ -98,14 +103,19 @@ String? crossdayInputFirstDateOf(Object? payload) {
 }
 
 /// `v_hypnogram` rows for one served day: one per `series.hypnogram` segment.
-/// Nothing for a malformed bundle or a hypnogram that is not a list.
+/// Nothing for a malformed bundle or a hypnogram that is not a list or object.
 List<Map<String, Object?>> hypnogramRowsOf(String dayId, Object? payload) {
   final (ok, doc) = _parse(payload);
   if (!ok) return const [];
   final segments = _lookup(doc, ['series', 'hypnogram']).$2;
-  if (segments is! List) return const [];
+  // json_each walks an array's elements or an object's members.
+  final Iterable<Object?> items = switch (segments) {
+    List() => segments,
+    Map() => segments.values,
+    _ => const [],
+  };
   return [
-    for (final e in segments)
+    for (final e in items)
       {
         'date': dayId,
         'start_ts': e is Map ? e['start'] : null,

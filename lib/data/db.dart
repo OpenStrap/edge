@@ -10470,6 +10470,34 @@ class LocalDb {
     }
   }
 
+  /// Every served day's bundle, a few at a time, so a long history is never
+  /// all in memory at once (a bundle carries its curves). Oldest day first.
+  static Future<void> _eachServedBundleBatch(
+    Database db,
+    Future<void> Function(List<String> days, List<Object?> payloads) each, {
+    int size = 20,
+  }) async {
+    final ids = [
+      for (final r in await db.rawQuery(
+        'SELECT r.day_id FROM day_result r $_servedDayJoin ORDER BY r.day_id',
+      ))
+        '${r['day_id']}',
+    ];
+    for (var i = 0; i < ids.length; i += size) {
+      final end = i + size > ids.length ? ids.length : i + size;
+      final chunk = ids.sublist(i, end);
+      final rows = await db.rawQuery(
+        'SELECT r.day_id, r.payload_json FROM day_result r $_servedDayJoin '
+        'WHERE r.day_id IN (${List.filled(chunk.length, '?').join(',')})',
+        chunk,
+      );
+      await each(
+        [for (final r in rows) '${r['day_id']}'],
+        [for (final r in rows) r['payload_json']],
+      );
+    }
+  }
+
   /// The two numbers a re-derive needs to keep a stored night on the clock it
   /// was lived on: the served row's sleep onset instant (ms) and the
   /// `sleep_onset_sec` clock it froze. Read with json_extract, so the bundle is
@@ -10743,15 +10771,13 @@ class LocalDb {
   /// way the spreadsheet export orders them.
   static Future<List<Map<String, Object?>>> hypnogramRowsNoJson1() async {
     final db = await instance;
-    final all = await db.rawQuery(
-      'SELECT r.day_id, r.payload_json FROM day_result r $_servedDayJoin',
-    );
-    final days = [for (final r in all) '${r['day_id']}'];
-    final payloads = [for (final r in all) r['payload_json']];
-    final rows = await Isolate.run(() => [
-          for (var i = 0; i < days.length; i++)
-            ...hypnogramRowsOf(days[i], payloads[i]),
-        ]);
+    final rows = <Map<String, Object?>>[];
+    await _eachServedBundleBatch(db, (days, payloads) async {
+      rows.addAll(await Isolate.run(() => [
+            for (var i = 0; i < days.length; i++)
+              ...hypnogramRowsOf(days[i], payloads[i]),
+          ]));
+    });
     final order = {for (var i = 0; i < rows.length; i++) rows[i]: i};
     num? start(Map<String, Object?> r) => r['start_ts'] is num ? r['start_ts'] as num : null;
     rows.sort((a, b) {
@@ -10775,18 +10801,16 @@ class LocalDb {
   static Future<Set<String>> daysWithSleepTst() async {
     final db = await instance;
     if (!await hasJson1(db)) {
-      final all = await db.rawQuery(
-        'SELECT r.day_id, r.payload_json FROM day_result r $_servedDayJoin',
-      );
-      final days = [for (final r in all) r['day_id']];
-      final payloads = [for (final r in all) r['payload_json']];
-      final has = await Isolate.run(
-        () => [for (final p in payloads) hasSleepTst(p)],
-      );
-      return {
-        for (var i = 0; i < days.length; i++)
-          if (has[i] && days[i] is String) days[i] as String,
-      };
+      final out = <String>{};
+      await _eachServedBundleBatch(db, (days, payloads) async {
+        final has = await Isolate.run(
+          () => [for (final p in payloads) hasSleepTst(p)],
+        );
+        for (var i = 0; i < days.length; i++) {
+          if (has[i]) out.add(days[i]);
+        }
+      });
+      return out;
     }
     final rows = await db.rawQuery(
       'SELECT r.day_id FROM day_result r '

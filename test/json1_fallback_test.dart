@@ -13,6 +13,12 @@ import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/json_fallback.dart';
 
+class _MustNotBeQueried implements DatabaseExecutor {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('the probe ran again');
+}
+
 Future<void> _put(String day, Object payload, {bool skipped = false}) =>
     LocalDb.putDayResult(
       dayId: day,
@@ -25,7 +31,7 @@ Future<void> _put(String day, Object payload, {bool skipped = false}) =>
 Future<Map<String, Object?>> _answers(bool json1) async {
   LocalDb.debugJson1 = json1;
   final days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04',
-      '2026-10-05', '2026-10-06', '2026-10-07'];
+      '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08'];
   return {
     'clock': [for (final d in days) await LocalDb.storedNightClock(d)],
     'facts': [
@@ -80,6 +86,17 @@ void main() {
       'series': {'hypnogram': null},
     });
     // 2026-10-07 has no row at all.
+    await _put('2026-10-08', {
+      // json_extract hands a JSON true/false back as 1/0.
+      'sleep': {'window': {'value': {'onset_ms': true}}},
+      'scalars': {'sleep_onset_sec': false},
+      // json_each walks an object's members as it walks an array's elements.
+      'series': {
+        'hypnogram': {
+          'a': {'start': 5, 'end': 6, 'stage': 'deep'},
+        },
+      },
+    });
   });
 
   tearDownAll(() async {
@@ -107,7 +124,7 @@ void main() {
     );
     final dart = await LocalDb.hypnogramRowsNoJson1();
     expect(dart, equals(sql));
-    expect(dart, hasLength(3)); // not vacuous: the good day's segments
+    expect(dart, hasLength(4)); // not vacuous: both days with a hypnogram
   });
 
   test('the journal tags cell matches the export SQL', () async {
@@ -142,6 +159,8 @@ void main() {
   test('the probe sees JSON1 here and remembers the answer', () async {
     LocalDb.debugJson1 = null;
     expect(await LocalDb.hasJson1(), isTrue);
+    // Cached: a second ask never touches the executor it is handed.
+    expect(await LocalDb.hasJson1(_MustNotBeQueried()), isTrue);
     LocalDb.debugJson1 = false;
     expect(await LocalDb.hasJson1(), isFalse);
   });

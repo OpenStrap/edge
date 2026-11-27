@@ -237,9 +237,11 @@ class LocalRepositoryImpl extends LocalRepository {
         "FROM baselines WHERE key = 'crossday_input' AND json_valid(payload_json)",
       )).firstOrNull?['d'];
     } else {
-      first = crossdayInputFirstDateOf((await db.rawQuery(
+      // The document carries every day's curves: decode it off the UI isolate.
+      final payload = (await db.rawQuery(
         "SELECT payload_json FROM baselines WHERE key = 'crossday_input'",
-      )).firstOrNull?['payload_json']);
+      )).firstOrNull?['payload_json'];
+      first = await Isolate.run(() => crossdayInputFirstDateOf(payload));
     }
     if (first is String && first.compareTo(from) < 0) from = first;
     if (!notOurs.any((d) => d.compareTo(from) >= 0)) return cd;
