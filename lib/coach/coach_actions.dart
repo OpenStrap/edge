@@ -54,7 +54,23 @@ class CoachActions {
   static double? num_(Object? v) {
     if (v == null) return null;
     if (v is num) return v.isFinite ? v.toDouble() : null;
-    return double.tryParse(v.toString().trim());
+    final d = double.tryParse(v.toString().trim());
+    // tryParse reads 'NaN' and 'Infinity' as numbers.
+    return d != null && d.isFinite ? d : null;
+  }
+
+  /// An amount (food, dose): absent is fine, anything else must be a finite
+  /// number >= 0. Refused rather than dropped, so the confirmed entry is the
+  /// stored one.
+  static double? amount(Map<String, dynamic> a, String key) {
+    if (str(a[key]).isEmpty) return null;
+    final v = num_(a[key]);
+    if (v == null || v < 0) {
+      throw CoachActionError(
+        '"$key" must be a number of 0 or more; got ${a[key]}.',
+      );
+    }
+    return v;
   }
 
   /// A local day label, defaulting to today. Rejects anything that is not
@@ -292,24 +308,29 @@ class CoachActions {
       );
     }
     final at = str(a['time']).isEmpty ? null : minuteOfDay(a['time']);
+    // A portion with no unit was stored as grams the user never said.
+    final unit = str(a['unit']);
+    if (str(a['quantity']).isNotEmpty && unit.isEmpty) {
+      throw CoachActionError('A quantity needs a unit (g, ml, piece…).');
+    }
     final e = FoodEntry(
       id: NutritionDb.newId(),
       date: d,
       meal: meal,
       label: label,
       atTs: at == null ? null : epochOf(d, at),
-      quantity: num_(a['quantity']),
-      unit: str(a['unit']).isEmpty ? 'g' : str(a['unit']),
-      kcal: num_(a['kcal']),
-      proteinG: num_(a['protein_g']),
-      carbsG: num_(a['carbs_g']),
-      fatG: num_(a['fat_g']),
-      fibreG: num_(a['fibre_g']),
-      sugarG: num_(a['sugar_g']),
-      satFatG: num_(a['sat_fat_g']),
-      sodiumMg: num_(a['sodium_mg']),
-      ironMg: num_(a['iron_mg']),
-      calciumMg: num_(a['calcium_mg']),
+      quantity: amount(a, 'quantity'),
+      unit: unit.isEmpty ? 'g' : unit,
+      kcal: amount(a, 'kcal'),
+      proteinG: amount(a, 'protein_g'),
+      carbsG: amount(a, 'carbs_g'),
+      fatG: amount(a, 'fat_g'),
+      fibreG: amount(a, 'fibre_g'),
+      sugarG: amount(a, 'sugar_g'),
+      satFatG: amount(a, 'sat_fat_g'),
+      sodiumMg: amount(a, 'sodium_mg'),
+      ironMg: amount(a, 'iron_mg'),
+      calciumMg: amount(a, 'calcium_mg'),
       // `manual` and confirmed: the user approved this exact entry at the
       // confirmation gate, which is what `confirmed` records. It is NOT
       // `verified` — that word means a manufacturer or USDA record, and a
@@ -470,7 +491,7 @@ class CoachActions {
     if (name.isEmpty) throw CoachActionError('A medication needs a name.');
     final minute = minuteOfDay(a['time']);
     final days = medicationWeekdays(a['weekdays'] as List?);
-    final dose = num_(a['dose_value']);
+    final dose = amount(a, 'dose_value');
     var key = MedDb.keyFor(name);
     // ADD, not replace. `putDef` writes the whole row, so building a fresh
     // MedDef here meant a second "add paracetamol at 22:00" silently deleted
