@@ -134,13 +134,55 @@ are green locally first.
 
 ## Translations
 
-The app's strings live in `lib/l10n/app_en.arb` (the source of truth — only a
-handful of strings are wired up so far, more get pulled in over time). To add
-a language: copy `app_en.arb` to `app_<code>.arb` (e.g. `app_es.arb`) in the
-same folder, translate the values, and keep every key identical to the
-English file. Run `flutter gen-l10n` to regenerate, then add your language's
-display name to `_kLanguageNames` in `lib/ui2/profile/profile.dart` so it
-shows up in the picker. Open a PR.
+The app's strings live in `lib/l10n/app_en.arb`, the source of truth. Every
+`app_<code>.arb` carries every key, so a change that adds or edits an English
+string touches all of them. Keep ICU placeholders and plural structure
+identical to English, and use the plural forms your language needs.
+`lib/l10n/app_localizations*.dart` is generated and gitignored, so don't commit
+it. Flutter regenerates it (`generate: true`), or run `flutter gen-l10n`.
+
+A few strings aren't ARB keys. Text built in code goes through `uiText`,
+`localizedText`, `presentationText`, or `localizedNotificationText` (OS
+notifications), in `lib/l10n/`. They look the text up by its English wording,
+and some match patterns and fill in numbers. To translate one, add an ARB key
+and a `switch` case for that English text. A literal with no case shows English
+in every language. Never pass user-entered text or storage keys through these
+helpers.
+
+To add a language:
+
+1. Copy `app_en.arb` to `app_<code>.arb`, change `@@locale` to the new code,
+   and translate **every** value. `flutter test` fails on any left in English:
+   `l10n_no_english_copies_test.dart` (it finds new files on its own),
+   `home_labels_test.dart`, `whoop_firmware_warning_test.dart`,
+   `live_hr_card_l10n_test.dart`, `wearable_numbers_test.dart`, and the guide
+   and help tests under `test/ui2/`. Run `flutter test` and fix everything that
+   goes red.
+2. Add its native name to `_kLanguageNames` in `lib/ui2/profile/profile.dart`.
+   The language shows in the picker without it, but under its raw code.
+3. Update the two tests that pin the language list, or they fail:
+   `slot_comparison_test.dart` (the ARB count) and `ui2_pairing_review_test.dart`
+   (its `copy` map; text that passes the test is enough until it's translated).
+4. Add the code to the tests that loop over a fixed language list, which
+   otherwise skip your language without failing. `grep -rln "'th'" test/` finds
+   them. The main ones are `plural_count_l10n_test.dart`,
+   `notification_number_bodies_l10n_test.dart`, `pairing_copy_test.dart` and
+   `ui2_screen_sweep_test.dart`.
+5. Optional: add a coverage test modelled on `test/thai_l10n_test.dart`.
+6. Add the language to the list in `docs/FEATURES.md` (it currently omits Thai,
+   so fix that too).
+
+`l10n_no_english_copies_test.dart` fails when a phrase longer than 12
+characters with a space is identical to English. If that's on purpose (a brand
+name, a unit), add `<code>:<key>` to `_sameOnPurpose`.
+`ui_text_literals_translated_test.dart` fails when a literal is untranslated in
+every language it checks, and it doesn't check notification text.
+
+If your language's time picker should follow the app's 12/24-hour setting, ask
+a maintainer. That needs a new class in `lib/state/clock_format.dart`, not just
+a code in `_langs`.
+
+Open a PR.
 
 ## Reporting protocol findings
 
