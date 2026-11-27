@@ -9378,6 +9378,21 @@ class LocalDb {
     return db.transaction((txn) => _thinRawArchiveVia(txn, beforeMs));
   }
 
+  /// `rec_ts` in an index beside reason and device. The Ultrahuman reader asks
+  /// for one device's records over one day, several times per derived day, and
+  /// `idx_raw_archive_reason` alone made each of those walk the ring's whole
+  /// never-pruned archive and sort it. Built from storage housekeeping, not on
+  /// open: building it reads every archived row (an MG's archive runs to
+  /// hundreds of MB), which the launch watchdog must not pay for. A no-op once
+  /// it exists.
+  static Future<void> ensureRawArchiveTimeIndex() async {
+    final db = await instance;
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_raw_archive_reason_ts '
+      'ON $rawArchiveTable(reason, device_id, rec_ts)',
+    );
+  }
+
   static Future<int> _thinRawArchiveVia(
     DatabaseExecutor txn,
     int beforeMs,

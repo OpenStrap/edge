@@ -9353,6 +9353,15 @@ class DerivationEngine {
   /// runs under iOS's CPU watchdog (invariant 11).
   Future<void> _runStorageHousekeeping({bool long = false}) async {
     try {
+      // A one-time build over the whole archive; never while an offload
+      // needs the write lock for its pre-ACK commit.
+      if (!(offloadActive?.call() ?? false)) {
+        await LocalDb.ensureRawArchiveTimeIndex();
+      }
+    } catch (e) {
+      _log('raw archive index skipped (will retry): $e');
+    }
+    try {
       // The pre-conversion undecodable archive, moved into the frame store a
       // bounded slice at a time (see LocalDb.migrateLegacyRawArchive). A
       // WHOOP MG's is ~500 MB of hex, so a background or light pass takes
