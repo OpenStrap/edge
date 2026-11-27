@@ -103,27 +103,27 @@ enum HealthRouteBridge {
         completion([])
         return
       }
-      // Each workout's route is its own async query, so collect under a group
-      // and answer once. Serialised through a queue rather than a lock: the
-      // HealthKit callbacks arrive on arbitrary threads and `out` is a value
-      // type, so appending from several of them at once is a data race.
-      let group = DispatchGroup()
-      let queue = DispatchQueue(label: "openstrap.health.routes")
+      // One workout at a time. Each route read holds its raw ~1 Hz fixes until
+      // it decimates, so firing them all at once (a first 90-day import with
+      // hundreds of workouts) kept every raw fix alive together and risked a
+      // jetsam kill. Chained, only one workout's raw fixes exist at a time, and
+      // each step starts after the previous completion, so `out` is never
+      // touched from two threads at once.
       var out: [[String: Any]] = []
-      for workout in workouts {
-        group.enter()
+      func next(_ i: Int) {
+        guard i < workouts.count else {
+          completion(out)
+          return
+        }
+        let workout = workouts[i]
         points(for: workout) { pts in
-          guard let pts = pts else {
-            group.leave()
-            return
-          }
-          queue.async {
+          if let pts = pts {
             out.append(["uuid": workout.uuid.uuidString, "points": pts])
-            group.leave()
           }
+          next(i + 1)
         }
       }
-      group.notify(queue: queue) { completion(out) }
+      next(0)
     }
     store.execute(query)
   }
