@@ -797,6 +797,37 @@ double _nightClockMin(int epochSec, Map<String, dynamic> d) {
   return (_localTodMin(epochSec) + shiftMin) % 1440.0;
 }
 
+/// Clock-minutes-of-day [0,1440) that a hypnogram segment [startSec, endSec)
+/// (epoch SECONDS) TOUCHES — every minute `floor(startClock)..ceil(endClock)`,
+/// one entry per touched minute. We anchor the walk at the start of the minute
+/// `startSec` falls in and STEP through elapsed time, mapping each minute
+/// through [_nightClockMin]. This keeps two properties at once:
+///  - Touched-minute parity with the old `ceil(endClock) - floor(startClock)`
+///    span on ordinary nights: segments built from per-second labels start on
+///    arbitrary seconds, so a plain `ceil(elapsed/60)` walk from `startSec`
+///    dropped the last partly-touched minute (00:00:30–00:05:30 covered 0–4,
+///    not 0–5) and flipped sleep/wake boundary bits. The `startSec % 60` offset
+///    in the minute count restores the touched edge (reviewer measurement on
+///    #915).
+///  - DST honesty: across the autumn fall-back the clock steps back an hour, so
+///    it is NOT monotone in elapsed time. Deriving the span from the endpoints'
+///    clock-minute DIFFERENCE over-counted — a 10-minute segment spanned 1390
+///    clock-minutes (#914). Stepping elapsed time and mapping each minute marks
+///    only the minutes actually lived.
+/// The repeated autumn hour maps two instants to the same clock-minute; that is
+/// fine, since the caller only ever sets `cov`/`asleep` true (never false), so a
+/// boundary minute touched by both a sleep and a wake pass stays asleep. Assumes
+/// `clock_shift_sec` is a whole number of minutes. Empty/reversed segment covers
+/// nothing; capped at a full grid (1440).
+List<int> segmentClockMinutes(int startSec, int endSec, Map<String, dynamic> d) {
+  if (endSec <= startSec) return const [];
+  final base = startSec - (startSec % 60); // start of the first touched minute
+  final n = math.min(((startSec % 60) + (endSec - startSec) + 59) ~/ 60, 1440);
+  return [
+    for (var k = 0; k < n; k++) _nightClockMin(base + k * 60, d).floor() % 1440,
+  ];
+}
+
 /// How far a stored night's OWN local clock sits from the phone's CURRENT
 /// zone, in seconds [0,86400) — 0 when it was recorded in this zone, or when
 /// we cannot tell. Called by the record builder
@@ -1309,29 +1340,20 @@ bool _isNextDay(String a, String b) {
         final end = (seg['end'] as num?)?.toDouble();
         final stage = seg['stage'] as String?;
         if (start == null || end == null) continue;
-        // Segment bounds are epoch SECONDS; map to clock-minute-of-day [0,1440)
-        // on the clock the night was LIVED on (see _nightClockMin), so a trip
-        // does not shift every earlier night against the later ones.
-        final startMin = _nightClockMin(start.round(), d).floor();
-        // end is exclusive of the segment's trailing edge; cover [start,end).
-        final endMinRaw = _nightClockMin(end.round(), d).ceil();
-        // WRAP, don't clamp. Both bounds are clock-minutes-of-day in [0,1440),
-        // so a segment crossing local midnight reads e.g. start=1430,
-        // end=20 — and the old `for (m = startMin; m < endMin; m++)` simply
-        // never executed, silently DROPPING that segment (the comment claimed
-        // it "clamps into grid"; it didn't). Every night has exactly one such
-        // segment, so sleep-regularity was always computed with a hole at the
-        // boundary. Unwrap the end past 1440 and write back modulo the grid.
-        // `endMinRaw == startMin` stays a genuinely empty (sub-minute) segment.
-        final endMin =
-            endMinRaw < startMin ? endMinRaw + epochsPerDay : endMinRaw;
-        final span = math.min(endMin - startMin, epochsPerDay);
         // 'unobserved' is the band seeing nothing (off wrist, lost contact):
         // neither asleep nor awake, so those minutes stay uncovered.
         if (stage == 'unobserved') continue;
         final asleepSeg = stage != null && stage != 'wake';
-        for (var k = 0; k < span; k++) {
-          final m = (startMin + k) % epochsPerDay;
+        // Segment bounds are epoch SECONDS. Walk the segment in ELAPSED minutes
+        // and map each instant to its clock-minute-of-day (segmentClockMinutes),
+        // so a segment crossing local midnight AND one crossing a DST change are
+        // both covered by the same per-minute `% epochsPerDay`. The old code
+        // derived the span from the clock-minute DIFFERENCE of the two
+        // endpoints, which is wrong whenever the clock is not monotone in
+        // elapsed time: across the autumn fall-back the clock steps back an
+        // hour, so a 10-minute segment read endMin-startMin == 1390 and marked
+        // nearly the whole day observed/asleep (#914).
+        for (final m in segmentClockMinutes(start.round(), end.round(), d)) {
           cov[m] = true;
           if (asleepSeg) asleep[m] = true;
         }
