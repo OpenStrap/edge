@@ -77,6 +77,30 @@ import 'signals.dart';
 /// Shown next to every value the strap computed itself.
 const String kHelioStrapAttribution = 'Amazfit';
 
+/// One workout summary as vendor observations. The decoder reads an absent
+/// protobuf field as 0, so a zero duration, calories or HR is "not reported"
+/// and is dropped instead of published as 0 s / 0 kcal / 0 bpm.
+@visibleForTesting
+List<Observation> helioWorkoutObservations(Huami2021Workout w) {
+  final start = DateTime.fromMillisecondsSinceEpoch(w.startMs);
+  Observation row(String key, int value, [String? unit]) => Observation(
+        at: start,
+        sourceKind: ObservationSource.vendor,
+        vendorKey: key,
+        value: value,
+        unit: unit,
+        attribution: kHelioStrapAttribution,
+      );
+  return [
+    row('workout_sport_type', w.sportType),
+    if (w.durationSec > 0) row('workout_duration_sec', w.durationSec, 's'),
+    if (w.calories > 0) row('workout_calories', w.calories, 'kcal'),
+    if (w.avgHr > 0) row('workout_avg_hr', w.avgHr, 'bpm'),
+    if (w.maxHr > 0) row('workout_max_hr', w.maxHr, 'bpm'),
+    if (w.minHr > 0) row('workout_min_hr', w.minHr, 'bpm'),
+  ];
+}
+
 /// The [BandNote] a session carries when no auth key is in secure storage —
 /// the session ends immediately, nothing else is attempted.
 const String kHelioNoKeyNote = 'helio_no_key';
@@ -503,54 +527,7 @@ class HelioStrapAdapter extends BandAdapter {
       if (workoutFetch != null) {
         final workoutRows = <Observation>[];
         for (final w in parseHuami2021Workouts(workoutFetch.bytes)) {
-          final start = DateTime.fromMillisecondsSinceEpoch(w.startMs);
-          workoutRows.add(Observation(
-            at: start,
-            sourceKind: ObservationSource.vendor,
-            vendorKey: 'workout_sport_type',
-            value: w.sportType,
-            attribution: kHelioStrapAttribution,
-          ));
-          workoutRows.add(Observation(
-            at: start,
-            sourceKind: ObservationSource.vendor,
-            vendorKey: 'workout_duration_sec',
-            value: w.durationSec,
-            unit: 's',
-            attribution: kHelioStrapAttribution,
-          ));
-          workoutRows.add(Observation(
-            at: start,
-            sourceKind: ObservationSource.vendor,
-            vendorKey: 'workout_calories',
-            value: w.calories,
-            unit: 'kcal',
-            attribution: kHelioStrapAttribution,
-          ));
-          workoutRows.add(Observation(
-            at: start,
-            sourceKind: ObservationSource.vendor,
-            vendorKey: 'workout_avg_hr',
-            value: w.avgHr,
-            unit: 'bpm',
-            attribution: kHelioStrapAttribution,
-          ));
-          workoutRows.add(Observation(
-            at: start,
-            sourceKind: ObservationSource.vendor,
-            vendorKey: 'workout_max_hr',
-            value: w.maxHr,
-            unit: 'bpm',
-            attribution: kHelioStrapAttribution,
-          ));
-          workoutRows.add(Observation(
-            at: start,
-            sourceKind: ObservationSource.vendor,
-            vendorKey: 'workout_min_hr',
-            value: w.minHr,
-            unit: 'bpm',
-            attribution: kHelioStrapAttribution,
-          ));
+          workoutRows.addAll(helioWorkoutObservations(w));
         }
         if (workoutRows.isNotEmpty) yield VendorScalars(workoutRows);
         if (workoutFetch.raw.isNotEmpty) {
