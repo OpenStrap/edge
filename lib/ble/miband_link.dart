@@ -104,7 +104,8 @@ enum MiBand234SyncFailure {
   /// band still bound to another one. Re-pairing installs a key it accepts.
   keyRejected,
 
-  /// The band stopped answering partway through the handshake.
+  /// The band stopped answering partway through the handshake, or was not
+  /// ready for it (status 0x02). Trying again is the remedy.
   authUnanswered,
 }
 
@@ -372,7 +373,11 @@ class MiBand234Link {
         onNote: (key, value) {
           if (key == 'miband_since' && value is int) _pendingSince = value;
           if (key == kMiBandAuthFailedNote) {
-            lastSyncFailure = value is int && value != 0x01
+            // 0x02 is the band in the wrong state, which a retry clears;
+            // re-pairing is not the remedy for it.
+            lastSyncFailure = value is int &&
+                    value != 0x01 &&
+                    value != kMiBand234AuthInvalidState
                 ? MiBand234SyncFailure.keyRejected
                 : MiBand234SyncFailure.authUnanswered;
           }
