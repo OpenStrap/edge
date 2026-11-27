@@ -67,9 +67,17 @@ Map<String, dynamic> _engineNotes(int age, {double? restingHr = 55}) {
   return (bundle['absent_notes'] as Map).cast<String, dynamic>();
 }
 
-Map<String, dynamic> _pipelineNotes(int age) {
+Map<String, dynamic> _pipelineNotes(int age, {bool restingHr = true}) =>
+    (_pipeline(age, restingHr: restingHr)['absent_notes'] as Map)
+        .cast<String, dynamic>();
+
+Map<String, dynamic> _pipeline(
+  int age, {
+  bool restingHr = true,
+  Map<String, dynamic> sleepJson = const {},
+}) {
   final sub = _sub();
-  final bundle = deriveDayBundle(DayBundleInput(
+  return deriveDayBundle(DayBundleInput(
     date: '2026-08-15',
     dayTsSec: sub.tsSec,
     dayHr: sub.hr,
@@ -78,7 +86,7 @@ Map<String, dynamic> _pipelineNotes(int age) {
     sleepRrTsMs: const [],
     sleepRrMs: const [],
     sleepSkinTemp: const [],
-    sleepJson: const {},
+    sleepJson: sleepJson,
     hypnoStages: const [],
     sleepOnsetSec: 0,
     sleepOffsetSec: 0,
@@ -87,12 +95,11 @@ Map<String, dynamic> _pipelineNotes(int age) {
       'sex': 'm',
       'weight_kg': 75,
       'height_cm': 178,
-      'resting_hr': 55,
+      if (restingHr) 'resting_hr': 55,
     },
     deviceFamily: 'gen4',
     quietHrrHistory: List.filled(7, 0.20),
   ).toJson());
-  return (bundle['absent_notes'] as Map).cast<String, dynamic>();
 }
 
 void main() {
@@ -123,5 +130,22 @@ void main() {
     final notes = _engineNotes(35, restingHr: null);
     expect(notes['calories'], 'need_input:name=resting_hr');
     expect(notes['calories_total'], 'need_input:name=resting_hr');
+  });
+
+  test('pipeline: no resting HR names it on calories, not nothing', () {
+    final notes = _pipelineNotes(35, restingHr: false);
+    expect(notes['calories'], 'need_input:name=resting_hr');
+    expect(notes['calories_total'], 'need_input:name=resting_hr');
+  });
+
+  test('a night with no NREM stage reports nrem_pct null, not 0', () {
+    final b = _pipeline(35, sleepJson: const {
+      'tst_sec': 21600,
+      'in_bed_sec': 23400,
+      'wake_sec': 1800,
+    });
+    final stager = ((b['sleep'] as Map)['stager'] as Map)['value'] as Map;
+    expect(stager['nrem_pct'], isNull);
+    expect(stager['rem_pct'], isNull);
   });
 }
