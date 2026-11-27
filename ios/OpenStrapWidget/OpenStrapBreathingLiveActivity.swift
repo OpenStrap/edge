@@ -76,6 +76,15 @@ private extension Color {
 
 private func coherenceText(_ v: Double) -> String { v >= 0 ? "\(Int(v.rounded()))%" : "Calibrating…" }
 
+// A stale frame (no push for a minute: app killed, RR stopped) is an old
+// reading, not a live one, so its score is blanked, same as the workout
+// activity blanks HR. nil = stale.
+private func shownScore(_ context: ActivityViewContext<OpenStrapBreathingAttributes>) -> Double? {
+  if #available(iOSApplicationExtension 16.2, *), context.isStale { return nil }
+  return context.state.coherenceScore
+}
+private func scoreText(_ v: Double?) -> String { v.map(coherenceText) ?? "" }
+
 // MARK: - Interactive stop (iOS 17+) — separate flag from the workout's
 // end_session so the two Live Activities never collide.
 
@@ -96,7 +105,7 @@ struct EndBreathingIntent: LiveActivityIntent {
 private struct BreathingLockScreenView: View {
   let context: ActivityViewContext<OpenStrapBreathingAttributes>
   var body: some View {
-    let score = context.state.coherenceScore
+    let score = shownScore(context)
     HStack(spacing: 14) {
       if #available(iOSApplicationExtension 17.0, *) {
         Image(systemName: "wind").font(.system(size: 26))
@@ -105,8 +114,8 @@ private struct BreathingLockScreenView: View {
         Image(systemName: "wind").font(.system(size: 26)).foregroundStyle(Color.bMind)
       }
       VStack(alignment: .leading, spacing: 2) {
-        Text(coherenceText(score))
-          .font(.system(size: score >= 0 ? 30 : 18, weight: .bold, design: .rounded))
+        Text(scoreText(score))
+          .font(.system(size: (score ?? -1) >= 0 ? 30 : 18, weight: .bold, design: .rounded))
           .foregroundStyle(Color.bInk).contentTransition(.numericText())
         Text("COHERENCE").font(.system(size: 9, weight: .semibold)).tracking(1)
           .foregroundStyle(Color.bInkMuted)
@@ -138,14 +147,14 @@ struct OpenStrapBreathingLiveActivity: Widget {
       BreathingLockScreenView(context: context)
         .activitySystemActionForegroundColor(Color.bMindFill)
     } dynamicIsland: { context in
-      let score = context.state.coherenceScore
+      let score = shownScore(context)
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           Image(systemName: "wind").font(.system(size: 18)).foregroundStyle(Color.bMind)
         }
         DynamicIslandExpandedRegion(.trailing) {
           VStack(alignment: .trailing, spacing: 0) {
-            Text(coherenceText(score))
+            Text(scoreText(score))
               .font(.system(size: 18, weight: .bold, design: .rounded))
               .foregroundStyle(Color.bOnMind).contentTransition(.numericText())
             Text("COHERENCE").font(.system(size: 8, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
@@ -167,7 +176,7 @@ struct OpenStrapBreathingLiveActivity: Widget {
       } compactLeading: {
         Image(systemName: "wind").font(.system(size: 14)).foregroundStyle(Color.bMind)
       } compactTrailing: {
-        Text(score >= 0 ? "\(Int(score.rounded()))%" : "·")
+        Text(score.map { $0 >= 0 ? "\(Int($0.rounded()))%" : "·" } ?? "")
           .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Color.bOnMind)
       } minimal: {
         Image(systemName: "wind").font(.system(size: 12)).foregroundStyle(Color.bMind)
