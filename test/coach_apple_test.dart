@@ -268,6 +268,29 @@ void main() {
       expect(todayLine, isNot(contains('80')));
     });
 
+    test('TODAY keeps every column, not just the first couple', () async {
+      await seed({'2026-03-10': 67});
+      final db = await LocalDb.instance;
+      for (final e in {
+        'strain': 12.345678901234567,
+        'tst_min': 456.78333333333333,
+        'rhr': 52.123456789012345,
+        'rmssd': 61.98765432109876,
+      }.entries) {
+        await db.insert('metric_series',
+            {'date': '2026-03-10', 'key': e.key, 'value': e.value});
+      }
+      final ins =
+          await instructionsFor((day: '2026-03-10', readiness: 67));
+      final todayLine =
+          ins.split('\n').firstWhere((l) => l.startsWith('TODAY'));
+      expect(todayLine, isNot(contains('query cap')));
+      expect(todayLine, contains('"hrv":61.98765432109876'));
+      final weekLine =
+          ins.split('\n').firstWhere((l) => l.startsWith('THE WEEK'));
+      expect(weekLine, isNot(contains('query cap')));
+    });
+
     test('no row for today says so instead of using yesterday', () async {
       await seed({'2026-03-09': 60});
       final ins =
