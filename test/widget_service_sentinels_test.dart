@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/compute/derivation_engine.dart'
@@ -406,6 +407,21 @@ void main() {
       expect(written['ring_sleep_value'], '7h 17m');
       expect(written['ring_sleep_sub'], 'No target yet');
       expect(written['ring_sleep_frac'], -1.0);
+    });
+
+    // The widget, Watch and Siri never run Dart: what this writes is what they
+    // say, so it has to be in the app's language, not always English.
+    test('rings are written in the language the app is set to', () async {
+      SharedPreferences.setMockInitialValues({'locale_override': 'de'});
+      addTearDown(() => SharedPreferences.setMockInitialValues({}));
+      await WidgetService.push(TodayData.fromJson({
+        'daily': {'readiness': 74},
+        'sleep': {'duration_min': 437, 'need_min': 465},
+      }));
+      expect(written['ring_recovery_sub'], isNot('Good to go'));
+      expect(written['readiness_band'], written['ring_recovery_sub']);
+      expect(written['ring_strain_value'], 'Kein Strain');
+      expect(written['ring_sleep_sub'], isNot('of 7h 45m'));
     });
   });
 

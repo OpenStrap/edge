@@ -124,7 +124,7 @@ private enum BatteryStore {
     let charging = d?.object(forKey: "batt_charging") as? Bool ?? false
     let at = d?.object(forKey: "batt_at") as? Int ?? 0
     let raw = (d?.string(forKey: "batt_name") ?? "").trimmingCharacters(in: .whitespaces)
-    let name = raw.isEmpty ? "Band" : raw
+    let name = raw.isEmpty ? String(localized: "Band") : raw
     return BatteryEntry(date: Date(), name: name, pct: pct, charging: charging,
                         updatedAt: at)
   }
@@ -195,8 +195,9 @@ private struct BatterySmallView: View {
       if e.hasData { BattBar(t: e.t, color: e.color, height: 9) }
       // Dimming alone does not SAY anything. A reading we can no longer vouch
       // for names itself, on every family.
-      Text(!e.hasData ? "Not connected yet"
-           : (e.stale ? "Last known level" : (e.charging ? "Charging" : "Battery")))
+      Text(!e.hasData ? String(localized: "Not connected yet")
+           : (e.stale ? String(localized: "Last known level")
+              : (e.charging ? String(localized: "Charging") : String(localized: "Battery"))))
         .font(.system(size: 10, weight: .medium)).foregroundColor(.battInkMuted)
         .padding(.top, 5)
     }

@@ -9,8 +9,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show Locale;
 
 import '../data/day_label.dart' show calendarDaysBetween;
+import '../l10n/app_localizations.dart';
+import '../l10n/display_text.dart';
+import '../state/locale_controller.dart';
 import '../data/local_repository.dart';
 import '../models/metric.dart';
 import '../models/payloads.dart';
@@ -205,6 +209,11 @@ class WidgetService {
       final eff = ov(t.sleepEfficiency);
       final rhr = ov(t.restingHr);
       final hrv = heldWhy == null ? t.hrv : null;
+      // The widget, Watch and Siri never run Dart, so every word they show
+      // from this snapshot is translated here, in the language the app is set
+      // to (read from the saved setting when this runs headless).
+      final l = await _l10n();
+      String tr(String s) => localizedText(l, s);
 
       // has_data is the ONE flag every native reader gates on (the WidgetKit
       // home + lock-screen widgets, the Watch mirror, the Siri intents), and it
@@ -225,7 +234,7 @@ class WidgetService {
       // Headline composite Readiness — the Recovery ring on Home.
       final rv = readiness.isEmpty ? null : readiness.value;
       final readinessInt = rv == null ? -1 : rv.round();
-      final band = readinessBand(rv);
+      final band = readinessBand(rv, l);
       final tier = band.tier;
       final bandLabel = tier < 0 ? '' : band.label;
       final hrvV = hrv == null ? -1 : hrv.rmssd.round();
@@ -235,7 +244,7 @@ class WidgetService {
       final needMin = need.isEmpty ? -1 : need.value!.round();
       final rhrV = rhr.isEmpty ? -1 : rhr.value!.round();
       final effMin = eff.isEmpty ? -1 : eff.value!.round();
-      final overnightWhy = heldWhy ?? '';
+      final overnightWhy = heldWhy == null ? '' : tr(heldWhy);
       final coachLine = _coachLine(t.coach);
       // The day this snapshot describes leads the fingerprint — the SAME
       // field `isStale` reads. Without it, two consecutive days with
@@ -264,27 +273,30 @@ class WidgetService {
             ? _Ring('recovery',
                 state: 1,
                 value: '$provisional',
-                sub: 'Finishing up',
+                sub: l?.homeRecoveryFinishingUp ?? 'Finishing up',
                 frac: provisional / 100)
             : rv == null
-            ? _gapRing('recovery', readiness, 'Not scored')
+            ? _gapRing('recovery', readiness, 'Not scored', l)
             : _Ring('recovery',
                 value: '${rv.round()}',
                 sub: band.label,
                 frac: rv / 100),
         s.isEmpty
             // 0-21 is the scale's own ceiling, not a target invented here.
-            ? _gapRing('strain', s, 'No strain', unit: 'days')
+            ? _gapRing('strain', s, 'No strain', l, unit: 'days')
             : _Ring('strain',
                 value: s.value!.toStringAsFixed(1),
-                sub: 'of 21',
+                sub: l?.homeStrainOf21 ?? 'of 21',
                 frac: s.value! / 21),
         sleep.isEmpty
-            ? _gapRing('sleep', sleep, 'No sleep',
+            ? _gapRing('sleep', sleep, 'No sleep', l,
                 fallbackWhy: 'No night long enough to score was recorded.')
             : _Ring('sleep',
-                value: _hm(sleep.value),
-                sub: needMin <= 0 ? 'No target yet' : 'of ${_hm(need.value)}',
+                value: _hm(sleep.value, l),
+                sub: needMin <= 0
+                    ? tr('No target yet')
+                    : (l?.supplementOutOf(_hm(need.value, l)) ??
+                        'of ${_hm(need.value)}'),
                 frac: needMin <= 0 || sleep.isEmpty
                     ? null
                     : sleep.value! / need.value!),
@@ -632,26 +644,39 @@ class WidgetService {
   /// baseline still filling — the one absence that is progress and can honestly
   /// draw an arc — otherwise the word and the pipeline's own reason.
   /// Mirrors `_gap` in lib/ui2/screens/home_screen.dart.
-  static _Ring _gapRing(String key, Metric m, String word,
+  static _Ring _gapRing(String key, Metric m, String word, AppLocalizations? l,
       {String unit = 'nights', String fallbackWhy = ''}) {
+    String tr(String s) => localizedText(l, s);
     final counts = baselineCountsFromNote(m.note);
     if (counts != null) {
       return _Ring(key,
           state: 1,
-          value: 'Calibrating',
-          sub: '${counts.have} of ${counts.need} $unit',
+          value: tr('Calibrating'),
+          sub: (unit == 'days'
+                  ? l?.homeCalibratingDays(counts.have, counts.need)
+                  : l?.homeCalibratingNights(counts.have, counts.need)) ??
+              '${counts.have} of ${counts.need} $unit',
           frac: (counts.have / counts.need).clamp(0.0, 1.0));
     }
     return _Ring(key,
         state: 2,
-        value: word,
+        value: tr(word),
         // THE PIPELINE'S REASON FIRST, a sentence written here second, and
         // where there is neither the ring says it does not know rather than
         // guessing a cause.
-        why: whyFromNote(m.note, unit: unit) ??
+        why: tr(whyFromNote(m.note, unit: unit) ??
             (fallbackWhy.isNotEmpty
                 ? fallbackWhy
-                : 'Nothing recorded says why this is missing.'));
+                : 'Nothing recorded says why this is missing.')));
+  }
+
+  static Future<AppLocalizations?> _l10n() async {
+    try {
+      return lookupAppLocalizations(
+          Locale(await LocaleController.presentationLanguageCode()));
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _coachLine(CoachData? c) {
@@ -701,11 +726,13 @@ class _Ring {
       : frac = frac == null ? -1 : frac.clamp(0.0, 1.0);
 }
 
-/// The native widget is not localized yet and may be pushed from a background
-/// isolate that never binds the app's language override, so its durations stay
-/// in the same fixed English format as the rest of its labels.
-String _hm(num? minutes) {
+/// [l] is passed in rather than read from the UI's locale: a push can run on a
+/// background isolate that never binds the app's language override.
+String _hm(num? minutes, [AppLocalizations? l]) {
   if (minutes == null) return '';
   final m = minutes.round();
-  return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
+  final mm = (m % 60).toString().padLeft(2, '0');
+  return m < 60
+      ? l?.supplementMinutesValue('$m') ?? '${m}m'
+      : l?.supplementHoursMinutesValue('${m ~/ 60}', mm) ?? '${m ~/ 60}h ${mm}m';
 }

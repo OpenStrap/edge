@@ -67,9 +67,9 @@ private enum Trio: CaseIterable {
 
   var label: String {
     switch self {
-    case .recovery: return "Recovery"
-    case .strain: return "Strain"
-    case .sleep: return "Sleep"
+    case .recovery: return String(localized: "Recovery")
+    case .strain: return String(localized: "Strain")
+    case .sleep: return String(localized: "Sleep")
     }
   }
 
@@ -207,12 +207,12 @@ private struct AccessoryRectangularView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(snap.recovery.measured
-           ? "Recovery \(snap.recovery.value)"
-           : "Recovery · \(snap.recovery.value)")
+           ? String(localized: "Recovery \(snap.recovery.value)")
+           : String(localized: "Recovery · \(snap.recovery.value)"))
         .font(.system(size: 13, weight: .bold)).widgetAccentable()
       // Only the rings that are actually reporting. An absent metric is left
       // out of the line rather than printed as a dash.
-      Text(pair("Strain", snap.strain, "Sleep", snap.sleep))
+      Text(pair(Trio.strain.label, snap.strain, Trio.sleep.label, snap.sleep))
         .font(.system(size: 13, weight: .semibold))
       // A calibrating or still-finishing score keeps its sub ("Finishing up",
       // "2 of 4 nights") so a provisional number never reads as final.
@@ -257,7 +257,7 @@ struct OpenStrapWidgetEntryView: View {
       case .accessoryRectangular: AccessoryRectangularView(snap: entry.snap)
       case .accessoryInline:
         Text(entry.snap.recovery.measured
-             ? "Recovery \(entry.snap.recovery.value)"
+             ? String(localized: "Recovery \(entry.snap.recovery.value)")
              : "OpenStrap · \(entry.snap.recovery.value.lowercased())"
                + (entry.snap.recovery.calibrating && !entry.snap.recovery.sub.isEmpty
                   ? " · \(entry.snap.recovery.sub.lowercased())" : ""))

@@ -102,12 +102,12 @@ private struct OvernightSmallView: View {
                          frac: e.hrvFrac),
           symbol: "waveform.path.ecg", accent: p.good, size: 40, line: 6)
         Figure(label: "HRV", value: s.hrv, unit: "ms",
-               against: s.hrvBaseline > 0 ? "base \(s.hrvBaseline)" : "",
+               against: s.hrvBaseline > 0 ? String(localized: "base \(s.hrvBaseline)") : "",
                accent: p.good)
         Spacer(minLength: 0)
       }
       Divider()
-      Figure(label: "Resting HR", value: s.rhr, unit: "bpm", against: "", accent: p.ink)
+      Figure(label: String(localized: "Resting HR"), value: s.rhr, unit: "bpm", against: "", accent: p.ink)
       if !e.hasAny, !e.why.isEmpty {
         Text(e.why).font(.system(size: 11)).foregroundStyle(p.ink3).lineLimit(3)
       }
@@ -128,7 +128,7 @@ struct OpenStrapOvernightWidgetEntryView: View {
   private var line: String {
     let s = entry.snap
     let parts = [s.hrv >= 0 ? "HRV \(s.hrv) ms" : nil,
-                 s.rhr >= 0 ? "RHR \(s.rhr)" : nil].compactMap { $0 }
+                 s.rhr >= 0 ? String(localized: "RHR \(s.rhr)") : nil].compactMap { $0 }
     return parts.isEmpty ? "" : parts.joined(separator: "   ")
   }
 
@@ -156,15 +156,15 @@ struct OpenStrapOvernightWidgetEntryView: View {
       case .accessoryRectangular:
         VStack(alignment: .leading, spacing: 2) {
           Text("Overnight").font(.system(size: 11, weight: .semibold)).widgetAccentable()
-          Text(entry.hasAny ? line : "Not measured")
+          Text(entry.hasAny ? line : String(localized: "Not measured"))
             .font(.system(size: 15, weight: .bold))
           Text(entry.hasAny
-               ? (entry.snap.hrvBaseline > 0 ? "Your baseline \(entry.snap.hrvBaseline) ms" : "")
+               ? (entry.snap.hrvBaseline > 0 ? String(localized: "Your baseline \(entry.snap.hrvBaseline) ms") : "")
                : entry.why)
             .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
         }
       case .accessoryInline:
-        Text(entry.snap.hrv >= 0 ? "HRV \(entry.snap.hrv) ms" : "OpenStrap · HRV not measured")
+        Text(entry.snap.hrv >= 0 ? "HRV \(entry.snap.hrv) ms" : String(localized: "OpenStrap · HRV not measured"))
       default: OvernightSmallView(e: entry)
       }
     }
