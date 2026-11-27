@@ -451,7 +451,7 @@ class CoachEngine {
   Future<List<CoachSessionMeta>> listSessions() async {
     try {
       final f = await _indexFile();
-      if (!await f.exists()) return [];
+      if (!await f.exists()) return _sessionsFromFiles();
       final list = (jsonDecode(await f.readAsString()) as List)
           .map((e) => CoachSessionMeta.fromJson((e as Map).cast<String, dynamic>())).toList();
       // A kill between a chat's write and the index write leaves the chat
