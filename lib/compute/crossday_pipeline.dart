@@ -272,10 +272,17 @@ Map<String, dynamic> buildCrossDayBundle(
   // rhr is LOWER-is-better — the same orientation `_glassInput` ten lines below
   // has always passed for this exact list. Unoriented, a night with the user's
   // lowest resting HR in a month came back labelled "among your worst".
+  //
+  // Both this and the breakdown below rank `series.last` as tonight, which is
+  // only true when the last row is stamped `is_today` (see `_todayNum`). With
+  // no row for today yet, the last row is yesterday, and ranking it as today
+  // is the same imputation; an empty series makes both honestly absent.
+  final hasToday = n > 0 && days[n - 1]['is_today'] == true;
+  List<double?> tonight(List<double?> s) => hasToday ? s : const [];
   final percentiles = <String, dynamic>{
-    'rmssd': _pctOfYou(rmssdOwn, ana.Better.higher),
-    'rhr': _pctOfYou(rhrOwn, ana.Better.lower),
-    'readiness': _pctOfYou(readyList, ana.Better.higher),
+    'rmssd': _pctOfYou(tonight(rmssdOwn), ana.Better.higher),
+    'rhr': _pctOfYou(tonight(rhrOwn), ana.Better.lower),
+    'readiness': _pctOfYou(tonight(readyList), ana.Better.higher),
   };
 
   // ── glass-box readiness from today's value + history per input ─────────────
@@ -291,15 +298,15 @@ Map<String, dynamic> buildCrossDayBundle(
     for (final d in days)
       d['skin_temp_family'] == family ? _numOrNull(d['rmssd_dev']) : null,
   ];
-  final gbRmssd = _glassInput('hrv', rmssdOwn, ana.wHrv, lowerIsBetter: false);
+  final gbRmssd = _glassInput('hrv', tonight(rmssdOwn), ana.wHrv, lowerIsBetter: false);
   final gbRmssdDev = gbRmssd == null
-      ? _glassInput('hrv', rmssdDevOwn, ana.wHrv, lowerIsBetter: false)
+      ? _glassInput('hrv', tonight(rmssdDevOwn), ana.wHrv, lowerIsBetter: false)
       : null;
   if (gbRmssd ?? gbRmssdDev case final hrv?) gbInputs.add(hrv);
   final gbRhr =
-      _glassInput('rhr', rhrOwn, ana.wRhr, lowerIsBetter: true, quantum: 1);
+      _glassInput('rhr', tonight(rhrOwn), ana.wRhr, lowerIsBetter: true, quantum: 1);
   if (gbRhr != null) gbInputs.add(gbRhr);
-  final gbResp = _glassInput('resp', respOwn, ana.wResp, lowerIsBetter: true);
+  final gbResp = _glassInput('resp', tonight(respOwn), ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
   // temp: use absolute z so "further from your baseline" is worse. `tempList`
   // here is `skin_temp_z` — already a z-score against the raw-ADC baseline
@@ -309,7 +316,7 @@ Map<String, dynamic> buildCrossDayBundle(
   // `tempInput`, which is fed the raw ADC mean and genuinely needs quantum:1).
   final gbTemp = _glassInput(
     'temp',
-    _absList(tempList),
+    tonight(_absList(tempList)),
     ana.wTemp,
     lowerIsBetter: true,
   );
