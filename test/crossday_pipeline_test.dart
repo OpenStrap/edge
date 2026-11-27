@@ -327,6 +327,26 @@ void main() {
       expect((load['tsb'] as num).toDouble(), closeTo(ctl - atl, 1e-4));
     });
 
+    test('a row from long before a break does not compress the calendar', () {
+      // The window is the newest N derived rows, not N calendar days, so a user
+      // back after a long break can span more than the densify cap. That must
+      // not fall back to the per-row series (no decay across the gap).
+      final recent = _synthDays(30);
+      final withOld = [
+        {'date': '2022-06-01', 'rhr': 55.0, 'rmssd': 45.0, 'trimp': 900.0},
+        ...recent,
+      ];
+      Map<String, dynamic> loadOf(List<Map<String, dynamic>> d) =>
+          ((buildCrossDayBundle(d, const {})['load'] as Map)['value'] as Map)
+              .cast<String, dynamic>();
+      final a = loadOf(recent);
+      final b = loadOf(withOld);
+      expect((b['ctl'] as num).toDouble(),
+          closeTo((a['ctl'] as num).toDouble(), 1e-6));
+      expect((b['atl'] as num).toDouble(),
+          closeTo((a['atl'] as num).toDouble(), 1e-6));
+    });
+
     test('an every-day-trained series is unchanged by densification', () {
       // No calendar gaps and a TRIMP on every day → the dense series IS the
       // per-row series, so this pins that the fix is a no-op for that case.
@@ -529,6 +549,12 @@ void main() {
 
     test('a day just after a start is not', () {
       expect(lutealOn(const ['2024-01-01', '2024-01-29']), isFalse);
+    });
+
+    test('a logging gap is not a months-long cycle', () {
+      // Starts 100 days apart: the ones in between were never logged, so
+      // 2024-01-30 (day 60) must not read as the second half of a 100-day cycle.
+      expect(lutealOn(const ['2023-12-01', '2024-03-10']), isFalse);
     });
 
     test('with no cycle log nothing is marked — we do not guess', () {
