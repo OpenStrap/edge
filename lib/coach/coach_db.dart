@@ -133,7 +133,10 @@ class CoachDb {
     if (_ro != null) return _ro!;
     await LocalDb.instance; // creates/repairs schema + views on the RW handle
     final dir = await getDatabasesPath();
-    _ro = await openDatabase(p.join(dir, LocalDb.dbName), readOnly: true);
+    // singleInstance:false or sqflite hands back the app's open writer for
+    // the same path (readOnly ignored), and closing "ours" closes LocalDb.
+    _ro = await openDatabase(p.join(dir, LocalDb.dbName),
+        readOnly: true, singleInstance: false);
     return _ro!;
   }
 

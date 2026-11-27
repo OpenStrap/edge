@@ -106,4 +106,19 @@ void main() {
     expect(j['row_count'], 1);
     expect((j['rows'] as List).first['value'], 52.0);
   });
+
+  test('closing the coach handle leaves the app writer open', () async {
+    final writer = await LocalDb.instance;
+    await CoachDb.runCoachSql("SELECT date FROM v_metric WHERE key='rhr'",
+        today: (day: '2026-07-01', readiness: 70));
+    // The coach's TEMP views live on its own connection, not the writer.
+    expect(
+        await writer.rawQuery(
+            "SELECT name FROM sqlite_temp_master WHERE name='v_daily'"),
+        isEmpty);
+    await CoachDb.close();
+    expect(writer.isOpen, isTrue);
+    await writer.insert('metric_series',
+        {'date': '2026-07-02', 'key': 'rhr', 'value': 53.0});
+  });
 }
