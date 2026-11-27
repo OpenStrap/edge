@@ -29,7 +29,9 @@ class JournalAiTurn {
 /// Parse the model's JSON contract `{reply, tags, note}` leniently (fences,
 /// stray prose around the object). Falls back to treating the whole text as the
 /// reply with nothing extracted — the chat stays usable, nothing is fabricated.
-JournalAiTurn parseJournalAiResponse(String raw) {
+/// Tags/note the model left out (or a turn that didn't parse) carry over from
+/// [previous], so one bad turn can't wipe what earlier turns proposed.
+JournalAiTurn parseJournalAiResponse(String raw, {JournalAiTurn? previous}) {
   var text = raw.trim();
   if (text.startsWith('```')) {
     final nl = text.indexOf('\n');
@@ -49,16 +51,21 @@ JournalAiTurn parseJournalAiResponse(String raw) {
     }
   }
   if (j is! Map) {
-    return JournalAiTurn(reply: text, tags: const [], note: '');
+    return JournalAiTurn(
+        reply: text,
+        tags: previous?.tags ?? const [],
+        note: previous?.note ?? '');
   }
-  final tags = <String>[
-    if (j['tags'] is List)
-      for (final t in j['tags'] as List)
-        if (t is String && t.trim().isNotEmpty) t.trim().toLowerCase(),
-  ];
+  final tags = j['tags'] is List
+      ? <String>[
+          for (final t in j['tags'] as List)
+            if (t is String && t.trim().isNotEmpty) t.trim().toLowerCase(),
+        ]
+      : previous?.tags ?? const <String>[];
   // off-schema fields (null, list, number) are dropped, never cast.
   String str(Object? v) => v is String ? v.trim() : '';
-  return JournalAiTurn(reply: str(j['reply']), tags: tags, note: str(j['note']));
+  final note = j['note'] is String ? str(j['note']) : previous?.note ?? '';
+  return JournalAiTurn(reply: str(j['reply']), tags: tags, note: note);
 }
 
 /// Merge an AI/compose save into whatever the day already holds: tags union
@@ -106,6 +113,7 @@ class JournalAiEngine {
   JournalAiEngine({required this.config, this.chat});
 
   final List<Map<String, dynamic>> _history = [];
+  JournalAiTurn? _last;
 
   bool get configured => chat != null || config.configured;
 
@@ -134,6 +142,6 @@ class JournalAiEngine {
       rethrow;
     }
     _history.add({'role': 'assistant', 'content': raw});
-    return parseJournalAiResponse(raw);
+    return _last = parseJournalAiResponse(raw, previous: _last);
   }
 }

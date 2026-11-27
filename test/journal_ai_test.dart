@@ -109,6 +109,34 @@ void main() {
       expect(t.reply, 'ok');
     });
 
+    test('a turn without tags/note keeps what earlier turns proposed',
+        () async {
+      final replies = [
+        '{"reply":"Noted.","tags":["caffeine","late meal"],'
+            '"note":"Coffee at 6, dinner at 10."}',
+        'Sounds like a long day.',
+        '{"reply":"ok"}',
+        '{"reply":"Removed it.","tags":[],"note":""}',
+      ];
+      var i = 0;
+      final engine = JournalAiEngine(
+        config: CoachConfig(),
+        chat: (_) async => replies[i++],
+      );
+      await engine.send('coffee late, dinner late');
+      final prose = await engine.send('also tired');
+      expect(prose.reply, 'Sounds like a long day.');
+      expect(prose.tags, ['caffeine', 'late meal']);
+      expect(prose.note, 'Coffee at 6, dinner at 10.');
+      final partial = await engine.send('thanks');
+      expect(partial.tags, ['caffeine', 'late meal']);
+      expect(partial.note, 'Coffee at 6, dinner at 10.');
+      // an explicit empty list/note still clears.
+      final cleared = await engine.send('scrap all that');
+      expect(cleared.tags, isEmpty);
+      expect(cleared.note, isEmpty);
+    });
+
     test('a long chat window still opens on a user turn', () async {
       final seen = <List<Map<String, dynamic>>>[];
       final engine = JournalAiEngine(
