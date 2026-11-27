@@ -1806,6 +1806,7 @@
   "sleepDetailAsleepOfThat": "DORMIDO DE ESO",
   "sleepDetailAsleep": "DORMIDO",
   "sleepDetailWatchedExplain": "Observamos {watched} de tus {inBed} en cama; el resto no es una medición. El sueño, y los porcentajes de fases de abajo, se calculan sobre el tiempo que observamos.",
+  "sleepDetailOtherSleep": "Más {other} de otro sueño, {total} en total",
   "sleepDetailWindowMine": "Tú estableciste esta ventana",
   "sleepDetailWindowFallback": "Esta ventana se infirió a partir de la frecuencia cardíaca",
   "sleepDetailStagedByRing": "Fases de tu dispositivo",

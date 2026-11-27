@@ -8621,6 +8621,7 @@
       }
     }
   },
+  "sleepDetailOtherSleep": "บวกการนอนอื่นอีก {other} รวม {total}",
   "sleepDetailWindowMine": "คุณกำหนดช่วงนี้เอง",
   "@sleepDetailWindowMine": {
     "description": "Label when the user has set/confirmed the sleep window themselves."

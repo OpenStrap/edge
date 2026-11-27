@@ -365,32 +365,58 @@ void main() {
     expect(find.text('ASLEEP OF THAT'), findsOneWidget);
   });
 
+  Map<String, dynamic> withPeriods(int mainMin, List<int> others, int total) =>
+      {
+        ..._night(),
+        'total_asleep_min': total,
+        'periods': [
+          {'is_main': true, 'duration_min': mainMin},
+          for (final o in others) {'is_main': false, 'duration_min': o},
+        ],
+      };
+
   testWidgets('a second sleep the same day is added under the total, once',
       (t) async {
     // 443 min main + 240 min second sleep = 683 min (11h 23m) in all.
     await _pump(
       t,
-      SleepData(
-        day: '2026-05-20',
-        night: {..._night(), 'total_asleep_min': 683},
-      ),
+      SleepData(day: '2026-05-20', night: withPeriods(443, [240], 683)),
     );
     expect(find.textContaining('Plus 4h'), findsOneWidget);
     expect(find.textContaining('11h 23m in all'), findsOneWidget);
   });
 
-  testWidgets('no line without a total, or for a few minutes of nap',
-      (t) async {
-    await _pump(t, SleepData(day: '2026-05-20', night: _night()));
-    expect(find.textContaining('of other sleep'), findsNothing);
+  testWidgets('other sleep comes from the periods, so a clamped main does not '
+      'hide it', (t) async {
+    // The headline duration (600) is bigger than the bounded main period (480):
+    // total - duration_min would read 0 and drop the line.
     await _pump(
       t,
       SleepData(
         day: '2026-05-20',
-        night: {..._night(), 'total_asleep_min': 443 + 10},
+        night: {...withPeriods(480, [120], 600), 'duration_min': 600},
       ),
     );
-    expect(find.textContaining('of other sleep'), findsNothing);
+    expect(find.textContaining('Plus 2h'), findsOneWidget);
+  });
+
+  testWidgets('no line without a total, without periods, or for a few minutes '
+      'of nap', (t) async {
+    await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+    expect(find.textContaining('other sleep'), findsNothing);
+    await _pump(
+      t,
+      SleepData(day: '2026-05-20', night: withPeriods(443, [10], 453)),
+    );
+    expect(find.textContaining('other sleep'), findsNothing);
+    await _pump(
+      t,
+      SleepData(
+        day: '2026-05-20',
+        night: {...withPeriods(443, [240], 683)}..remove('total_asleep_min'),
+      ),
+    );
+    expect(find.textContaining('other sleep'), findsNothing);
   });
 
   // ── SLP-02 · settling time, forced windows only ───────────────────────────

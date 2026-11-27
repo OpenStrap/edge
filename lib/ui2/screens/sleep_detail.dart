@@ -54,6 +54,19 @@ const _window = 28;
 /// detector's own floor is 15 min).
 const _kOtherSleepMinMin = 15;
 
+/// Minutes asleep in the day's periods that are not the main sleep. A period
+/// with no known duration adds nothing (the stored total is absent then, and
+/// the caller shows no line without it).
+int _otherSleepMin(Object? periods) {
+  if (periods is! List) return 0;
+  var sum = 0;
+  for (final p in periods.whereType<Map>()) {
+    if (p['is_main'] == true) continue;
+    sum += (p['duration_min'] as num?)?.round() ?? 0;
+  }
+  return sum;
+}
+
 /// The window a "Change the times" correction means. Each picked clock time
 /// lands on whichever calendar day puts it nearest the time it corrects, so a
 /// bedtime moved across midnight (23:50 → 00:20, or 00:30 → 23:40) stays on
@@ -940,6 +953,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final eff = n['efficiency'] as num?;
     final inBed = n['in_bed_min'] as num?;
     final allDay = n['total_asleep_min'] as num?;
+    // Other sleep is read off the same bounded periods the total is summed from,
+    // not `total - duration_min`: a main period clamped on read would otherwise
+    // hide real naps.
+    final other = _otherSleepMin(n['periods']);
     final from = clockOfTs(n['onset_ts'] as num?);
     final to = clockOfTs(n['wake_ts'] as num?);
     // Wall clock minus the minutes nobody watched. `efficiency_pct` has always
@@ -957,13 +974,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             style: F.cap.copyWith(color: p.ink3)),
         // A second sleep or naps the same day. Absent total stays absent: an
         // unjudged nap day publishes no total, so nothing is claimed here.
-        if (tst != null &&
-            allDay != null &&
-            allDay - tst >= _kOtherSleepMinMin) ...[
+        if (allDay != null && other >= _kOtherSleepMinMin) ...[
           const SizedBox(height: S.x2),
           Text(
-              l?.sleepDetailOtherSleep(hm(allDay - tst), hm(allDay)) ??
-                  'Plus ${hm(allDay - tst)} of other sleep, ${hm(allDay)} in all',
+              l?.sleepDetailOtherSleep(hm(other), hm(allDay)) ??
+                  'Plus ${hm(other)} of other sleep, ${hm(allDay)} in all',
               style: F.body.copyWith(color: p.ink2)),
         ],
         if (from.isNotEmpty && to.isNotEmpty) ...[

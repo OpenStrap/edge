@@ -1798,6 +1798,7 @@
   "sleepDetailAsleepOfThat": "उसमें से सोया हुआ",
   "sleepDetailAsleep": "सोया हुआ",
   "sleepDetailWatchedExplain": "हमने बिस्तर पर बिताए आपके {inBed} में से {watched} मॉनिटर किया; बाकी समय एक मापन नहीं है। नींद, और नीचे दिए गए चरणों के हिस्से, केवल मॉनिटर किए गए समय पर आधारित हैं।",
+  "sleepDetailOtherSleep": "इसके अलावा {other} और नींद, कुल {total}",
   "sleepDetailWindowMine": "यह समय-सीमा आपने खुद तय की है",
   "sleepDetailWindowFallback": "यह समय-सीमा हृदय गति से अनुमानित की गई है",
   "sleepDetailStagedByRing": "चरण आपके डिवाइस ने तय किए",

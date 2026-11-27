@@ -1798,6 +1798,7 @@
   "sleepDetailAsleepOfThat": "其中入睡占比",
   "sleepDetailAsleep": "入睡占比",
   "sleepDetailWatchedExplain": "在你{inBed}的卧床时间中，我们监测到了{watched}；其余时间不属于测量范围。入睡比例及下方各阶段占比均以监测到的时间为准计算。",
+  "sleepDetailOtherSleep": "另有 {other} 其他睡眠，共计 {total}",
   "sleepDetailWindowMine": "这个时间段是你自己设定的",
   "sleepDetailWindowFallback": "这个时间段是根据心率推断的",
   "sleepDetailStagedByRing": "由你的设备划分阶段",

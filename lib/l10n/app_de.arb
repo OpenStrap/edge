@@ -1859,6 +1859,7 @@
   "sleepDetailAsleepOfThat": "DAVON GESCHLAFEN",
   "sleepDetailAsleep": "GESCHLAFEN",
   "sleepDetailWatchedExplain": "Von {inBed} im Bett wurden {watched} erfasst; der Rest ist keine Messung. Schlafzeit und Phasenanteile unten beziehen sich auf die erfasste Zeit.",
+  "sleepDetailOtherSleep": "Dazu {other} weiterer Schlaf, {total} insgesamt",
   "sleepDetailWindowMine": "Du hast diesen Zeitraum festgelegt",
   "sleepDetailWindowFallback": "Der Schlafzeitraum wurde anhand der Herzfrequenz geschätzt",
   "sleepDetailStagedByRing": "Phasen von deinem Gerät",
