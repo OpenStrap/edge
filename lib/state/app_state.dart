@@ -3812,9 +3812,9 @@ class AppState extends ChangeNotifier {
   /// Whether today's self-report is already written — the check-in prompt's
   /// "do not ask for something already logged" gate.
   ///
-  /// NOT `BriefingStore.journalDoneToday()`, which reads a flag that
-  /// `markJournalDone` would set and nothing anywhere calls: it is false for
-  /// every user on every day. The journal rows are the truth.
+  /// NOT `BriefingStore.journalDoneToday()`: that flag is set by any journal
+  /// save, and the check-in asks only about ratings. The rating rows are the
+  /// truth here.
   /// NULL, NOT FALSE, when the journal could not be read. The scheduler reads
   /// `false` as "today is known to be unanswered" and arms the prompt on it —
   /// so a transient read failure asked a user who had already written their

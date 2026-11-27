@@ -13,9 +13,11 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:openstrap_edge/ai/briefing.dart' show BriefingStore;
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/coach/coach_engine.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
+import 'package:openstrap_edge/state/prefs.dart';
 
 class _FakeRepo extends LocalRepository {
   String? journalDate;
@@ -132,6 +134,16 @@ void main() {
       }, repo);
       expect(repo.journalTags, ['alcohol', 'late_meal', 'caffeine']);
       expect(repo.journalNote, 'dinner out\ncoffee in the afternoon');
+    });
+
+    // the bedtime "log your day" nudge reads this flag to skip tonight
+    test('logging today marks the journal done, an old day does not',
+        () async {
+      await Prefs.ensureLoaded();
+      await run('log_journal', {'date': '2026-08-14', 'note': 'x'}, _FakeRepo());
+      expect(BriefingStore.journalDoneToday(), isFalse);
+      await run('log_journal', {'note': 'x'}, _FakeRepo());
+      expect(BriefingStore.journalDoneToday(), isTrue);
     });
   });
 

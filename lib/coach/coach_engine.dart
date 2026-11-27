@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../ai/briefing.dart' show BriefingStore;
 import '../ai/journal_ai.dart' show mergeJournalEntry;
 import '../data/day_label.dart';
 import '../data/db.dart';
@@ -1108,6 +1109,7 @@ class CoachEngine {
               newNote: '${args['note'] ?? ''}',
             );
             await api.postJournal(journalDate, merged.tags, merged.note);
+            BriefingStore.markJournalDone(journalDate);
             return 'Journal saved.';
           });
         case 'log_period':
