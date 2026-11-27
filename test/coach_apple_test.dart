@@ -269,7 +269,7 @@ void main() {
     });
 
     test('TODAY keeps every column, not just the first couple', () async {
-      await seed({'2026-03-10': 67});
+      await seed({'2026-03-10': 67, '2026-03-02': 50});
       final db = await LocalDb.instance;
       for (final e in {
         'strain': 12.345678901234567,
