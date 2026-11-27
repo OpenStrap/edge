@@ -42,4 +42,10 @@ void main() {
       () {
     expect(coachEndpointOrigin('  not a url  '), 'not a url');
   });
+
+  test('a non-http(s) URL with a host falls back too, never throws', () {
+    expect(coachEndpointOrigin(' ws://h:1 '), 'ws://h:1');
+    expect(coachEndpointOrigin('htp://x'), 'htp://x');
+    expect(CoachApi.defaultFor('ftp://host'), CoachApi.chatCompletions);
+  });
 }
