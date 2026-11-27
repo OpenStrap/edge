@@ -244,6 +244,7 @@ class UltrahumanAdapter extends BandAdapter {
             return;
           }
           cursor = newCursor;
+          if (got.ended) days.reachedEnd = true;
           // The days before the latest one are never read again once the
           // bookmark below passes them: their values go out now, ahead of
           // it, or a session cut short after this batch loses them for good.
@@ -326,7 +327,7 @@ class UltrahumanAdapter extends BandAdapter {
       final r = await inbox.next(kUltrahumanOpGetRecordings, replyTimeout);
       if (r == null) return _Pull(records, raw, replyGap: true);
       if (r.failed) return _Pull(records, raw, failedResult: r.result);
-      if (r.empty || r.count == 0) return _Pull(records, raw);
+      if (r.empty || r.count == 0) return _Pull(records, raw, ended: true);
       var reached = false;
       for (var off = 0;
           off + kUltrahumanRecordLen <= r.payload.length;
@@ -508,8 +509,13 @@ class _Pull {
   /// The pull ended because nothing more arrived inside the reply window,
   /// not on a frame from the ring.
   final bool replyGap;
+
+  /// The ring itself answered with an empty frame: history ended here, even
+  /// when records came before it in the same pull.
+  final bool ended;
   const _Pull(this.records, this.raw,
       {this.failedResult,
+      this.ended = false,
       this.reachedLatest = false,
       this.streaming = false,
       this.replyGap = false});
