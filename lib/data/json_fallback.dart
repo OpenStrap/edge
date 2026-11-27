@@ -96,3 +96,45 @@ String? crossdayInputFirstDateOf(Object? payload) {
   final date = first is Map ? first['date'] : null;
   return date is String ? date : null;
 }
+
+/// `v_hypnogram` rows for one served day: one per `series.hypnogram` segment.
+/// Nothing for a malformed bundle or a hypnogram that is not a list.
+List<Map<String, Object?>> hypnogramRowsOf(String dayId, Object? payload) {
+  final (ok, doc) = _parse(payload);
+  if (!ok) return const [];
+  final segments = _lookup(doc, ['series', 'hypnogram']).$2;
+  if (segments is! List) return const [];
+  return [
+    for (final e in segments)
+      {
+        'date': dayId,
+        'start_ts': e is Map ? e['start'] : null,
+        'end_ts': e is Map ? e['end'] : null,
+        'stage': e is Map ? e['stage'] : null,
+      },
+  ];
+}
+
+/// The journal CSV's `tags` cell: the tag list as `a; b; c`, or the raw text
+/// with newlines flattened when it is not JSON.
+String? journalTagsOf(Object? tagsJson) {
+  final (ok, doc) = _parse(tagsJson);
+  if (!ok) {
+    return tagsJson is String ? tagsJson.replaceAll('\n', ' ') : null;
+  }
+  final items = doc is List
+      ? doc
+      : doc is Map
+          ? doc.values.toList()
+          : [doc];
+  return [
+    for (final v in items)
+      if (v != null)
+        if (v is bool)
+          v ? '1' : '0'
+        else if (v is Map || v is List)
+          jsonEncode(v)
+        else
+          '$v',
+  ].join('; ');
+}

@@ -10738,6 +10738,37 @@ class LocalDb {
     ];
   }
 
+  /// `v_hypnogram` for a phone without JSON1: every served day's sleep stage
+  /// segments, read off the bundle in Dart (off the UI isolate), ordered the
+  /// way the spreadsheet export orders them.
+  static Future<List<Map<String, Object?>>> hypnogramRowsNoJson1() async {
+    final db = await instance;
+    final all = await db.rawQuery(
+      'SELECT r.day_id, r.payload_json FROM day_result r $_servedDayJoin',
+    );
+    final days = [for (final r in all) '${r['day_id']}'];
+    final payloads = [for (final r in all) r['payload_json']];
+    final rows = await Isolate.run(() => [
+          for (var i = 0; i < days.length; i++)
+            ...hypnogramRowsOf(days[i], payloads[i]),
+        ]);
+    final order = {for (var i = 0; i < rows.length; i++) rows[i]: i};
+    num? start(Map<String, Object?> r) => r['start_ts'] is num ? r['start_ts'] as num : null;
+    rows.sort((a, b) {
+      final d = (a['date'] as String).compareTo(b['date'] as String);
+      if (d != 0) return d;
+      final x = start(a), y = start(b);
+      if (x == null || y == null) {
+        if (x == null && y != null) return -1;
+        if (y == null && x != null) return 1;
+      } else if (x != y) {
+        return x.compareTo(y);
+      }
+      return order[a]!.compareTo(order[b]!);
+    });
+    return rows;
+  }
+
   /// Day labels whose LATEST-version bundle records a real sleep total
   /// (`sleep.accounting.value.tst_sec` present). Extracted IN SQLite via
   /// json_extract, so only the scalar crosses the boundary — never the payload.

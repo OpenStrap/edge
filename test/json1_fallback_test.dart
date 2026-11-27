@@ -56,6 +56,13 @@ void main() {
       },
       'scalars': {'rhr': 52, 'readiness': 70, 'sleep_onset_sec': -3600.5},
       'flags': ['NO_SLEEP_DETECTED'],
+      'series': {
+        'hypnogram': [
+          {'start': 1790003600, 'end': 1790007200, 'stage': 'rem'},
+          {'start': 1790000000, 'end': 1790003600, 'stage': 'light'},
+          {'start': 1790007200, 'end': 1790009000},
+        ],
+      },
     });
     await _put('2026-10-02', {'skipped': true, 'reason': 'error'},
         skipped: true);
@@ -70,6 +77,7 @@ void main() {
     await _put('2026-10-06', {
       'scalars': {'rhr': 48.25, 'readiness': 55.5},
       'flags': ['OTHER'],
+      'series': {'hypnogram': null},
     });
     // 2026-10-07 has no row at all.
   });
@@ -89,6 +97,46 @@ void main() {
     // Not vacuous: the good day really was read.
     expect((dart['tst'] as Set), contains('2026-10-01'));
     expect((dart['clock'] as List).first.onsetMs, 1790000000000);
+  });
+
+  test('the sleep-stage export rows match v_hypnogram', () async {
+    final db = await LocalDb.instance;
+    final sql = await db.rawQuery(
+      'SELECT date, start_ts, end_ts, stage FROM v_hypnogram '
+      'ORDER BY date ASC, start_ts ASC',
+    );
+    final dart = await LocalDb.hypnogramRowsNoJson1();
+    expect(dart, equals(sql));
+    expect(dart, hasLength(3)); // not vacuous: the good day's segments
+  });
+
+  test('the journal tags cell matches the export SQL', () async {
+    final db = await LocalDb.instance;
+    final tags = {
+      '2026-10-01': '["stressed","alcohol"]',
+      '2026-10-02': '[]',
+      '2026-10-03': 'not json\nat all',
+      '2026-10-04': '{"a":"x","b":2}',
+      '2026-10-05': '[1,2.5,true,null,"z",{"k":1}]',
+      '2026-10-06': '"solo"',
+    };
+    for (final e in tags.entries) {
+      await db.insert('journal',
+          {'date': e.key, 'tags_json': e.value, 'note': '', 'updated_at': 1});
+    }
+    final sql = await db.rawQuery(
+      'SELECT date, '
+      'CASE WHEN json_valid(tags_json) '
+      "THEN COALESCE((SELECT group_concat(value, '; ') "
+      'FROM json_each(journal.tags_json)), \'\') '
+      "ELSE replace(tags_json, char(10), ' ') END AS tags FROM journal "
+      'ORDER BY date ASC',
+    );
+    final got = [
+      for (final e in tags.entries)
+        {'date': e.key, 'tags': journalTagsOf(e.value)},
+    ];
+    expect(got, equals(sql));
   });
 
   test('the probe sees JSON1 here and remembers the answer', () async {
