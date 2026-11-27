@@ -54,7 +54,8 @@ class CoachActions {
   static double? num_(Object? v) {
     if (v == null) return null;
     if (v is num) return v.isFinite ? v.toDouble() : null;
-    return double.tryParse(v.toString().trim());
+    final d = double.tryParse(v.toString().trim());
+    return d != null && d.isFinite ? d : null;
   }
 
   /// A local day label, defaulting to today. Rejects anything that is not

@@ -72,6 +72,13 @@ void main() {
           throwsA(isA<CoachActionError>()));
     });
 
+    test('a non-finite number string is not a number', () {
+      expect(CoachActions.num_('NaN'), isNull);
+      expect(CoachActions.num_('Infinity'), isNull);
+      expect(CoachActions.num_('-Infinity'), isNull);
+      expect(CoachActions.num_(' 2.5 '), 2.5);
+    });
+
     test('local wall clock is what epochOf converts, not UTC', () {
       final sec = CoachActions.epochOf('2026-08-14', 7 * 60 + 15);
       final back = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
