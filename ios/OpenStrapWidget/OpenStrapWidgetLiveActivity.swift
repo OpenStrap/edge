@@ -98,8 +98,8 @@ private extension Color {
   static var onMove: Color { Pal.current.onMove }
 }
 
-private func zoneColor(_ z: Int) -> Color {
-  (z >= 1 && z <= 5) ? Pal.current.zones[z - 1] : .inkMuted
+private func zoneColor(_ z: Int, _ pal: Pal = .current) -> Color {
+  (z >= 1 && z <= 5) ? pal.zones[z - 1] : pal.inkMuted
 }
 
 // MARK: - Claymorphic surface
@@ -144,11 +144,12 @@ private struct PulseHeart: View {
 private struct ZoneBar: View {
   let zone: Int
   var compact: Bool = false
+  var pal: Pal = .current
   var body: some View {
     HStack(spacing: compact ? 3 : 5) {
       ForEach(1...5, id: \.self) { z in
         RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .fill(z <= zone ? zoneColor(zone) : Color.claySunk)
+          .fill(z <= zone ? zoneColor(zone, pal) : pal.claySunk)
           .frame(height: compact ? 6 : 10)
           .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.white.opacity(0.35), lineWidth: 0.5))
       }
@@ -255,6 +256,8 @@ struct OpenStrapWidgetLiveActivity: Widget {
     } dynamicIsland: { context in
       let s = shownState(context)
       let live = !isStale(context)
+      // The island is always black whatever the app theme, so it draws with
+      // the dark palette; the light one put near-white empty zones on black.
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           HStack(spacing: 6) {
@@ -267,7 +270,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
           VStack(alignment: .trailing, spacing: 0) {
             Text(strainText(s.strain))
               .font(.system(size: 20, weight: .bold, design: .rounded))
-              .foregroundStyle(Color.onMove).contentTransition(.numericText())
+              .foregroundStyle(Pal.dark.onMove).contentTransition(.numericText())
             Text("STRAIN").font(.system(size: 8, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
           }
         }
@@ -278,7 +281,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.bottom) {
           HStack(spacing: 10) {
-            ZoneBar(zone: s.zone)
+            ZoneBar(zone: s.zone, pal: .dark)
             // Absent stays absent: a bare " kcal" with nothing in front of it
             // is the unit claiming a measurement we don't have. The lock
             // screen dims the empty slot; here the whole label goes.
@@ -298,7 +301,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
         }
       } compactTrailing: {
         Text(s.zone >= 1 ? "Z\(s.zone)" : "·")
-          .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(zoneColor(s.zone))
+          .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(zoneColor(s.zone, .dark))
       } minimal: {
         Text(hrText(s.hr)).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Color.heart)
       }
