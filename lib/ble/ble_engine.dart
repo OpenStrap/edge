@@ -7361,10 +7361,19 @@ class BleEngine {
               'refusing the trim, not losing data.',
             );
           }
-          try {
-            await setClock();
-          } catch (e) {
-            _log('[SYNC] defensive SET_CLOCK after no-durable refuse failed: $e');
+          // Not while the phone clock is the suspect party: writing its time
+          // onto a strap RTC that may be right destroys the evidence, same as
+          // the other SET_CLOCK writers. The bounce still runs.
+          if (_deferForClock) {
+            _log('[SYNC] phone clock is suspect — skipping the defensive '
+                'SET_CLOCK, bounce only.');
+          } else {
+            try {
+              await setClock();
+            } catch (e) {
+              _log('[SYNC] defensive SET_CLOCK after no-durable refuse '
+                  'failed: $e');
+            }
           }
           if (!_sessionIsStale(session)) {
             unawaited(
@@ -7789,6 +7798,7 @@ class BleEngine {
         shortfallRetry: false,
       );
       if (verdict != TrimAckVerdict.send) {
+        d.ackNotSent();
         await _refuseHistoryEndTrim(
           verdict,
           d: d,
@@ -7815,6 +7825,7 @@ class BleEngine {
       final ackWritten = await _writeAckVerified(ack, session, taskGen: taskGen);
       final ackMs = ackWatch.elapsedMilliseconds;
       if (!ackWritten) {
+        d.ackNotSent(); // the band did not trim this token
         // False for one of three reasons: the writes genuinely exhausted, the
         // session died, or the TASK ended under the retries. Only the first is
         // this continuation's to handle — a stale one must not touch the
@@ -9903,6 +9914,9 @@ class DrainController {
   // the durable frontier stayed frozen.
   String? _lastAckedToken;
   bool lastTrimAdvanced = false;
+  // Bookkeeping as it stood before the last token commit, so a token that
+  // was committed but never ACKed can be put back ([ackNotSent]).
+  ({String? token, bool advanced})? _beforeTokenCommit;
   int consecutiveValidationFailures = 0;
 
   // Poison latch for the burst currently open (see BurstTrimGuard): once its
@@ -10184,6 +10198,18 @@ class DrainController {
 
   void onLinkDown() => _linkDown = true;
 
+  /// The last token commit was durable but its ACK never reached the band, so
+  /// the band did not trim. Undo the trim bookkeeping: otherwise the same
+  /// chunk re-delivered with the same token on a later task reads as "no
+  /// advance" even when that ACK lands, and auto-continue never fires.
+  void ackNotSent() {
+    final b = _beforeTokenCommit;
+    if (b == null) return;
+    _lastAckedToken = b.token;
+    lastTrimAdvanced = b.advanced;
+    _beforeTokenCommit = null;
+  }
+
   /// Per-offload counters reset (after the post-offload policy has read them).
   void resetOffloadCounters() {
     recordsThisOffload = 0;
@@ -10290,6 +10316,8 @@ class DrainController {
     // Rows a flush already banked for this burst count too: the END commit
     // finds an empty buffer whenever a flush got there first.
     if (tokenHex != null) {
+      _beforeTokenCommit =
+          (token: previousAckedToken, advanced: previousTrimAdvanced);
       lastTrimAdvanced = tokenHex != _lastAckedToken &&
           (hadDurable ||
               _burstFlushedDurable > 0 ||

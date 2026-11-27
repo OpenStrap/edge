@@ -756,6 +756,37 @@ void main() {
     });
   });
 
+  group('no-durable remedy vs a suspect phone clock', () {
+    test('the remedy bounces but does not write SET_CLOCK while the phone '
+        'clock is suspect', () async {
+      final r = _Rig();
+      // Strap RTC plausible and 2 days ahead of us => the PHONE is suspect.
+      r.engine.debugAbsorbDecoded(
+          Decoded('cmd_response', {'clock_epoch': _wallNow() + 2 * 86400}));
+      expect(r.engine.historyPausedForClock, isTrue);
+
+      // Bursts whose records the gate drops, until the remedy threshold.
+      for (var i = 0; i < 3; i++) {
+        r.claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: _wallNow() + 2 * 86400, counter: 800 + i));
+        r.rx(_historyEnd(expected: 1, token: 0x9800 + i));
+        await pumpEventQueue();
+      }
+
+      expect(r.logs.where((l) => l.contains('hit the remedy threshold')),
+          hasLength(1));
+      expect(
+        r.writes.where((c) =>
+            c.opcode == Cmd.setClock || c.opcode == Cmd.setClockMaverick),
+        isEmpty,
+        reason: 'writing the suspect phone time onto the strap destroys the '
+            'evidence the suspect verdict was built on',
+      );
+      expect(r.successResults, isEmpty);
+    });
+  });
+
   group('T7 — no task starts while an abort is in flight', () {
     test(
         'manual, strap and repeated triggers all wait for the abort; at most '
