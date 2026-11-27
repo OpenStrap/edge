@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'coach_chatgpt.dart';
 
 /// The origin (`scheme://host[:port]`) [url] resolves to, or the trimmed
-/// string itself when it doesn't parse as a URI with a host.
+/// string itself when it doesn't parse as an http(s) URI with a host.
 ///
 /// Used by the coach setup screen to tell whether an edit to the base URL
 /// actually changed WHERE requests go, as opposed to e.g. its path — an API
@@ -21,6 +21,8 @@ import 'coach_chatgpt.dart';
 String coachEndpointOrigin(String url) {
   final u = Uri.tryParse(url.trim());
   if (u == null || u.host.isEmpty) return url.trim();
+  // Uri.origin throws for any other scheme (ws://, ftp://, a typo).
+  if (!u.isScheme('http') && !u.isScheme('https')) return url.trim();
   return u.origin;
 }
 
