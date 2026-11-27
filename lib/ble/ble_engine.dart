@@ -9901,7 +9901,11 @@ class DrainController {
   // only when the burst also banked durable rows. An empty token-only ACK
   // (console / drop-only) used to flip this true and feed auto-continue while
   // the durable frontier stayed frozen.
+  // _lastAckedToken only moves once the ACK is actually written
+  // ([noteBatchAcked]); a committed-but-unACKed token is re-delivered and its
+  // real trim must still count as an advance.
   String? _lastAckedToken;
+  String? _committedToken;
   bool lastTrimAdvanced = false;
   int consecutiveValidationFailures = 0;
 
@@ -10016,6 +10020,7 @@ class DrainController {
   }
 
   void noteBatchAcked() {
+    _lastAckedToken = _committedToken;
     batches++;
     _batchesThisTask++;
   }
@@ -10273,7 +10278,6 @@ class DrainController {
     final tokenHex = token
         ?.map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
-    final previousAckedToken = _lastAckedToken;
     final previousTrimAdvanced = lastTrimAdvanced;
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
@@ -10294,7 +10298,6 @@ class DrainController {
           (hadDurable ||
               _burstFlushedDurable > 0 ||
               _burstFlushedGateDrops > 0);
-      _lastAckedToken = tokenHex;
     }
     _raws.clear();
     _samples.clear();
@@ -10344,6 +10347,7 @@ class DrainController {
         );
         _burstFlushedDurable = 0;
         _burstFlushedGateDrops = 0;
+        _committedToken = tokenHex;
       } else {
         final gateDrops =
             archives.where((a) => a.reason == kGateDroppedReason).length;
@@ -10360,7 +10364,6 @@ class DrainController {
       _archives.insertAll(0, archives);
       _ecgRaw.insertAll(0, ecgRaw);
       // Roll back the trim bookkeeping too — nothing advanced.
-      _lastAckedToken = previousAckedToken;
       lastTrimAdvanced = previousTrimAdvanced;
       log('offload commit FAILED ($e) — ${raws.length} records + '
           '${archives.length} archived + ${ecgRaw.length} raw ECG '

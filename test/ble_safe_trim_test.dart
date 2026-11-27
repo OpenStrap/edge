@@ -181,6 +181,26 @@ void main() {
       expect(d.lastTrimAdvanced, isFalse);
     });
 
+    test('a token whose ACK write failed still advances when re-delivered',
+        () async {
+      final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.commit(_tokenA), isTrue);
+      // ACK write exhausted: no noteBatchAcked, band keeps the chunk.
+      d.resetOffloadCounters();
+
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.lastTrimAdvanced, isTrue);
+      d.noteBatchAcked();
+
+      // Once really ACKed, the same token again is not progress.
+      d.resetOffloadCounters();
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.lastTrimAdvanced, isFalse);
+    });
+
     test('the HISTORY_COMPLETE tail commit keeps the trim advance for '
         'auto-continue', () async {
       final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
