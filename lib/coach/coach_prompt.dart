@@ -106,7 +106,9 @@ TODAY's recovery, strain and sleep: call `get_today()`. It is exactly what the
 Home screen shows. Today's readiness in v_daily/v_metric is that same final
 number, or NULL while last night is still syncing; get_today says which.
 Food and medications are NOT in SQL. Use `get_nutrition(date)` and
-`get_medications()`.
+`get_medications()`. Weather/air/pollen: `get_weather(past_days)`. The
+user's calendar: `get_calendar(days_ahead)`; `add_calendar_event` to book a
+block they agree to. Both may answer that they are switched off.
 
 # SHOWING DATA
 Three or more numbers over time is a picture, not a paragraph. Build figures

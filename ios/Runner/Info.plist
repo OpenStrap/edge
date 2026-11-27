@@ -177,7 +177,13 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>OpenStrap connects to your wearables and sensors over Bluetooth to sync your health data.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>OpenStrap records your route during a run, ride or walk so you can see it, colored by heart-rate zone, when the workout ends. Recording continues while your screen is locked or you switch apps, but only while a workout is running — it stops the moment you finish. Your route stays on this device and is never uploaded.</string>
+	<string>OpenStrap records your route during a run, ride or walk so you can see it, colored by heart-rate zone, when the workout ends. Recording continues while your screen is locked or you switch apps, but only while a workout is running — it stops the moment you finish. Your route stays on this device unless you send a workout to intervals.icu or export it. If you turn on weather for the coach, your location rounded to about 11 km is used to look it up.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>When you turn on Calendar in Connected apps, the AI coach can read your upcoming events to plan training and rest around them, and add events you approve.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>When you turn on Calendar in Connected apps, the AI coach can read your upcoming events to plan training and rest around them, and add events you approve.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OpenStrap talks to your Philips Hue bridge on your home network to brighten the lights before your alarm and dim them at wind-down.</string>
 	<!-- NSLocationAlwaysAndWhenInUseUsageDescription: STILL not requested by app
 	     code. gps_source.dart asks for WHEN-IN-USE only; background delivery
 	     during a workout comes from the "location" UIBackgroundMode plus
@@ -189,7 +195,7 @@
 	     It must still describe the truth, because if it is ever shown, it is
 	     shown to a user deciding about location access. -->
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>OpenStrap never needs always-on location and does not ask for it. It records your route only while a run, ride or walk is actively running — including when your screen is locked — and stops as soon as you finish. Your route stays on this device and is never uploaded.</string>
+	<string>OpenStrap never needs always-on location and does not ask for it. It records your route only while a run, ride or walk is actively running — including when your screen is locked — and stops as soon as you finish. Your route stays on this device unless you send a workout to intervals.icu or export it.</string>
 	<!-- NSPhotoLibraryUsageDescription: not used by app code — import_screen.dart's
 	     only FilePicker call uses FileType.any (Files app / UIDocumentPicker),
 	     never .image/.media. file_picker's iOS podspec unconditionally bundles

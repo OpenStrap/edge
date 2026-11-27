@@ -1,3 +1,5 @@
+import '../../integrations/doctor_report.dart';
+import '../activity/share.dart' show shareOrigin;
 import '../../l10n/display_text.dart';
 // HEALTH — observation-oriented. "What is happening, what is changing, is
 // anything unusual?"
@@ -10,6 +12,7 @@ import '../../l10n/display_text.dart';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../compute/findings.dart';
@@ -692,8 +695,31 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           3 => _vitals(c, d),
           _ => _labs(c),
         },
+      const SizedBox(height: S.x4),
+      BigButton(uiText(c, 'Share a report for your doctor'),
+          icon: LucideIcons.fileText, color: C.blue, soft: true, onTap: () => _shareReport(c)),
       const HelpEntry(topic: GuideTopic.health),
     ]);
+  }
+
+  bool _sharingReport = false;
+
+  /// Last 90 days as a one-page PDF, handed to the share sheet. Built on the
+  /// phone; it goes wherever the user sends it.
+  Future<void> _shareReport(BuildContext c) async {
+    if (_sharingReport) return;
+    _sharingReport = true;
+    final origin = shareOrigin(c);
+    final messenger = ScaffoldMessenger.of(c);
+    try {
+      final f = await buildDoctorReport();
+      await Share.shareXFiles([XFile(f.path, mimeType: 'application/pdf')],
+          subject: 'Health summary', sharePositionOrigin: origin);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      _sharingReport = false;
+    }
   }
 
   // ─────────────── OVERVIEW ───────────────

@@ -17,10 +17,11 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../ui2.dart';
-import '../screens/coach.dart' show CoachSetup, coachSubtitle;
 import '../guides/guide_catalogue.dart' show bandGenerationOf;
 import '../guides/help_screen.dart' show HelpScreen;
 import '../screens/home_screen.dart' show deviceBatteryOf;
+import '../../l10n/display_text.dart';
+import 'connected_apps.dart';
 import 'data.dart';
 import 'devices.dart';
 import 'settings.dart';
@@ -322,7 +323,7 @@ class _ProfileHomeState extends State<ProfileHome> {
           onSettings: () => _open(c, const MoreSettings()),
           onExport: () => _open(c, const DataScreen()),
           onEdit: () => _open(c, const EditProfile()),
-          onCoach: () => _open(c, const CoachSetup()),
+          onCoach: () => _open(c, const ConnectedApps()),
           onHelp: () => _open(c, HelpScreen(band: bandGenerationOf(c.read<AppState>().paired))),
         ),
       );
@@ -385,7 +386,7 @@ class ProfileHomeView extends StatelessWidget {
                       sub: l?.profileEditProfileSub ??
                           'Sex, age, height, weight',
                       onTap: onEdit),
-                  // THE ONLY DOOR TO THE COACH'S SETUP, and it has to be —
+                  // THE ONLY DOOR TO THE COACH'S SETUP (now via Connected apps), and it has to be —
                   // Home's sparkles button is now gated on `coachReady`, so on
                   // a fresh install there is no icon to find it behind. It
                   // belongs here anyway: a model, a base URL and a key are
@@ -395,11 +396,9 @@ class ProfileHomeView extends StatelessWidget {
                   // `watch` rather than `read` so the sub-line stops saying
                   // "Not set up" the moment it is.
                   Builder(builder: (c) => SetRow(
-                      LucideIcons.sparkles, C.purple,
-                      AppLocalizations.of(c)?.profileAiCoach ?? 'AI coach',
-                      sub: coachSubtitle(c) ??
-                          (AppLocalizations.of(c)?.profileNotSetUp ??
-                              'Not set up'),
+                      LucideIcons.plug, C.purple,
+                      uiText(c, 'Connected apps'),
+                      sub: uiText(c, 'AI coach, intervals.icu, weather, calendar, Hue'),
                       onTap: onCoach)),
                   SetRow(LucideIcons.circleHelp, C.blue,
                       l?.profileHelpRow ?? 'Help',

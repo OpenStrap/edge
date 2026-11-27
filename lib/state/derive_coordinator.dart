@@ -9,6 +9,7 @@ import '../compute/profile.dart';
 import '../data/local_repository.dart';
 import '../telemetry/health_uploader.dart';
 import '../telemetry/telemetry_service.dart';
+import '../integrations/intervals_icu.dart';
 import '../widget/widget_service.dart';
 
 /// One derive pass's engine call (`DerivationEngine.run`'s shape).
@@ -143,6 +144,7 @@ class DeriveCoordinator {
       // Same signal, for the surfaces that can't listen: home/lock-screen
       // widget, Watch mirror, Siri intents (WidgetService.refresh).
       unawaited(WidgetService.refresh(_repo()));
+      unawaited(IntervalsIcu.instance.pushAfterDerive());
       // "Recovery ready" push, on light passes too: it waits for the settled
       // night (#448), and once a heavy has run before the edge passed the
       // wake, only light drains are left to see it settle.

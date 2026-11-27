@@ -116,6 +116,7 @@ import '../data/local_repository_impl.dart';
 import '../data/series_codec.dart';
 import '../notify/battery_forecast.dart';
 import '../notify/med_buzzer.dart';
+import '../integrations/hue.dart' show hueSunriseFor;
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
@@ -6085,6 +6086,8 @@ class AppState extends ChangeNotifier {
   /// armed.
   Future<void> _onArmed(DateTime when, int epoch,
       {bool echoed = false, required String? armedFor}) async {
+    // Lights follow the alarm only once a band holds it; best effort.
+    if (armedFor == paired?.remoteId) unawaited(hueSunriseFor(when));
     if (armedFor != paired?.remoteId) {
       _log('[alarm] the band that took this alarm is no longer paired; '
           'not recording it.');
@@ -6340,6 +6343,7 @@ class AppState extends ChangeNotifier {
     try {
       if (previous != null) await previous;
       await _disableAlarmNow();
+      unawaited(hueSunriseFor(null));
     } finally {
       if (identical(_disableInFlight, done.future)) _disableInFlight = null;
       done.complete();
