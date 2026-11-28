@@ -105,4 +105,15 @@ void main() {
         version: kAlgoVersion, skipped: true);
     expect(await LocalDb.storedNightClock('2026-09-07'), isNull);
   });
+
+  test('storedNaps reads the nap list off the served row', () async {
+    final naps = [
+      {'start': 1767254400, 'end': 1767256200, 'source': 'auto'},
+    ];
+    await _put('2026-09-08', {..._bundle(), 'naps': {'value': naps}});
+    expect(await LocalDb.storedNaps('2026-09-08'), naps);
+    expect(await LocalDb.storedNaps('2026-09-02'), isNull);
+    expect(await LocalDb.storedNaps('2026-09-05'), isNull);
+    expect(await LocalDb.storedNaps('2026-01-01'), isNull);
+  });
 }

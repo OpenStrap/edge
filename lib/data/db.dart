@@ -10441,6 +10441,28 @@ class LocalDb {
     return rows.isEmpty ? null : _withDate(rows.first);
   }
 
+  /// The served row's `naps.value` list, read with json_extract so a re-derive
+  /// never pulls and decodes the whole bundle just for it. Null when the day
+  /// has no served row, the payload is malformed, or it holds no nap list.
+  static Future<List<dynamic>?> storedNaps(String dayId) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      "SELECT CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.naps.value') END AS naps "
+      'FROM day_result WHERE day_id = ? AND algo_version <= ? '
+      'ORDER BY algo_version DESC LIMIT 1',
+      [dayId, _servedAlgoCeiling],
+    );
+    final raw = rows.isEmpty ? null : rows.first['naps'];
+    if (raw is! String) return null;
+    try {
+      final v = jsonDecode(raw);
+      return v is List ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The two numbers a re-derive needs to keep a stored night on the clock it
   /// was lived on: the served row's sleep onset instant (ms) and the
   /// `sleep_onset_sec` clock it froze. Read with json_extract, so the bundle is
