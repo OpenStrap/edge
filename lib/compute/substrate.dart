@@ -1330,6 +1330,9 @@ List<PhysioDay> calendarDays(
     // full set of sessions that can legitimately end today.
     final searchStart = math.max(dataStart, dayStart - kNocturnalSearchLookbackSec);
     final searchEnd = math.min(dataEnd, dayEnd);
+    // Data carries on past this day's midnight cut: a sleep still going at the
+    // cut belongs to the day that sees it end, not to this one.
+    final recordContinues = dataEnd > dayEnd;
     final loS = _lowerBound(sub.tsSec, searchStart);
     final hiS = _lowerBound(sub.tsSec, searchEnd);
 
@@ -1426,6 +1429,7 @@ List<PhysioDay> calendarDays(
             // the auto night at the band's own last SLEEP (AUTO path only —
             // never the override or the HR-led fallback below).
             bandSleepState: sub.bandSleepStateSlice(loS, hiS),
+            recordContinues: recordContinues,
           );
         } else {
           // Not an error and not "no sleep" — just no accel evidence. Fall
@@ -1437,13 +1441,18 @@ List<PhysioDay> calendarDays(
           s = ana.SleepSegmentation.absent;
         }
         src = 'auto';
-        if (!s.present) {
+        // A deferred night is not a miss: the fallback would propose the same
+        // cut-off stretch.
+        if (!s.present && !s.unfinished) {
           // Approach 2: accel-led detection found nothing → HR-led fallback.
           // Propose the longest sustained nocturnal HR dip, then STAGE it via the
           // forced-window path. Marked low-confidence for a "is this right?" prompt.
           final tsSlice = [for (var i = loS; i < hiS; i++) sub.tsSec[i]];
           final cand =
-              ana.hrLedSleepWindow(hrSlice, tsSlice, hrBaseline: hrBaseline);
+              ana.hrLedSleepWindow(hrSlice, tsSlice,
+                  hrBaseline: hrBaseline,
+                  recordContinues: recordContinues,
+                  tzOffsetResolver: tzOffset);
           if (cand != null &&
               fallbackNightAcceptable(cand.onsetSec, cand.offsetSec,
                   tzOffsetSec: tzOffset(cand.onsetSec),
