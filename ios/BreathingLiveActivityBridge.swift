@@ -82,6 +82,12 @@ enum BreathingLiveActivityBridge {
     .init(coherenceScore: dbl(a, "coherenceScore"))
   }
 
+  // How long a frame counts as live. The app pushes every 20 s while the
+  // session runs and stops when it dies or stops getting RR, so without a
+  // stale date the lock screen kept showing the last coherence as live for
+  // the life of the activity. The widget blanks the score once stale.
+  private static let liveWindow: TimeInterval = 60
+
   @available(iOS 16.2, *)
   private static func start(_ a: [String: Any]) async {
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
@@ -96,7 +102,7 @@ enum BreathingLiveActivityBridge {
     do {
       _ = try Activity.request(
         attributes: attrs,
-        content: .init(state: state(a), staleDate: nil))
+        content: .init(state: state(a), staleDate: Date().addingTimeInterval(liveWindow)))
     } catch {
       NSLog("BreathingLiveActivity start failed: \(error)")
     }
@@ -104,7 +110,8 @@ enum BreathingLiveActivityBridge {
 
   @available(iOS 16.2, *)
   private static func update(_ a: [String: Any]) async {
-    let content = ActivityContent(state: state(a), staleDate: nil)
+    let content = ActivityContent(
+      state: state(a), staleDate: Date().addingTimeInterval(liveWindow))
     for act in Activity<OpenStrapBreathingAttributes>.activities {
       await act.update(content)
     }
