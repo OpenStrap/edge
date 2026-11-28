@@ -1155,10 +1155,14 @@ class ActivitySummary extends StatefulWidget {
   /// escalation the spec refuses.
   final bool justFinished;
 
+  /// A card shown first on the Overview (the ghost race result), or null.
+  final Widget? ghost;
+
   const ActivitySummary(this.result,
       {super.key,
       this.weightKg,
       this.onRetrySave,
+      this.ghost,
       this.justFinished = false});
 
   @override
@@ -1664,6 +1668,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final hero = _hero();
     final l = AppLocalizations.of(c);
     return [
+      if (widget.ghost != null) ...[widget.ghost!, const SizedBox(height: S.x5)],
       if (unsaved) ...[
         StatusCard(
           l?.activitySummaryUnsavedTitle ?? 'This session is not saved yet',

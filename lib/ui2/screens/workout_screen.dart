@@ -23,6 +23,8 @@ import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
+import '../../gps/ghost_math.dart' show ghostUnusableReason;
+import '../../gps/route_math.dart' show totalDistanceMeters;
 import '../../gps/route_models.dart';
 import '../../health/health_import_state.dart';
 import '../../health/auto_workout_import.dart';
@@ -36,6 +38,7 @@ import '../../state/units_controller.dart';
 import '../../telemetry/telemetry_service.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
+import '../activity/ghost.dart' show GhostCandidate;
 import '../activity/live.dart';
 import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
@@ -1360,7 +1363,43 @@ ActivityHost activityHost(AppState app,
     history: history,
     bandConnected: app.isConnected,
     bandPaired: app.isPaired,
+    buzz: app.buzzBand,
+    ghostCandidates: ghostCandidatesFor,
+    ghostRoute: ghostRouteOf,
   );
+}
+
+/// Earlier sessions of [typeKey] that have a stored route, newest first, for
+/// the ghost picker. Unusable ones are kept and carry their reason, so the
+/// picker can say why instead of leaving a run out. Capped: a picker of
+/// forty rows is not a choice.
+Future<List<GhostCandidate>> ghostCandidatesFor(String typeKey) async {
+  final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final rows = await LocalDb.sessionsInRange(now - 730 * 86400, now);
+  final out = <GhostCandidate>[];
+  for (final r in rows) {
+    if (out.length >= 25) break;
+    final id = r['id'] as String?;
+    if (id == null || r['status'] == 'live') continue;
+    if ((r['type'] as String?)?.toLowerCase() != typeKey) continue;
+    if (!await LocalDb.sessionHasRoute(id)) continue;
+    final pts = await ghostRouteOf(id);
+    if (pts == null || pts.length < 2) continue;
+    out.add(GhostCandidate(
+        id: id,
+        start: DateTime.fromMillisecondsSinceEpoch(pts.first.tsMs),
+        durationSec: (pts.last.tsMs - pts.first.tsMs) ~/ 1000,
+        distanceM: totalDistanceMeters(pts),
+        refusal: ghostUnusableReason(pts)));
+  }
+  return out;
+}
+
+/// A session's stored route points in order, or null when it has none.
+Future<List<RoutePoint>?> ghostRouteOf(String sessionId) async {
+  final rows = await LocalDb.routePoints(sessionId);
+  if (rows.length < 2) return null;
+  return [for (final r in rows) RoutePoint.fromRow(r)];
 }
 
 /// The band, as the live screens see it. Read on every tick rather than
@@ -1395,6 +1434,7 @@ LiveFeed _feedOf(AppState app) {
     // x axis is the session clock. `perMinuteHr()` is for statistics.
     hrCurve: _curveOverSession(w),
     distanceKm: app.liveDistanceKm,
+    position: app.routeTracker?.current.value,
     gpsActive: app.routeTracking,
     bandConnected: app.isConnected,
     // Both were implemented at the state layer and read by nothing, so a

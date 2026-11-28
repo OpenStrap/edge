@@ -47,7 +47,11 @@ GhostRefusal? ghostUnusableReason(List<RoutePoint> pts) {
   var gapMs = 0;
   for (var i = 1; i < pts.length; i++) {
     m += haversineMeters(
-        pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+      pts[i - 1].lat,
+      pts[i - 1].lng,
+      pts[i].lat,
+      pts[i].lng,
+    );
     final dt = pts[i].tsMs - pts[i - 1].tsMs;
     if (dt > 60000) gapMs += dt;
   }
@@ -79,9 +83,15 @@ class GhostTrack {
     if (ghostUnusableReason(pts) != null) return null;
     final cum = <double>[0];
     for (var i = 1; i < pts.length; i++) {
-      cum.add(cum.last +
-          haversineMeters(
-              pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng));
+      cum.add(
+        cum.last +
+            haversineMeters(
+              pts[i - 1].lat,
+              pts[i - 1].lng,
+              pts[i].lat,
+              pts[i].lng,
+            ),
+      );
     }
     return GhostTrack._(pts, cum);
   }
@@ -152,8 +162,13 @@ class GhostTrack {
   /// With [nearM] the search is limited to a window around that distance
   /// (so a loop that revisits a spot does not teleport you a lap ahead),
   /// falling back to the whole track when nothing in the window is close.
-  GhostProjection project(double lat, double lng,
-      {double? nearM, double backM = 150, double aheadM = 600}) {
+  GhostProjection project(
+    double lat,
+    double lng, {
+    double? nearM,
+    double backM = 150,
+    double aheadM = 600,
+  }) {
     if (nearM != null) {
       final w = _search(lat, lng, nearM - backM, nearM + aheadM);
       if (w.offsetM <= kGhostOffRouteM) return w;
@@ -219,14 +234,16 @@ class GhostReading {
   final double? userAlongM;
   final double ghostAlongM;
   final double offsetM;
-  const GhostReading(this.state,
-      {this.gapM,
-      this.gapSec,
-      required this.ghostLat,
-      required this.ghostLng,
-      this.userAlongM,
-      required this.ghostAlongM,
-      this.offsetM = 0});
+  const GhostReading(
+    this.state, {
+    this.gapM,
+    this.gapSec,
+    required this.ghostLat,
+    required this.ghostLng,
+    this.userAlongM,
+    required this.ghostAlongM,
+    this.offsetM = 0,
+  });
 }
 
 /// One race against a [GhostTrack]. Feed it the race clock and your latest fix.
@@ -239,16 +256,22 @@ class GhostRace {
   /// when there is none (then the state is [GhostState.waiting]).
   GhostReading update(int elapsedMs, {double? lat, double? lng}) {
     final g = track.at(elapsedMs);
-    GhostReading r(GhostState s,
-            {double? gapM, double? gapSec, double? along, double off = 0}) =>
-        GhostReading(s,
-            gapM: gapM,
-            gapSec: gapSec,
-            ghostLat: g.lat,
-            ghostLng: g.lng,
-            userAlongM: along,
-            ghostAlongM: g.distM,
-            offsetM: off);
+    GhostReading r(
+      GhostState s, {
+      double? gapM,
+      double? gapSec,
+      double? along,
+      double off = 0,
+    }) => GhostReading(
+      s,
+      gapM: gapM,
+      gapSec: gapSec,
+      ghostLat: g.lat,
+      ghostLng: g.lng,
+      userAlongM: along,
+      ghostAlongM: g.distM,
+      offsetM: off,
+    );
     if (lat == null || lng == null) return r(GhostState.waiting);
     // Before any progress is known you must be at the start; this is the
     // "different place" refusal, in metres, not a guess.
@@ -271,14 +294,18 @@ class GhostRace {
     final tg = track.timeAtDistM(p.alongM);
     final gapSec = (tg - elapsedMs) / 1000.0;
     if (p.alongM >= track.totalM - kGhostLevelM) {
-      return r(GhostState.finished,
-          gapM: gapM, gapSec: gapSec, along: p.alongM, off: p.offsetM);
+      return r(
+        GhostState.finished,
+        gapM: gapM,
+        gapSec: gapSec,
+        along: p.alongM,
+        off: p.offsetM,
+      );
     }
     final s = gapM.abs() < kGhostLevelM
         ? GhostState.level
         : (gapM > 0 ? GhostState.ahead : GhostState.behind);
-    return r(s,
-        gapM: gapM, gapSec: gapSec, along: p.alongM, off: p.offsetM);
+    return r(s, gapM: gapM, gapSec: gapSec, along: p.alongM, off: p.offsetM);
   }
 }
 
@@ -323,7 +350,11 @@ List<RoutePoint> _everyM(List<RoutePoint> pts, double stepM) {
   var acc = 0.0;
   for (var i = 1; i < pts.length; i++) {
     acc += haversineMeters(
-        pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+      pts[i - 1].lat,
+      pts[i - 1].lng,
+      pts[i].lat,
+      pts[i].lng,
+    );
     if (acc >= stepM) {
       out.add(pts[i]);
       acc = 0;
@@ -336,8 +367,12 @@ List<RoutePoint> _everyM(List<RoutePoint> pts, double stepM) {
 /// points that lie within [toleranceM] of the other, taking the WORSE of the
 /// two directions (so a short loop inside a long route does not pass).
 /// Null when either route is unusable as a track.
-double? routeSimilarity(List<RoutePoint> a, List<RoutePoint> b,
-    {double toleranceM = 40, double stepM = 30}) {
+double? routeSimilarity(
+  List<RoutePoint> a,
+  List<RoutePoint> b, {
+  double toleranceM = 40,
+  double stepM = 30,
+}) {
   final ta = GhostTrack.tryBuild(a), tb = GhostTrack.tryBuild(b);
   if (ta == null || tb == null) return null;
   double share(List<RoutePoint> from, GhostTrack onto) {
@@ -366,7 +401,13 @@ class GhostSplit {
 
   /// Seconds gained (+) or lost (-) over the stretch.
   double get deltaSec => ghostSec - youSec;
-  const GhostSplit(this.index, this.fromM, this.toM, this.youSec, this.ghostSec);
+  const GhostSplit(
+    this.index,
+    this.fromM,
+    this.toM,
+    this.youSec,
+    this.ghostSec,
+  );
 }
 
 class GhostComparison {
@@ -379,15 +420,23 @@ class GhostComparison {
   final List<GhostSplit> splits;
   final GhostSplit? biggestGain, biggestLoss;
   bool get won => finalGapSec > 0;
-  const GhostComparison(this.finalGapSec, this.sharedM, this.splits,
-      this.biggestGain, this.biggestLoss);
+  const GhostComparison(
+    this.finalGapSec,
+    this.sharedM,
+    this.splits,
+    this.biggestGain,
+    this.biggestLoss,
+  );
 }
 
 /// Compare a finished run against a ghost, split by [splitM]. Returns null
 /// when the two are not the same route, or the run covered too little of it
 /// to compare: never a fabricated time.
-GhostComparison? compareRuns(List<RoutePoint> you, List<RoutePoint> ghost,
-    {double splitM = 1000}) {
+GhostComparison? compareRuns(
+  List<RoutePoint> you,
+  List<RoutePoint> ghost, {
+  double splitM = 1000,
+}) {
   final g = GhostTrack.tryBuild(ghost);
   final u = GhostTrack.tryBuild(you);
   if (g == null || u == null) return null;
@@ -435,8 +484,15 @@ GhostComparison? compareRuns(List<RoutePoint> you, List<RoutePoint> ghost,
     final y0 = youAt(from);
     final y1 = youAt(to);
     if (y0 != null && y1 != null) {
-      splits.add(GhostSplit(i, from, to, (y1 - y0) / 1000.0,
-          (g.timeAtDistM(to) - g.timeAtDistM(from)) / 1000.0));
+      splits.add(
+        GhostSplit(
+          i,
+          from,
+          to,
+          (y1 - y0) / 1000.0,
+          (g.timeAtDistM(to) - g.timeAtDistM(from)) / 1000.0,
+        ),
+      );
     }
     from = to;
     i++;
@@ -445,8 +501,12 @@ GhostComparison? compareRuns(List<RoutePoint> you, List<RoutePoint> ghost,
   final gap = (g.timeAtDistM(shared) - endYou) / 1000.0;
   GhostSplit? gain, loss;
   for (final s in splits) {
-    if (s.deltaSec > 0 && (gain == null || s.deltaSec > gain.deltaSec)) gain = s;
-    if (s.deltaSec < 0 && (loss == null || s.deltaSec < loss.deltaSec)) loss = s;
+    if (s.deltaSec > 0 && (gain == null || s.deltaSec > gain.deltaSec)) {
+      gain = s;
+    }
+    if (s.deltaSec < 0 && (loss == null || s.deltaSec < loss.deltaSec)) {
+      loss = s;
+    }
   }
   return GhostComparison(gap, shared, splits, gain, loss);
 }

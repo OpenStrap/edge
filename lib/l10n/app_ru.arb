@@ -9214,5 +9214,114 @@
   "connectedAppsHueWhichLights": "Какой свет должен следовать за вашим сном?",
   "connectedAppsHueForget": "Забыть этот мост",
   "connectedAppsNoBridge": "Мост не найден",
-  "connectedAppsBridgeIp": "IP-адрес моста"
+  "connectedAppsBridgeIp": "IP-адрес моста",
+  "ghostRaceRowTitle": "Гонка с призраком",
+  "ghostRaceRowDetail": "Соревнуйтесь с прошлой тренировкой на том же маршруте",
+  "ghostRaceRowChosen": "Призрак: {label}",
+  "@ghostRaceRowChosen": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostPickerTitle": "Выберите призрака",
+  "ghostPickerEmpty": "У прошлых тренировок этого вида пока нет записанного маршрута. Завершите одну с включённой геолокацией и вернитесь.",
+  "ghostPickerNone": "Без призрака",
+  "ghostRefusedFewPoints": "Слишком мало точек GPS",
+  "ghostRefusedShort": "Слишком короткая для гонки",
+  "ghostRefusedBrief": "Слишком быстрая для гонки",
+  "ghostRefusedClock": "Время в этом маршруте нечитаемо",
+  "ghostRefusedGappy": "Слишком большая часть не записана",
+  "ghostBuzzLabel": "Вибрация при смене лидера",
+  "ghostBuzzDetail": "Ваш браслет, только когда вы заметно вырываетесь вперёд или отстаёте",
+  "ghostAhead": "впереди на {gap}",
+  "@ghostAhead": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostBehind": "позади на {gap}",
+  "@ghostBehind": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLevel": "Вровень с призраком",
+  "ghostWaiting": "Ожидание GPS",
+  "ghostOffRoute": "Вы не на маршруте призрака, поэтому разрыва не показать",
+  "ghostSecAhead": "на {t} впереди призрака",
+  "@ghostSecAhead": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostSecBehind": "на {t} позади призрака",
+  "@ghostSecBehind": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLoading": "Загрузка призрака",
+  "ghostLoadFailed": "Не удалось загрузить маршрут призрака",
+  "ghostYou": "Вы",
+  "ghostGhostLegend": "Призрак",
+  "ghostSummaryTitle": "Гонка с призраком",
+  "ghostWon": "Вы обогнали призрака на {t}",
+  "@ghostWon": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLost": "Призрак выиграл {t}",
+  "@ghostLost": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostTied": "Ровно вничью с призраком",
+  "ghostNoCompare": "Сравнение невозможно: это был не тот маршрут, что у призрака, или пройдено слишком мало.",
+  "ghostBestStretch": "Больше всего выиграно: км {km}, {t}",
+  "@ghostBestStretch": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostWorstStretch": "Больше всего потеряно: км {km}, {t}",
+  "@ghostWorstStretch": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostSplitLabel": "км {km}",
+  "@ghostSplitLabel": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostEstimateNote": "Разрыв считается по точкам GPS и является оценкой. Несколько метров укладываются в погрешность GPS, поэтому показано «вровень»."
 }

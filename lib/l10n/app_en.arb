@@ -18482,5 +18482,117 @@
   "connectedAppsBridgeIp": "Bridge IP address",
   "@connectedAppsBridgeIp": {
     "description": "Field label for the Hue bridge IP address"
-  }
+  },
+  "ghostRaceRowTitle": "Race a ghost",
+  "@ghostRaceRowTitle": {
+    "description": "Setup row: choose a past run to race against."
+  },
+  "ghostRaceRowDetail": "Race a past run on the same route",
+  "ghostRaceRowChosen": "Ghost: {label}",
+  "@ghostRaceRowChosen": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostPickerTitle": "Pick a ghost",
+  "ghostPickerEmpty": "No earlier session of this activity has a recorded route yet. Finish one with location on, then come back.",
+  "ghostPickerNone": "No ghost",
+  "ghostRefusedFewPoints": "Too few GPS points",
+  "ghostRefusedShort": "Too short to race",
+  "ghostRefusedBrief": "Too brief to race",
+  "ghostRefusedClock": "Timing in this route is unreadable",
+  "ghostRefusedGappy": "Too much of it was not recorded",
+  "ghostBuzzLabel": "Buzz when the lead changes",
+  "ghostBuzzDetail": "Your band, only when you pull clearly ahead or fall behind",
+  "ghostAhead": "{gap} ahead",
+  "@ghostAhead": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostBehind": "{gap} behind",
+  "@ghostBehind": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLevel": "Level with your ghost",
+  "ghostWaiting": "Waiting for GPS",
+  "ghostOffRoute": "Not on the ghost's route, so there is no gap to show",
+  "ghostSecAhead": "{t} ahead of your ghost",
+  "@ghostSecAhead": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostSecBehind": "{t} behind your ghost",
+  "@ghostSecBehind": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLoading": "Loading your ghost",
+  "ghostLoadFailed": "Could not load that ghost's route",
+  "ghostYou": "You",
+  "ghostGhostLegend": "Ghost",
+  "ghostSummaryTitle": "Ghost race",
+  "ghostWon": "You beat your ghost by {t}",
+  "@ghostWon": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLost": "Your ghost won by {t}",
+  "@ghostLost": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostTied": "Dead level with your ghost",
+  "ghostNoCompare": "Not compared: this was not the same route as the ghost, or too little of it was covered.",
+  "ghostBestStretch": "Most time gained: km {km}, {t} up",
+  "@ghostBestStretch": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostWorstStretch": "Most time lost: km {km}, {t} down",
+  "@ghostWorstStretch": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostSplitLabel": "km {km}",
+  "@ghostSplitLabel": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostEstimateNote": "Gaps come from GPS fixes and are estimates. A few metres is inside GPS drift, so it reads as level."
 }

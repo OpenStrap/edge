@@ -25,7 +25,7 @@ const _mustTravel = {
   'coach_use_apple', 'coach_use_chatgpt',
   'ai_morning_enabled', 'ai_morning_min', 'ai_evening_enabled', 'ai_evening_min',
   'ai_journal_enabled', 'ai_journal_min',
-  'workout.zone_alert_enabled', 'workout.zone_alert_target_zone', 'workout.rpe_skips',
+  'workout.zone_alert_enabled', 'workout.zone_alert_target_zone', 'workout.ghost_buzz', 'workout.rpe_skips',
   'notif_health', 'notif_recovery', 'notif_reminders', 'notif_device',
   'notif_quiet_enabled', 'notif_quiet_start', 'notif_quiet_end',
   'notif_critical_override', 'notif_water', 'notif_water_interval',

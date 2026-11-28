@@ -194,6 +194,7 @@ const Map<String, String> kPrefTypes = {
   'workout.rpe_skips': 'int',
   'workout.zone_alert_enabled': 'bool',
   'workout.zone_alert_target_zone': 'int',
+  'workout.ghost_buzz': 'bool',
 };
 
 /// Dated or per-item key families: (prefix, suffix, stored type).

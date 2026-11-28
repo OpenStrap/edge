@@ -5,15 +5,21 @@ import 'package:openstrap_edge/gps/route_models.dart';
 const _mPerDeg = 111319.49; // WGS84 equatorial, at lat 0
 
 /// A straight eastbound route at [mps], a fix every [dt] s, [n] fixes.
-List<RoutePoint> line(
-    {double mps = 3, int dt = 5, int n = 201, double lat = 0, double offM = 0}) {
+List<RoutePoint> line({
+  double mps = 3,
+  int dt = 5,
+  int n = 201,
+  double lat = 0,
+  double offM = 0,
+}) {
   return [
     for (var i = 0; i < n; i++)
       RoutePoint(
-          seq: i,
-          tsMs: 1000000 + i * dt * 1000,
-          lat: lat + offM / _mPerDeg,
-          lng: mps * dt * i / _mPerDeg),
+        seq: i,
+        tsMs: 1000000 + i * dt * 1000,
+        lat: lat + offM / _mPerDeg,
+        lng: mps * dt * i / _mPerDeg,
+      ),
   ];
 }
 
@@ -52,10 +58,11 @@ void main() {
       final back = [
         for (var i = 1; i <= 100; i++)
           RoutePoint(
-              seq: 100 + i,
-              tsMs: out.last.tsMs + i * 5000,
-              lat: 0,
-              lng: lngAt(1500 - 15.0 * i)),
+            seq: 100 + i,
+            tsMs: out.last.tsMs + i * 5000,
+            lat: 0,
+            lng: lngAt(1500 - 15.0 * i),
+          ),
       ];
       final t = GhostTrack.tryBuild([...out, ...back])!;
       final near = t.project(0, lngAt(750), nearM: 2250); // on the way back
@@ -73,13 +80,20 @@ void main() {
       expect(ghostUnusableReason(line(mps: 0.5, n: 30)), GhostRefusal.tooShort);
     });
     test('too brief in time', () {
-      expect(ghostUnusableReason(line(mps: 8, dt: 2, n: 40)),
-          GhostRefusal.tooBrief);
+      expect(
+        ghostUnusableReason(line(mps: 8, dt: 2, n: 40)),
+        GhostRefusal.tooBrief,
+      );
     });
     test('clock going backwards', () {
       final l = line();
-      final bad = [...l]..[50] = RoutePoint(
-          seq: 50, tsMs: l[49].tsMs, lat: l[50].lat, lng: l[50].lng);
+      final bad = [...l]
+        ..[50] = RoutePoint(
+          seq: 50,
+          tsMs: l[49].tsMs,
+          lat: l[50].lat,
+          lng: l[50].lng,
+        );
       expect(ghostUnusableReason(bad), GhostRefusal.brokenClock);
     });
     test('a quarter of the run unrecorded', () {
@@ -87,10 +101,11 @@ void main() {
       final gappy = [
         for (final p in l)
           RoutePoint(
-              seq: p.seq,
-              tsMs: p.tsMs + (p.seq >= 100 ? 400000 : 0),
-              lat: p.lat,
-              lng: p.lng),
+            seq: p.seq,
+            tsMs: p.tsMs + (p.seq >= 100 ? 400000 : 0),
+            lat: p.lat,
+            lng: p.lng,
+          ),
       ];
       expect(ghostUnusableReason(gappy), GhostRefusal.gappy);
     });
@@ -132,8 +147,9 @@ void main() {
       expect(r.state, GhostState.level);
     });
     test('a different place has no gap', () {
-      final r = GhostRace(ghost)
-          .update(30000, lat: 0.05, lng: lngAt(300)); // ~5.5 km north
+      final r = GhostRace(
+        ghost,
+      ).update(30000, lat: 0.05, lng: lngAt(300)); // ~5.5 km north
       expect(r.state, GhostState.offRoute);
       expect(r.gapM, isNull);
     });
@@ -158,22 +174,25 @@ void main() {
 
   group('buzz policy', () {
     GhostReading at(double gap) => GhostReading(
-        gap > 0 ? GhostState.ahead : GhostState.behind,
-        gapM: gap,
-        ghostLat: 0,
-        ghostLng: 0,
-        ghostAlongM: 0);
+      gap > 0 ? GhostState.ahead : GhostState.behind,
+      gapM: gap,
+      ghostLat: 0,
+      ghostLng: 0,
+      ghostAlongM: 0,
+    );
     test('first side is remembered, not buzzed', () {
       final b = GhostBuzzPolicy();
       expect(b.shouldBuzz(at(30), 0), isFalse);
     });
-    test('buzzes once when the lead flips, then not again on the same side',
-        () {
-      final b = GhostBuzzPolicy();
-      b.shouldBuzz(at(30), 0);
-      expect(b.shouldBuzz(at(-30), 100000), isTrue);
-      expect(b.shouldBuzz(at(-40), 101000), isFalse);
-    });
+    test(
+      'buzzes once when the lead flips, then not again on the same side',
+      () {
+        final b = GhostBuzzPolicy();
+        b.shouldBuzz(at(30), 0);
+        expect(b.shouldBuzz(at(-30), 100000), isTrue);
+        expect(b.shouldBuzz(at(-40), 101000), isFalse);
+      },
+    );
     test('hovering on the threshold cannot spam', () {
       final b = GhostBuzzPolicy();
       b.shouldBuzz(at(30), 0);
@@ -184,8 +203,12 @@ void main() {
     });
     test('off route never buzzes', () {
       final b = GhostBuzzPolicy();
-      const r = GhostReading(GhostState.offRoute,
-          ghostLat: 0, ghostLng: 0, ghostAlongM: 0);
+      const r = GhostReading(
+        GhostState.offRoute,
+        ghostLat: 0,
+        ghostLng: 0,
+        ghostAlongM: 0,
+      );
       expect(b.shouldBuzz(r, 0), isFalse);
     });
   });
@@ -195,8 +218,10 @@ void main() {
       expect(routeSimilarity(line(), line()), 1.0);
     });
     test('a slightly wobbly repeat of the same route is the same route', () {
-      expect(routeSimilarity(line(), line(mps: 3.3, offM: 15))!,
-          greaterThan(kSameRouteShare));
+      expect(
+        routeSimilarity(line(), line(mps: 3.3, offM: 15))!,
+        greaterThan(kSameRouteShare),
+      );
     });
     test('a parallel street 200 m away is a different route', () {
       expect(routeSimilarity(line(), line(offM: 200))!, lessThan(0.1));

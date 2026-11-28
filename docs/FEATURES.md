@@ -28,6 +28,10 @@ estimator, and a night where the beat detector over-counts is refused rather tha
 Auto-detected workouts, live workout tracking with GPS routes, heart-rate zones you can
 edit, and GPX export.
 
+Ghost run: pick an earlier run with a stored route and race it live. A ghost marker moves along
+the old route by the old clock, the screen shows the gap in metres and seconds with a mini map,
+the band can buzz when the lead changes, and the summary shows where you gained or lost time.
+
 ## Guides
 
 Eight live guides in the app show where to find things, such as your heart-rate zones, the

@@ -18,10 +18,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/prefs.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'catalogue.dart';
+import 'ghost.dart';
 import 'live.dart';
+import 'summary.dart' show Arch, archOf;
 
 /// The window the calorie estimate is quoted over — the same one
 /// [ActivityRow] uses in the picker, so a row and this screen agree.
@@ -57,6 +60,25 @@ class _ActivitySetupState extends State<ActivitySetup> {
   int _restSec = 30;
   int _rounds = 8;
 
+  /// The past run to race, when the user picked one (route activities only).
+  GhostCandidate? _ghost;
+  bool _ghostBuzz = Prefs.getBool(Prefs.ghostBuzz, true);
+
+  /// Only a measured, routed activity can race a ghost, and only when the
+  /// host can read old routes.
+  bool get _canGhost =>
+      widget.a.gps &&
+      (archOf(widget.a) == Arch.route || archOf(widget.a) == Arch.journey) &&
+      widget.host.ghostCandidates != null;
+
+  Future<void> _pickGhost() async {
+    final load = widget.host.ghostCandidates;
+    if (load == null) return;
+    final r = await pickGhost(context,
+        typeKey: widget.a.typeKey, load: load, selectedId: _ghost?.id);
+    if (r != null && mounted) setState(() => _ghost = r.picked);
+  }
+
   bool _starting = false;
   bool _refused = false;
 
@@ -85,6 +107,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
           workSec: interval ? _workSec : null,
           restSec: interval ? _restSec : null,
           rounds: interval ? _rounds : null);
+      if (_ghost != null) LiveDraft.current?.put('ghost_id', _ghost!.id);
     }
     await Navigator.of(context).pushReplacement(MaterialPageRoute(
       // Passed straight through too, not just via the draft above: a caller
@@ -97,7 +120,8 @@ class _ActivitySetupState extends State<ActivitySetup> {
           host: widget.host,
           intervalWorkSec: interval ? _workSec : null,
           intervalRestSec: interval ? _restSec : null,
-          intervalRounds: interval ? _rounds : null),
+          intervalRounds: interval ? _rounds : null,
+          ghostId: _ghost?.id),
     ));
   }
 
@@ -171,6 +195,42 @@ class _ActivitySetupState extends State<ActivitySetup> {
                               'Recorded if location is available, and kept '
                                   'on this phone',
                           null),
+                      Divider(color: p.line, height: 1),
+                    ],
+                    if (_canGhost) ...[
+                      Pressable(
+                        semanticLabel: _ghost == null
+                            ? (l?.ghostRaceRowTitle ?? 'Race a ghost')
+                            : (l?.ghostRaceRowChosen(
+                                    ghostCandidateLabel(c, _ghost!)) ??
+                                'Ghost: ${ghostCandidateLabel(c, _ghost!)}'),
+                        onTap: _pickGhost,
+                        child: _row(
+                            p,
+                            LucideIcons.ghost,
+                            l?.ghostRaceRowTitle ?? 'Race a ghost',
+                            _ghost == null
+                                ? (l?.ghostRaceRowDetail ??
+                                    'Race a past run on the same route')
+                                : (l?.ghostRaceRowChosen(
+                                        ghostCandidateLabel(c, _ghost!)) ??
+                                    'Ghost: ${ghostCandidateLabel(c, _ghost!)}'),
+                            _ghost == null ? null : true),
+                      ),
+                      if (_ghost != null)
+                        _toggle(
+                            p,
+                            LucideIcons.watch,
+                            l?.ghostBuzzLabel ?? 'Buzz when the lead changes',
+                            l?.ghostBuzzDetail ??
+                                'Your band, only when you pull clearly ahead '
+                                    'or fall behind',
+                            _ghostBuzz,
+                            () => setState(() {
+                                  _ghostBuzz = !_ghostBuzz;
+                                  Prefs.setBool(Prefs.ghostBuzz, _ghostBuzz);
+                                }),
+                            l),
                       Divider(color: p.line, height: 1),
                     ],
                     _row(
