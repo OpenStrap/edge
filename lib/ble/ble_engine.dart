@@ -2584,8 +2584,11 @@ class BleEngine {
   // ── debounced "new data stored → derive" trigger ─────────────────────────────
   // Continuous listening has no discrete "sync done", so we coalesce stored-record
   // bursts: mark dirty on persist, and fire onDataStored once the stream goes quiet.
-  DateTime _lastStored = DateTime.fromMillisecondsSinceEpoch(0);
-  DateTime? _firstPending; // start of the current un-derived run
+  // Monotonic seconds, not wall time: a phone clock step back would make
+  // both gaps negative, and the maxWait cap would never fire under a steady
+  // stream.
+  double _lastStored = 0;
+  double? _firstPending; // start of the current un-derived run
   Timer? _deriveTimer;
 
   void _log(String s) => log?.call(s);
@@ -2628,7 +2631,7 @@ class BleEngine {
   /// Called from the record-store paths. No-op when no [onDataStored] is wired.
   void _noteStored() {
     if (onDataStored == null) return;
-    final now = DateTime.now();
+    final now = _monotonicSecs();
     _lastStored = now;
     _firstPending ??= now;
     _armDeriveTimer();
@@ -2647,8 +2650,8 @@ class BleEngine {
     if (fp == null) return;
     final d = delay ??
         deriveDebouncer.nextCheckDelay(
-          sinceLastRecord: DateTime.now().difference(_lastStored),
-          sinceFirstPending: DateTime.now().difference(fp),
+          sinceLastRecord: _monoSince(_lastStored),
+          sinceFirstPending: _monoSince(fp),
           dataStaleness: deriveDataStaleness(),
           isForeground: isForegroundActive(),
           isBackgrounded: _backgrounded,
@@ -2659,8 +2662,8 @@ class BleEngine {
       if (pending == null) return;
       final fire = deriveDebouncer.shouldDerive(
         hasPending: true,
-        sinceLastRecord: DateTime.now().difference(_lastStored),
-        sinceFirstPending: DateTime.now().difference(pending),
+        sinceLastRecord: _monoSince(_lastStored),
+        sinceFirstPending: _monoSince(pending),
         dataStaleness: deriveDataStaleness(),
         isForeground: isForegroundActive(),
         isBackgrounded: _backgrounded,
@@ -5010,7 +5013,7 @@ class BleEngine {
   /// i.e. an OLD connection's batch-ACK, with a re-used sync seq, written onto
   /// a BRAND NEW link. Every offload write passes its owning session.
   /// [allowDangerous] is the ONE audited opt-out of the block below. It exists
-  /// for `enableGen5DeepBuffers`, whose SET_FF_VALUE frames are in
+  /// for `_enableGen5DeepBuffers`, whose SET_FF_VALUE frames are in
   /// `dangerousCmds` on purpose (persistent config writes) and are sent only
   /// behind an explicit user opt-in with a restore-defaults companion. Pass it
   /// nowhere else without the same justification.
@@ -7974,6 +7977,10 @@ class BleEngine {
       // NOT ACK a HISTORY_COMPLETE and we do NOT switch modes.
       final tailDurable = await d.commit(null); // tail — no new trim token
       if (_sessionIsStale(session)) return; // link died under the tail commit
+      // The task ended while the tail commit was parked (the idle watchdog
+      // aborted it): its abort terminal stands, and no completion, ledger row
+      // or auto-continue may follow for a task that is over.
+      if (_historyTaskGen != taskGen) return;
       if (!tailDurable) {
         // No ACK is written for a HISTORY_COMPLETE, so nothing was trimmed and
         // no data is at risk — but the tail is NOT durable yet. commit() left
@@ -8173,8 +8180,11 @@ class BleEngine {
   /// is the ONE call site that passes `allowDangerous: true` — a named,
   /// reviewed opt-in rather than the structural bypass it used to be, now that
   /// the block sits on `_write` itself.
-  Future<void> enableGen5DeepBuffers() async {
-    if (!(_session?.band.isGen5 ?? false)) return;
+  /// Returns whether every flag was written; stops at the first failure so a
+  /// dead link does not leave more of a half-applied persistent config.
+  /// [owner] pins the writes to the INIT session, like every other INIT write.
+  Future<bool> _enableGen5DeepBuffers({_Session? owner}) async {
+    if (!(_session?.band.isGen5 ?? false)) return false;
     final frames = buildR22EnableSequence(startSeq: _seq.nextLive());
     _log('Sending gen5 R22 deep-buffer enable sequence (${frames.length} '
         'flags)…');
@@ -8183,10 +8193,14 @@ class BleEngine {
       // because a persistent config write survives a reboot; this sequence is
       // opt-in and ships a restore-defaults companion, which is exactly the
       // carve-out the block-list doc describes.
-      await _write(frame, allowDangerous: true);
+      if (!await _write(frame, owner: owner, allowDangerous: true)) {
+        _log('gen5 R22 deep-buffer flag write failed — stopping the sequence.');
+        return false;
+      }
       await Future.delayed(const Duration(milliseconds: 40));
     }
     _log('gen5 R22 deep-buffer enable sequence sent.');
+    return true;
   }
 
   // ── high-level flows ─────────────────────────────────────────────────────────────
@@ -8248,7 +8262,7 @@ class BleEngine {
         // flags must land before SEND_HISTORICAL_DATA to take effect for this
         // drain). Default OFF — see [gen5DeepBuffersEnabled].
         if (gen5DeepBuffersEnabled()) {
-          await enableGen5DeepBuffers();
+          ok = await _enableGen5DeepBuffers(owner: session);
         }
         // Same band-aware helpers the refresh/backfill/retry paths use, so the
         // gen5 offload command format is identical everywhere.
@@ -9808,6 +9822,15 @@ class DrainController {
   int _reportedRecords = 0;
   int _reportedBatches = 0;
   DateTime _lastProgressAt = DateTime.now();
+  // Elapsed-time twin of [_lastProgressAt] for awaitComplete's idle and
+  // timeout fuses, so a phone clock step cannot end a drain early or never.
+  final Stopwatch _clock = _elapsedStopwatch();
+  Duration _lastProgressMono = Duration.zero;
+  void _markProgress() {
+    _lastProgressAt = DateTime.now();
+    _lastProgressMono = _clock.elapsed;
+  }
+
   bool _complete = false;
   bool _linkDown = false;
 
@@ -9837,7 +9860,7 @@ class DrainController {
         LabradorR16Raw.revision,
       );
     }
-    _lastProgressAt = DateTime.now();
+    _markProgress();
     _ecgRaw.add(p);
   }
 
@@ -9933,7 +9956,7 @@ class DrainController {
     records++;
     recordsThisOffload++;
     _recordsThisTask++;
-    _lastProgressAt = DateTime.now();
+    _markProgress();
     // The tally covers the marker-to-marker window only ([closeBurstTally]) —
     // the record itself is still banked either way.
     if (!_burstTallyClosed) {
@@ -10004,7 +10027,7 @@ class DrainController {
         );
       }
     }
-    _lastProgressAt = DateTime.now();
+    _markProgress();
     if (_buffering) {
       _archives.add(a);
     } else {
@@ -10057,7 +10080,7 @@ class DrainController {
   /// current offload complete (for any awaiter) WITHOUT ending the listen.
   void onComplete() {
     _complete = true;
-    _lastProgressAt = DateTime.now();
+    _markProgress();
   }
 
   /// The engine's task-ending abort boundary fired: this offload is over
@@ -10103,7 +10126,7 @@ class DrainController {
   void rearm() {
     _complete = false;
     _linkDown = false;
-    _lastProgressAt = DateTime.now();
+    _markProgress();
     burstStats.reset();
     _burstTallyClosed = false;
     _burstFlushedDurable = 0;
@@ -10382,7 +10405,7 @@ class DrainController {
     Duration timeout = const Duration(seconds: 600),
   }) async {
     final evaluator = DrainStopEvaluator(timeout: timeout);
-    final start = DateTime.now();
+    final start = _clock.elapsed;
     final waiterGen = _taskGeneration;
     final done = Completer<SyncReport>();
     // The task's progress no waiter has reported yet. A waiter that gave up
@@ -10440,10 +10463,10 @@ class DrainController {
       final stop = evaluator.evaluate(
         complete: _complete,
         linkDown: _linkDown,
-        sinceStart: DateTime.now().difference(start),
+        sinceStart: _clock.elapsed - start,
       );
       if (stop == DrainStop.keepGoing) {
-        if (DateTime.now().difference(_lastProgressAt) <
+        if (_clock.elapsed - _lastProgressMono <
             const Duration(seconds: 60)) {
           return;
         }

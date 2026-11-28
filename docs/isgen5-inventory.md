@@ -76,7 +76,7 @@ the field and are repeated on the field's own doc.
 | 2469 | `_readAdvertisingNameGen5` | A gen5-only setup command with its own "not a readiness gate" failure semantics. |
 | 2496 | `_maybeStartBatteryPackFollowUp` | A gen5-only background task with its own retry schedule and once-per-session latch. |
 | 3635–3674 | historical record dispatch | `decodeGen5HistoricalSample` vs the gen4 version-routed chain, and which kinds fall through to `raw_archive`. |
-| 5134 | `enableGen5DeepBuffers` | A gen5-only multi-frame `SET_FF_VALUE` sequence behind the one audited `allowDangerous: true`. |
+| 5134 | `_enableGen5DeepBuffers` | A gen5-only multi-frame `SET_FF_VALUE` sequence behind the one audited `allowDangerous: true`. |
 | 5160 | `sendInit` | Two INIT state machines in one method. Biggest single item — **and it writes host connection-priority state**: its `finally` clears `_connectSetup`, and a throw above that clear leaves the link pinned at setup priority for the whole connection with `_applyLinkPriority` early-returning forever. That is host state; it does not become data. |
 | 5734 | `setAlarm` pre-arm | gen5 issues SET_CLOCK + a 120 ms settle before arming. A sequence, not a payload. |
 | 5833 | `runAlarm` | Opcode swap **plus a computed body** — see below. |
