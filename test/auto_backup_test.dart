@@ -415,6 +415,32 @@ void main() {
       expect(wrote, 0);
     });
 
+    test('a failed automatic backup backs off instead of retrying every resume',
+        () async {
+      var exported = 0;
+      Future<BackupOutcome> at(DateTime now) => runBackupIfDue(
+        cadence: () => BackupCadence.daily,
+        lastRun: () => null,
+        markRun: (_) async {},
+        now: now,
+        exportSnapshot: () async {
+          exported++;
+          throw const FileSystemException('nope');
+        },
+      );
+
+      final first = await at(DateTime(2026, 8, 10, 12));
+      expect(first.error, isNotNull);
+      expect(exported, 1);
+
+      final soon = await at(DateTime(2026, 8, 10, 13));
+      expect(soon.skipped, isTrue, reason: 'inside the backoff');
+      expect(exported, 1, reason: 'no second export an hour later');
+
+      await at(DateTime(2026, 8, 10, 12).add(kBackupRetryAfterFailure));
+      expect(exported, 2, reason: 'retries once the backoff has passed');
+    });
+
     test('a failed backup does not wedge every later one', () async {
       // The queue is chained; without an error guard on the tail, a single
       // throw would leave every subsequent call waiting on a failed future.

@@ -67,6 +67,8 @@ Future<void> saveBackupFolder(BackupFolder? folder) => _serialize(() async {
     } catch (_) {}
     rethrow;
   }
+  // A new destination deserves an attempt now, not after the failure backoff.
+  _lastAutoFailure = null;
   if (old != null && old.uri != folder?.uri && Platform.isAndroid) {
     try {
       await AndroidBackupStorage.release(old);
@@ -495,6 +497,14 @@ Future<void> deleteAutomaticBackups() => _serialize(() async {
   if (firstError != null) throw firstError;
 });
 
+/// How long a failed automatic backup waits before trying again. Without it a
+/// broken destination re-ran the full export on every app foreground.
+const kBackupRetryAfterFailure = Duration(hours: 6);
+
+/// When the last automatic backup failed. In memory only, so a cold start
+/// still gets one attempt.
+DateTime? _lastAutoFailure;
+
 /// Run a backup if [cadence] says one is due.
 ///
 /// [cadence], [lastRun] and [markRun] are all CALLBACKS rather than values, so
@@ -524,11 +534,18 @@ Future<BackupOutcome> runBackupIfDue({
   if (!backupIsDue(cadence: cadence(), lastRun: lastRun(), now: when)) {
     return const BackupOutcome(skipped: true);
   }
+  final failedAt = _lastAutoFailure;
+  if (failedAt != null &&
+      !failedAt.isAfter(when) &&
+      when.difference(failedAt) < kBackupRetryAfterFailure) {
+    return const BackupOutcome(skipped: true);
+  }
   final outcome = await _runBackup(
     now: when,
     exportSnapshot: exportSnapshot,
     storage: storage,
   );
+  _lastAutoFailure = outcome.succeeded ? null : when;
   if (outcome.succeeded) await markRun(when);
   return outcome;
 });
