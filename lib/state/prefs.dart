@@ -122,4 +122,7 @@ class Prefs {
   /// Whether values we estimate where the wearable gives nothing are shown.
   /// On by default; each carries an "Estimated" label either way.
   static const String wearableShowEstimates = 'ui.wearable_show_estimates';
+
+  /// Last-known WHOOP Heart Rate Broadcast (0x180D) toggle state.
+  static const String hrBroadcastEnabled = 'band.hr_broadcast_enabled';
 }

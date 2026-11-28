@@ -2632,6 +2632,9 @@ class BleEngine {
       state.batteryPackPct = null;
       _batteryPackEventTs = null;
     }
+    if (p == BleConnState.disconnected) {
+      state.hrBroadcast = null;
+    }
     onState(state);
   }
 
@@ -6172,6 +6175,7 @@ class BleEngine {
         if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
         state.charging = h.charging;
         state.wristOn = h.wristOn;
+        state.hrBroadcast = h.hrBroadcast;
         onState(state);
         unawaited(LocalDb.noteBandFirmware(h.firmwareVersion));
         _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
@@ -8813,6 +8817,51 @@ class BleEngine {
       payload,
     );
     _log('SET_ADVERTISING_NAME → "$name"');
+  }
+
+  /// Toggle WHOOP Heart Rate Broadcast (standard BLE Heart Rate Service 0x180D).
+  ///
+  /// `Cmd.setGenericHrProfile` (0x0E) is in `dangerousCmds` because it writes to
+  /// non-volatile storage and survives a reboot; like `enableGen5DeepBuffers`,
+  /// this is a user-initiated toggle with an explicit off companion, so it uses
+  /// `allowDangerous: true`.
+  Future<bool> setHrBroadcast(
+    bool enabled, {
+    Duration timeout = CommandAwaiter.defaultTimeout,
+  }) async {
+    final session = _session;
+    if (session == null || !session.connected || session.closing) return false;
+    if (session.entry.id != kWhoopGen4.id && session.entry.id != kWhoopGen5.id) {
+      return false;
+    }
+    final seq = _seq.nextLive();
+    final pending = _awaiter.register(
+      seq,
+      Cmd.setGenericHrProfile,
+      timeout: timeout,
+    );
+    final frame = buildCommand(
+      seq,
+      Cmd.setGenericHrProfile,
+      [enabled ? 0x01 : 0x00],
+      session.band,
+    );
+    if (!await _write(frame, owner: session, allowDangerous: true)) {
+      pending.cancel();
+      _log('SET_GENERIC_HR_PROFILE($enabled) write failed.');
+      return false;
+    }
+    final resp = await pending.response;
+    if (resp != null && (resp.failed || resp.unsupported)) {
+      _log('SET_GENERIC_HR_PROFILE($enabled) rejected (status=${resp.status}).');
+      return false;
+    }
+    if (_session != session || !session.connected) return false;
+    state.hrBroadcast = enabled;
+    onState(state);
+    _log('SET_GENERIC_HR_PROFILE → ${enabled ? 'on' : 'off'} '
+        '(status=${resp?.status ?? 'no-reply'})');
+    return true;
   }
 
   // main's throttled poll (a raw send here was 2,880 round-trips a day), and

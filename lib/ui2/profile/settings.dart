@@ -208,6 +208,8 @@ class _MoreSettingsState extends State<MoreSettings>
       cycleTracking: app.cycleTrackingEnabled,
       zoneAlertEnabled: app.zoneAlertEnabled,
       zoneAlertZone: app.zoneAlertTargetZone,
+      hrBroadcast: app.hrBroadcastEnabled,
+      hrBroadcastBusy: app.hrBroadcastBusy,
       appIcon: _icon,
       onPickIcon: _pickIcon,
       backgroundExempt: _bgExempt,
@@ -263,6 +265,7 @@ class _MoreSettingsState extends State<MoreSettings>
           app.setZoneAlertEnabled(!app.zoneAlertEnabled),
       onCycleZoneAlertZone: () => app.setZoneAlertTargetZone(
           app.zoneAlertTargetZone >= 5 ? 1 : app.zoneAlertTargetZone + 1),
+      onToggleHrBroadcast: () => _toggleHrBroadcast(c, app),
       onReset: () => _confirmReset(c, app),
     );
   }
@@ -566,6 +569,26 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   }
 }
 
+Future<void> _toggleHrBroadcast(BuildContext c, AppState app) async {
+  if (app.hrBroadcastBusy) return;
+  final messenger = ScaffoldMessenger.of(c);
+  final l = AppLocalizations.of(c);
+  if (!app.isConnected) {
+    messenger.showSnackBar(SnackBar(
+      content: Text(l?.settingsHrBroadcastNeedConnection ??
+          'Connect to your strap first'),
+    ));
+    return;
+  }
+  final ok = await app.setHrBroadcast(!app.hrBroadcastEnabled);
+  if (!ok && c.mounted) {
+    messenger.showSnackBar(SnackBar(
+      content: Text(l?.settingsHrBroadcastFailed ??
+          'Could not update strap — try again when connected'),
+    ));
+  }
+}
+
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
 
@@ -577,6 +600,8 @@ class MoreSettingsView extends StatelessWidget {
   /// (1..5) is only meaningful — and only drawn — while this is on.
   final bool zoneAlertEnabled;
   final int zoneAlertZone;
+  final bool hrBroadcast;
+  final bool hrBroadcastBusy;
 
   /// The home-screen icon, or null where the OS will not change it — Android,
   /// and the managed iOS configurations that refuse. Null means the row is not
@@ -642,6 +667,7 @@ class MoreSettingsView extends StatelessWidget {
       onToggleUpdateChecks,
       onToggleZoneAlert,
       onCycleZoneAlertZone,
+      onToggleHrBroadcast,
       onReset;
 
   const MoreSettingsView({
@@ -664,6 +690,8 @@ class MoreSettingsView extends StatelessWidget {
     this.cycleTracking = false,
     this.zoneAlertEnabled = false,
     this.zoneAlertZone = 3,
+    this.hrBroadcast = false,
+    this.hrBroadcastBusy = false,
     this.showHealthShare = false,
     this.healthShare = false,
     this.showUpdateChecks = false,
@@ -692,6 +720,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onToggleUpdateChecks,
     this.onToggleZoneAlert,
     this.onCycleZoneAlertZone,
+    this.onToggleHrBroadcast,
     this.onReset,
   });
 
@@ -754,6 +783,16 @@ class MoreSettingsView extends StatelessWidget {
                                   ?.settingsDoubleTapRowSub ??
                               'What a double-tap on the band does',
                           onTap: () => goto(c, const BandGestures()))),
+                  SetRow(
+                    LucideIcons.radio,
+                    C.blue,
+                    l?.settingsHrBroadcastRowTitle ?? 'HR broadcast',
+                    sub: l?.settingsHrBroadcastRowSub ??
+                        'Broadcast live heart rate over standard Bluetooth to gym equipment and fitness apps',
+                    value: hrBroadcastBusy ? '…' : (hrBroadcast ? on : off),
+                    chevron: false,
+                    onTap: hrBroadcastBusy ? null : onToggleHrBroadcast,
+                  ),
                   if (backgroundExempt != null)
                     SetRow(LucideIcons.batteryCharging, C.green,
                         l?.settingsKeepAliveRowTitle ??

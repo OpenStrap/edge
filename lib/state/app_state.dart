@@ -1736,6 +1736,31 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _hrBroadcastBusy = false;
+  bool get hrBroadcastBusy => _hrBroadcastBusy;
+
+  bool get hrBroadcastEnabled =>
+      device.hrBroadcast ?? Prefs.getBool(Prefs.hrBroadcastEnabled, false);
+
+  /// Toggle WHOOP Heart Rate Broadcast (0x180D) on the connected strap.
+  /// Returns true when the command was delivered and accepted.
+  Future<bool> setHrBroadcast(bool enabled) async {
+    if (!isConnected || _hrBroadcastBusy) return false;
+    _hrBroadcastBusy = true;
+    notifyListeners();
+    try {
+      final ok = await engine.setHrBroadcast(enabled);
+      if (ok) {
+        device.hrBroadcast = enabled;
+        Prefs.setBool(Prefs.hrBroadcastEnabled, enabled);
+      }
+      return ok;
+    } finally {
+      _hrBroadcastBusy = false;
+      notifyListeners();
+    }
+  }
+
   /// Re-poll the update pointer (best-effort; called on launch and on app resume).
   Future<void> refreshAppStatus() async {
     if (!updateChecksEnabled) return;
@@ -4524,6 +4549,10 @@ class AppState extends ChangeNotifier {
       if (nm != null && nm != Prefs.getString(_kStrapName, '')) {
         Prefs.setString(_kStrapName, nm);
       }
+    }
+    if (s.hrBroadcast != null &&
+        s.hrBroadcast != Prefs.getBool(Prefs.hrBroadcastEnabled, false)) {
+      Prefs.setBool(Prefs.hrBroadcastEnabled, s.hrBroadcast!);
     }
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(

@@ -373,6 +373,7 @@ class DeviceState {
   double? batteryPackPct;
 
   bool? wristOn;
+  bool? hrBroadcast; // standard BLE HRS (0x180D) broadcast state, when known
   int? liveHr; // latest live HR from the foreground stream
   int? liveHrAt; // epoch ms
   int?

@@ -16331,5 +16331,21 @@
         "type": "int"
       }
     }
+  },
+  "settingsHrBroadcastRowTitle": "HR broadcast",
+  "@settingsHrBroadcastRowTitle": {
+    "description": "Settings row title for toggling WHOOP Heart Rate Broadcast over standard Bluetooth"
+  },
+  "settingsHrBroadcastRowSub": "Broadcast live heart rate over standard Bluetooth to gym equipment and fitness apps",
+  "@settingsHrBroadcastRowSub": {
+    "description": "Settings row subtitle explaining Heart Rate Broadcast"
+  },
+  "settingsHrBroadcastNeedConnection": "Connect to your strap first",
+  "@settingsHrBroadcastNeedConnection": {
+    "description": "Snackbar shown when toggling HR broadcast while the strap is disconnected"
+  },
+  "settingsHrBroadcastFailed": "Could not update strap — try again when connected",
+  "@settingsHrBroadcastFailed": {
+    "description": "Snackbar shown when sending the HR broadcast toggle to the strap fails"
   }
 }
