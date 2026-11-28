@@ -154,7 +154,7 @@ Map<String, Cell> _sparseColumn(
     ),
     'steps': has.contains(InputSignal.steps)
         ? wearableStepsCell
-        : const Cell(reason: Why.noDeviceSteps),
+        : phoneStepsCell(Why.noDeviceSteps),
     'strain': load('strain', Why.noWakeHr),
     'calories': load('calories', Why.noWakeHrOrProfile),
     // Minutes in an HR zone stand in for movement (no accelerometer): a

@@ -998,6 +998,16 @@ final Cell wearableStepsCell = Cell(
   reason: Why.noDeviceSteps,
 );
 
+/// Steps on a wearable that counts none: the day's steps the phone counted
+/// (`scalars.steps`), as on a band's day; [reason] when it counted none.
+/// Not something the wearable unlocks ([capabilities]).
+Cell phoneStepsCell(Why reason) => Cell(
+  ours: (d, _) => scalar(d, 'steps'),
+  ourMethod: 'steps',
+  best: MetricClass.unavailable,
+  reason: reason,
+);
+
 /// HRV: ours off a strap's beats on a night it was worn at rest.
 Cell strapHrvCell({String? device, required Why reason}) =>
     strapBeatCell('rmssd', device: device, reason: reason);

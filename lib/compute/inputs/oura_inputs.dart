@@ -239,7 +239,7 @@ final Map<String, Cell> kOuraColumn = {
   // not the strap's here either.
   // ponytail: serve a strap's once beats carry their source into the night.
   'irregular_rhythm': const Cell(reason: Why.beatsNotSeparated),
-  'steps': const Cell(reason: Why.notDecoded),
+  'steps': phoneStepsCell(Why.notDecoded),
   // PLAN §3b: '-'. The ring keeps its own activity record, not decoded.
   'strain': const Cell(reason: Why.notDecoded),
   'calories': const Cell(reason: Why.notDecoded),
