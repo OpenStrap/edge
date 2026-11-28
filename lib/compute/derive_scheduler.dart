@@ -20,7 +20,10 @@ class DeriveScheduler {
     this.workoutHoldCap = const Duration(hours: 6),
   });
 
-  final Future<void> Function({required DeriveJobKind kind}) run;
+  /// Returns false when the pass was skipped because the derive latch was
+  /// held elsewhere; the job then goes back to the queue instead of being
+  /// marked complete with nothing derived.
+  final Future<bool> Function({required DeriveJobKind kind}) run;
   final void Function(String) log;
   final void Function() onChanged;
   final Duration lightSettle;
@@ -243,9 +246,14 @@ class DeriveScheduler {
     await _refreshSnapshot();
     log('[derive-scheduler] running ${kind == DeriveJobKind.heavy ? "heavy" : "light"} pass');
     try {
-      await run(kind: kind);
+      final ran = await run(kind: kind);
       if (id != null && id.isNotEmpty) {
-        await LocalDb.completeComputeJob(id);
+        if (ran) {
+          await LocalDb.completeComputeJob(id);
+        } else {
+          log('[derive-scheduler] derive latch busy — requeueing job');
+          await LocalDb.requeueComputeJob(id);
+        }
       }
     } catch (e) {
       if (id != null && id.isNotEmpty) {

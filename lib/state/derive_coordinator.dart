@@ -91,8 +91,11 @@ class DeriveCoordinator {
   /// else the latest pending day); [heavy]=true is the foreground finalize
   /// sweep. Best-effort + non-blocking — never throws into the BLE path.
   /// Refreshes the UI when results land so screens re-read the fresh derived rows.
-  Future<void> afterDrain({bool heavy = false}) async {
+  /// Returns false when the engine skipped the pass because another holder
+  /// had the derive latch, so the scheduler can keep the job queued.
+  Future<bool> afterDrain({bool heavy = false}) async {
     final mode = heavy ? 'heavy' : 'light';
+    var busy = false;
     try {
       // Context for whatever crash/ANR report comes next — the derivation
       // engine's heavy per-day compute is isolate-offloaded, but the
@@ -104,6 +107,12 @@ class DeriveCoordinator {
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
       // not only at the end (a multi-day backfill can be many days of work).
       await TelemetryService.instance.traced('derive_$mode', () {
+        // Checked right before the call with no await in between, so it sees
+        // exactly what run()'s own latch check will see.
+        if (DerivationEngine.latched) {
+          busy = true;
+          return Future<int>.value(0);
+        }
         final DeriveRunHook run = debugDeriveRun ?? _derive().run;
         return run(
           _profile(),
@@ -115,6 +124,10 @@ class DeriveCoordinator {
           },
         );
       });
+      if (busy) {
+        TelemetryService.instance.breadcrumb('derive: $mode skipped, busy');
+        return false;
+      }
       TelemetryService.instance.breadcrumb('derive: $mode done');
       // A drain can bank band coverage and a day can have rolled over since the
       // last read — both change which source owns today's steps.
@@ -201,6 +214,7 @@ class DeriveCoordinator {
     } finally {
       TelemetryService.instance.setContext('derive_active', false);
     }
+    return true;
   }
 
   /// Say that the DURABLE data changed, so every screen reading it re-reads.

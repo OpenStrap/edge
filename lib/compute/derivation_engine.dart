@@ -3590,6 +3590,9 @@ class DerivationEngine {
   }
   bool get running => _running;
 
+  /// Whether any pass (or another latch holder) has the latch right now.
+  static bool get latched => _running;
+
   /// Hold or release the process-wide latch, as another pass would.
   @visibleForTesting
   static set debugRunning(bool v) => _running = v;
