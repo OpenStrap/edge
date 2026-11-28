@@ -1940,7 +1940,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, 24/7); fall back to
     // the sleep-only `hrv_timeline`. BOTH are epoch seconds now — the sleep one
     // used to be seconds-from-window-start and was rebased here by adding the
-    // sleep onset, which since `_hrvTimeline` started stamping `originMs + t`
+    // sleep onset, which since `rollingHrvTimeline` started stamping `originMs + t`
     // would add the onset twice and throw the line hours off the axis.
     final series = _sub(b, 'series');
     final dayHrv = (series?['hrv_day'] as List?) ?? const [];
