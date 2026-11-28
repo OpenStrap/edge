@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart' show FlutterError;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/state/derive_coordinator.dart';
 
@@ -364,5 +365,26 @@ void main() {
       expect(fa.pendingTimers, isEmpty);
       expect(() => revision.addListener(() {}), throwsA(isA<FlutterError>()));
     });
+  });
+
+  test('a pass skipped on a held latch reports busy and does nothing else',
+      () async {
+    final coordinator = make();
+    addTearDown(coordinator.dispose);
+    var calls = 0;
+    coordinator.debugDeriveRun = (profile, {heavy = false, onDayDone}) async {
+      calls++;
+      return 0;
+    };
+    DerivationEngine.debugRunning = true; // an import or delete holds it
+    addTearDown(() => DerivationEngine.debugRunning = false);
+
+    expect(await coordinator.afterDrain(), isFalse);
+    expect(calls, 0);
+    expect(coordinator.insightsRevision.value, 0);
+
+    DerivationEngine.debugRunning = false;
+    expect(await coordinator.afterDrain(), isTrue);
+    expect(calls, 1);
   });
 }

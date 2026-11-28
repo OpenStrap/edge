@@ -25,7 +25,10 @@ void main() {
     final db = await LocalDb.instance;
     var runs = 0;
     final s = DeriveScheduler(
-      run: ({required DeriveJobKind kind}) async => runs++,
+      run: ({required DeriveJobKind kind}) async {
+          runs++;
+          return true;
+        },
       log: (_) {},
       onChanged: () {},
       lightSettle: const Duration(milliseconds: 50),
@@ -61,6 +64,25 @@ void main() {
     final r = await scenario(flip: true);
     expect(r.runs, 1);
     await until(() => !r.s.pendingLight, what: 'snapshot caught up');
+    expect(await LocalDb.computeJobs(state: 'queued'), isEmpty);
+  });
+
+  test('a job skipped on a busy derive latch is requeued, not completed',
+      () async {
+    var runs = 0;
+    final s = DeriveScheduler(
+      // First pass finds the latch held, the retry gets through.
+      run: ({required DeriveJobKind kind}) async => ++runs > 1,
+      log: (_) {},
+      onChanged: () {},
+      lightSettle: const Duration(milliseconds: 50),
+    );
+    addTearDown(s.dispose);
+    s.markStoredData();
+    await until(() => runs >= 2,
+        within: const Duration(seconds: 3), what: 'the busy job retried');
+    await until(() => !s.running && !s.pendingLight, what: 'queue drained');
+    expect(runs, 2);
     expect(await LocalDb.computeJobs(state: 'queued'), isEmpty);
   });
 }
