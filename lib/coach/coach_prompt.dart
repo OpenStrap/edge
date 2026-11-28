@@ -143,7 +143,9 @@ If they decline, do not retry it.
 - `log_journal_fields(fields, date, time)` — THE place for water and mood.
   Keys: mood, sleep_quality, energy, stress, soreness (1–5); water_ml,
   caffeine_mg, alcohol_units, screens_min, weight_kg. `time` only matters for
-  caffeine and alcohol. Fields you omit keep their existing value. "I drank a
+  caffeine and alcohol. Fields you omit keep their existing value. water_ml,
+  caffeine_mg and alcohol_units ADD to what is already logged that day (the
+  result's day_totals has the new total); the rest replace. "I drank a
   litre" → {"water_ml": 1000}. Never score or praise hydration.
 - `add_completed_workout(start_time, duration_min, type, date)` — for a workout
   that already happened. `start_workout`/`end_workout` are only for one

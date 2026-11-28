@@ -338,6 +338,10 @@ class CoachActions {
   ///
   /// Water is loggable here and is scored NOWHERE. There is no hydration score
   /// in this app and there is not going to be one.
+  /// Intake doses: what the coach logs ADDS to the day's total, the same as the
+  /// `+` button and the wrist double-tap.
+  static const _intakeFields = {'water_ml', 'caffeine_mg', 'alcohol_units'};
+
   static Future<String> logJournalFields(
     LocalRepository repo,
     Map<String, dynamic> a,
@@ -377,8 +381,37 @@ class CoachActions {
       );
       written.add(key);
     }
-    await repo.editJournalMetrics(d, (day) => day.addAll(updates));
-    return jsonEncode({'saved': true, 'date': d, 'fields': written});
+    final totals = <String, double>{};
+    await repo.editJournalMetrics(d, (day) {
+      for (final e in updates.entries) {
+        final prev = day[e.key];
+        if (!_intakeFields.contains(e.key) || prev == null) {
+          day[e.key] = e.value;
+          continue;
+        }
+        // "I drank a litre" is another litre, not the day's total.
+        final sum = prev.value + e.value.value;
+        final max = known[e.key]!.max;
+        if (sum > max) {
+          throw CoachActionError(
+            'That makes ${e.key} $sum today, over the ${max % 1 == 0 ? max.toInt() : max} limit. Nothing was saved.',
+          );
+        }
+        // The time held is the LATEST dose, so an earlier one never moves it.
+        final was = prev.atMinuteOfDay, now = e.value.atMinuteOfDay;
+        day[e.key] = JournalMetricValue(
+          sum,
+          atMinuteOfDay: was == null || (now != null && now > was) ? now : was,
+        );
+        totals[e.key] = sum;
+      }
+    });
+    return jsonEncode({
+      'saved': true,
+      'date': d,
+      'fields': written,
+      if (totals.isNotEmpty) 'day_totals': totals,
+    });
   }
 
   // ── workouts ───────────────────────────────────────────────────────────────
@@ -508,7 +541,9 @@ class CoachActions {
             : (str(a['kind']) == 'supplement' ? 'supplement' : 'medication'),
         schedule: schedule,
         note: existing?.note ?? '',
-        active: existing?.active ?? true,
+        // Adding a dose means the person takes it again. A paused med kept
+        // paused would save, confirm, and never show up anywhere.
+        active: true,
         createdAt: existing?.createdAt,
       ),
     );
