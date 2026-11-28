@@ -74,7 +74,8 @@ class ChartSpec {
       final m = RegExp(r'^\s*(-?\d+(?:\.\d+)?)\s*([^\d,.:]*)$').firstMatch(v);
       if (m == null) return null;
       if (RegExp(r'^[kKMB]$').hasMatch(m.group(2)!.trim())) return null;
-      return double.tryParse(m.group(1)!);
+      final u = double.tryParse(m.group(1)!);
+      return u != null && u.isFinite ? u : null;
     }
     if (v is Map) return _asNum(v['value'] ?? v['y'] ?? v['v']); // {value:62}/{y:62}
     return null;
@@ -594,6 +595,8 @@ class CoachEngine {
       try {
         final f = await _sessionFile(d.id);
         if (await f.exists()) await f.delete();
+        final t = File('${f.path}.tmp');
+        if (await t.exists()) await t.delete();
       } catch (_) {}
     }
     try {
@@ -610,6 +613,8 @@ class CoachEngine {
     try {
       final f = await _sessionFile(id);
       if (await f.exists()) await f.delete();
+      final t = File('${f.path}.tmp');
+      if (await t.exists()) await t.delete();
     } catch (_) {}
     final metas = await listSessions()..removeWhere((m) => m.id == id);
     try {
@@ -1031,8 +1036,9 @@ class CoachEngine {
   }
 
   @visibleForTesting
-  Future<String> debugRunTool(String name, Map<String, dynamic> args) =>
-      _runTool(name, args, onItem: (_) {}, confirm: (_) async => false);
+  Future<String> debugRunTool(String name, Map<String, dynamic> args,
+          {void Function(CoachItem)? onItem}) =>
+      _runTool(name, args, onItem: onItem ?? (_) {}, confirm: (_) async => false);
 
   /// Today's readiness under the headline rule, for run_sql's views: the
   /// final number or nothing. If today can't be read, today's readiness is

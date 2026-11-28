@@ -65,10 +65,10 @@ void main() {
   test('NaN / Infinity chart values read as absent', () {
     final c = ChartSpec.tryParse({
       'series': [
-        {'name': 's', 'values': [62, 'NaN', 'Infinity', double.infinity, double.nan]},
+        {'name': 's', 'values': [62, 'NaN', 'Infinity', '${'9' * 400} ms', double.infinity, double.nan]},
       ],
     })!;
-    expect(c.series.single.values, [62.0, null, null, null, null]);
+    expect(c.series.single.values, [62.0, null, null, null, null, null]);
   });
 
   test('a render type the app cannot draw is refused, not "rendered"', () async {
@@ -77,8 +77,12 @@ void main() {
     addTearDown(config.dispose);
     final engine = CoachEngine(config: config, api: _FakeRepo(), storageKey: 'local');
     addTearDown(engine.dispose);
-    expect(await engine.debugRunTool('render', {'type': 'scatter'}),
+    final emitted = <CoachItem>[];
+    expect(
+        await engine.debugRunTool('render', {'type': 'scatter'},
+            onItem: emitted.add),
         contains('cannot draw'));
+    expect(emitted, isEmpty);
     expect(await engine.debugRunTool('render', {'type': 'heatmap', 'weeks': []}),
         startsWith('Rendered'));
   });
@@ -99,12 +103,13 @@ void main() {
     addTearDown(engine.dispose);
     engine.transcript
       ..add(CoachItem.user('plot it'))
-      ..add(CoachItem.render({'type': 'gauge', 'value': double.infinity}));
+      ..add(CoachItem.render({'type': 'gauge', 'value': double.infinity, 'max': 100}));
     await engine.persist();
 
     final f = File('${dir.path}/coach_s_local_${engine.sessionId}.json');
     final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
     expect((j['transcript'] as List)[1]['render']['value'], isNull);
+    expect((j['transcript'] as List)[1]['render']['max'], 100);
     expect(File('${f.path}.tmp').existsSync(), isFalse);
   });
 }
