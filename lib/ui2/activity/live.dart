@@ -344,11 +344,28 @@ class LiveDraft {
     if (on) {
       pausedAt ??= DateTime.now();
     } else if (pausedAt != null) {
-      pausedSec += DateTime.now().difference(pausedAt!).inSeconds;
+      final now = DateTime.now();
+      pausedSec += now.difference(pausedAt!).inSeconds;
+      // Closed spans, kept so the ghost summary can take them out of the
+      // route's raw timestamps (the route tracker runs through a pause).
+      data['pauses'] = [
+        ...(data['pauses'] as List? ?? const []),
+        [pausedAt!.millisecondsSinceEpoch, now.millisecondsSinceEpoch],
+      ];
       pausedAt = null;
     }
     _save();
   }
+
+  /// Every pause so far as (start, end) epoch ms, the open one ending now.
+  List<(int, int)> get pauseSpansMs => [
+        for (final v in (data['pauses'] as List? ?? const []))
+          if (v is List && v.length == 2)
+            ((v[0] as num).toInt(), (v[1] as num).toInt()),
+        if (pausedAt != null)
+          (pausedAt!.millisecondsSinceEpoch,
+              DateTime.now().millisecondsSinceEpoch),
+      ];
 
   /// Record one of the archetype's entries. Written straight through — the
   /// point of the draft is that nothing waits for a "save".
@@ -503,7 +520,8 @@ class LiveShell extends StatefulWidget {
 
   /// A card for the top of the summary, built from the saved result (the
   /// ghost race's comparison). Null for every session without one.
-  final Widget? Function(ActivityResult saved)? summaryExtra;
+  final Widget? Function(ActivityResult saved, List<(int, int)> pausedMs)?
+      summaryExtra;
 
   const LiveShell(
     this.a, {
@@ -573,6 +591,8 @@ class LiveShellState extends State<LiveShell> {
     _finishing = true;
     _t?.cancel();
     final draft = widget.result(elapsed);
+    // Read now: the draft is cleared before the summary is built.
+    final pausedMs = LiveDraft.current?.pauseSpansMs ?? const <(int, int)>[];
     // The app writes the session, flushes the GPS tail and hands back what it
     // could add. A failure here must still land the user on their summary —
     // losing the screen is worse than losing the enrichment.
@@ -616,7 +636,7 @@ class LiveShellState extends State<LiveShell> {
         builder: (_) => ActivitySummary(result,
             weightKg: widget.weightKg,
             onRetrySave: retrySave,
-            ghost: retrySave == null ? widget.summaryExtra?.call(result) : null,
+            ghost: retrySave == null ? widget.summaryExtra?.call(result, pausedMs) : null,
             justFinished: true),
       ),
       (r) => r.isFirst,
@@ -1145,12 +1165,13 @@ class LiveMeasured extends StatelessWidget {
       onFinish: onFinish,
       summaryExtra: ghostId == null
           ? null
-          : (saved) => saved.sessionId == null
+          : (saved, pausedMs) => saved.sessionId == null
               ? null
               : GhostSummary(
                   ghostId: ghostId!,
                   sessionId: saved.sessionId!,
-                  loadRoute: ghostRoute),
+                  loadRoute: ghostRoute,
+                  pausedMs: pausedMs),
       result: (elapsed) =>
           _baseResult(a, feed?.call() ?? LiveFeed.none, weightKg, elapsed,
               private),
@@ -1184,7 +1205,13 @@ class LiveMeasured extends StatelessWidget {
                 elapsedSec: elapsed,
                 fix: f.position,
                 buzz: buzz,
-                buzzOn: Prefs.getBool(Prefs.ghostBuzz, true)),
+                buzzOn: Prefs.getBool(Prefs.ghostBuzz, true),
+                keep: LiveDraft.current == null
+                    ? null
+                    : GhostKeep(
+                        '$ghostId@${LiveDraft.current!.startedAt.millisecondsSinceEpoch}',
+                        () => LiveDraft.current?.elapsedSec,
+                        () => (feed?.call() ?? LiveFeed.none).position)),
           ],
           const SizedBox(height: S.x8),
           // The user's own unit system, not km hardcoded. `unitsOf` is null in

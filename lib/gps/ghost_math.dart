@@ -484,11 +484,15 @@ class GhostComparison {
 
 /// Compare a finished run against a ghost, split by [splitM]. Returns null
 /// when the two are not the same route, or the run covered too little of it
-/// to compare: never a fabricated time.
+/// to compare: never a fabricated time. [pausedMs] are the (start, end) epoch
+/// spans your run was paused; they are taken out of your times so the summary
+/// uses the same clock as the live race. (The ghost's own pauses are not
+/// known: its timestamps are used as stored.)
 GhostComparison? compareRuns(
   List<RoutePoint> you,
   List<RoutePoint> ghost, {
   double splitM = 1000,
+  List<(int, int)> pausedMs = const [],
 }) {
   if (!splitM.isFinite || splitM <= 0) return null;
   final g = GhostTrack.tryBuild(ghost);
@@ -508,6 +512,14 @@ GhostComparison? compareRuns(
   // path) would be credited as time gained.
   var pathSince = 0.0;
   var skipped = false;
+  int pausedBefore(int ts) {
+    var sum = 0;
+    for (final (a, b) in pausedMs) {
+      sum += math.max(0, math.min(b, ts) - a);
+    }
+    return sum;
+  }
+
   RoutePoint? prev;
   for (final p in you) {
     if (prev != null) {
@@ -525,7 +537,7 @@ GhostComparison? compareRuns(
     if (pr.alongM <= best) continue;
     best = pr.alongM;
     pathSince = 0;
-    marks.add((best, p.tsMs - you.first.tsMs));
+    marks.add((best, p.tsMs - you.first.tsMs - pausedBefore(p.tsMs)));
   }
   // The run ends on a stretch it did not cover: no honest comparison.
   if (skipped || marks.length < 2) return null;

@@ -323,6 +323,24 @@ void main() {
       expect(c.biggestLoss!.index, 2);
       expect(c.won, isFalse);
     });
+    test('a pause is taken out of your time, so a level run stays level', () {
+      // same 3 m/s route, but 60 s standing still mid-run (fixes keep coming)
+      final you = <RoutePoint>[];
+      for (var i = 0; i < 221; i++) {
+        final moving = i < 100 ? i : (i <= 112 ? 100 : i - 12);
+        you.add(RoutePoint(
+          seq: i,
+          tsMs: 1000000 + i * 5000,
+          lat: 0,
+          lng: lngAt(15.0 * moving),
+        ));
+      }
+      final spans = [(1000000 + 100 * 5000, 1000000 + 112 * 5000)];
+      final raw = compareRuns(you, line())!;
+      final c = compareRuns(you, line(), pausedMs: spans)!;
+      expect(raw.finalGapSec, lessThan(-50));
+      expect(c.finalGapSec.abs(), lessThan(2));
+    });
     test('splitM <= 0 refuses instead of looping', () {
       expect(compareRuns(line(), line(), splitM: 0), isNull);
       expect(compareRuns(line(), line(), splitM: double.nan), isNull);

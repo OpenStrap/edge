@@ -200,7 +200,8 @@ void main() {
       expect(find.byKey(const Key('ghost-panel')), findsOneWidget);
       // 100 s on the clock, standing 60 m up the road from the ghost.
       for (var i = 0; i < 100; i++) {
-        if (i == 99) pos = at(360);
+        // A real runner: 3.6 m/s, not a teleport.
+        pos = at((i + 1) * 3.6);
         await t.pump(const Duration(seconds: 1));
       }
       expect(find.text('60 m ahead'), findsOneWidget);
@@ -322,5 +323,12 @@ void main() {
     expect(ghostGapText(1234), '1.2 km');
     expect(ghostTimeText(-8), '8 s');
     expect(ghostTimeText(65), '1:05');
+  });
+
+  test('a partial split is labelled by its real stretch, not km 1', () {
+    expect(ghostSplitKm(const GhostSplit(1, 0, 1000, 300, 300)), '1');
+    expect(ghostSplitKm(const GhostSplit(2, 1000, 2000, 300, 300)), '2');
+    expect(ghostSplitKm(const GhostSplit(1, 0, 600, 100, 100)), '0.0-0.6');
+    expect(ghostSplitKm(const GhostSplit(1, 100, 1100, 300, 300)), '0.1-1.1');
   });
 }

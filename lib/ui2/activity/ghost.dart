@@ -60,6 +60,17 @@ String ghostGapText(double meters) {
   return '${m.round()} m';
 }
 
+/// The {km} of a split: its number for a whole kilometre, else the stretch it
+/// really covers ("0.0-0.6", "0.1-1.1"), since a partial split is not "km 1".
+String ghostSplitKm(GhostSplit s) {
+  final whole =
+      (s.fromM % 1000 < 1 || s.fromM % 1000 > 999) &&
+      (s.toM - s.fromM - 1000).abs() < 1;
+  if (whole) return '${(s.fromM / 1000).round() + 1}';
+  String k(double m) => (m / 1000).toStringAsFixed(1);
+  return '${k(s.fromM)}-${k(s.toM)}';
+}
+
 /// "23 s", or "1:05" from a minute up.
 String ghostTimeText(double seconds) {
   final s = seconds.abs().round();
@@ -97,6 +108,7 @@ class GhostLive extends StatefulWidget {
   final LatLng? fix;
   final Future<void> Function()? buzz;
   final bool buzzOn;
+  final GhostKeep? keep;
   const GhostLive({
     super.key,
     required this.ghostId,
@@ -105,6 +117,7 @@ class GhostLive extends StatefulWidget {
     required this.fix,
     this.buzz,
     this.buzzOn = true,
+    this.keep,
   });
 
   @override
@@ -147,6 +160,7 @@ class _GhostLiveState extends State<GhostLive> {
           fix: widget.fix,
           buzz: widget.buzz,
           buzzOn: widget.buzzOn,
+          keep: widget.keep,
         );
       },
     );
@@ -165,6 +179,25 @@ class _GhostLiveState extends State<GhostLive> {
   );
 }
 
+/// How a race keeps going while its screen is minimised: the race and buzz
+/// state live in [_keeps] under [key], and a one-second timer carries on
+/// from [elapsedSec] (null = the session is over) and [fix].
+class GhostKeep {
+  final String key;
+  final int? Function() elapsedSec;
+  final LatLng? Function() fix;
+  const GhostKeep(this.key, this.elapsedSec, this.fix);
+}
+
+class _Keep {
+  final GhostRace race;
+  final GhostBuzzPolicy policy = GhostBuzzPolicy();
+  Timer? timer;
+  _Keep(GhostTrack t) : race = GhostRace(t);
+}
+
+final Map<String, _Keep> _keeps = {};
+
 /// The live gap, the mini route and the finish moment. Takes the race clock
 /// and the latest fix; owns the race state, the trail and the buzz debounce.
 /// A fake feed (elapsed + fix) is all a test needs.
@@ -174,6 +207,7 @@ class GhostPanel extends StatefulWidget {
   final LatLng? fix;
   final Future<void> Function()? buzz;
   final bool buzzOn;
+  final GhostKeep? keep;
   const GhostPanel({
     super.key,
     required this.track,
@@ -181,6 +215,7 @@ class GhostPanel extends StatefulWidget {
     required this.fix,
     this.buzz,
     this.buzzOn = true,
+    this.keep,
   });
 
   @override
@@ -188,8 +223,11 @@ class GhostPanel extends StatefulWidget {
 }
 
 class _GhostPanelState extends State<GhostPanel> {
-  late final GhostRace _race = GhostRace(widget.track);
-  final GhostBuzzPolicy _policy = GhostBuzzPolicy();
+  late final _Keep _k = widget.keep == null
+      ? _Keep(widget.track)
+      : _keeps.putIfAbsent(widget.keep!.key, () => _Keep(widget.track));
+  GhostRace get _race => _k.race;
+  GhostBuzzPolicy get _policy => _k.policy;
   final List<LatLng> _trail = [];
   late GhostReading _r;
   bool _wonHaptic = false;
@@ -197,7 +235,35 @@ class _GhostPanelState extends State<GhostPanel> {
   @override
   void initState() {
     super.initState();
+    _k.timer?.cancel();
+    _k.timer = null;
     _r = _step();
+  }
+
+  @override
+  void dispose() {
+    final keep = widget.keep;
+    // Minimised, not finished: carry on buzzing from the session clock.
+    if (keep != null && keep.elapsedSec() != null) {
+      final buzz = widget.buzz, on = widget.buzzOn;
+      _k.timer = Timer.periodic(Motion.tick, (t) {
+        final e = keep.elapsedSec();
+        if (e == null) {
+          t.cancel();
+          _keeps.remove(keep.key);
+          return;
+        }
+        final f = keep.fix();
+        final r = _k.race.update(e * 1000, lat: f?.latitude, lng: f?.longitude);
+        if (on && _k.policy.shouldBuzz(r, e * 1000)) {
+          HapticFeedback.mediumImpact();
+          if (buzz != null) unawaited(buzz().catchError((_) {}));
+        }
+      });
+    } else if (keep != null) {
+      _keeps.remove(keep.key);
+    }
+    super.dispose();
   }
 
   @override
@@ -542,7 +608,7 @@ class _GhostPicker extends StatefulWidget {
 }
 
 class _GhostPickerState extends State<_GhostPicker> {
-  late final Future<List<GhostCandidate>> _f = widget.load(widget.typeKey);
+  late Future<List<GhostCandidate>> _f = widget.load(widget.typeKey);
 
   @override
   Widget build(BuildContext c) {
@@ -584,21 +650,31 @@ class _GhostPickerState extends State<_GhostPicker> {
                         );
                       }
                       final list = snap.data ?? const <GhostCandidate>[];
-                      if (list.isEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.all(S.x4),
-                          child: Text(
-                            l?.ghostPickerEmpty ??
-                                'No earlier session of this activity has a '
-                                    'recorded route yet. Finish one with '
-                                    'location on, then come back.',
-                            style: F.body.copyWith(color: p.ink2),
-                          ),
-                        );
-                      }
                       return ListView(
                         shrinkWrap: true,
                         children: [
+                          if (snap.hasError)
+                            _tile(
+                              p,
+                              title:
+                                  l?.ghostReadFailed ??
+                                  'Could not read your saved routes. Tap to retry.',
+                              icon: LucideIcons.refreshCw,
+                              onTap: () => setState(
+                                () => _f = widget.load(widget.typeKey),
+                              ),
+                            )
+                          else if (list.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(S.x4),
+                              child: Text(
+                                l?.ghostPickerEmpty ??
+                                    'No earlier session of this activity has a '
+                                        'recorded route yet. Finish one with '
+                                        'location on, then come back.',
+                                style: F.body.copyWith(color: p.ink2),
+                              ),
+                            ),
                           for (final g in list) _row(c, p, l, g),
                           if (widget.selectedId != null)
                             _tile(
@@ -679,11 +755,13 @@ class GhostSummary extends StatefulWidget {
   final String ghostId;
   final String sessionId;
   final GhostRouteLoader? loadRoute;
+  final List<(int, int)> pausedMs;
   const GhostSummary({
     super.key,
     required this.ghostId,
     required this.sessionId,
     required this.loadRoute,
+    this.pausedMs = const [],
   });
 
   @override
@@ -691,7 +769,11 @@ class GhostSummary extends StatefulWidget {
 }
 
 class _GhostSummaryState extends State<GhostSummary> {
-  late final Future<GhostComparison?> _f = _load();
+  // Survives the card being unmounted by a tab switch: the comparison is not
+  // re-read and the win haptic is not replayed.
+  static final Map<String, Future<GhostComparison?>> _cache = {};
+  late final String _key = '${widget.sessionId}|${widget.ghostId}';
+  late Future<GhostComparison?> _f = _cache.putIfAbsent(_key, _load);
 
   Future<GhostComparison?> _load() async {
     final load = widget.loadRoute;
@@ -699,7 +781,7 @@ class _GhostSummaryState extends State<GhostSummary> {
     final you = await load(widget.sessionId);
     final ghost = await load(widget.ghostId);
     if (you == null || ghost == null) return null;
-    return compareRuns(you, ghost);
+    return compareRuns(you, ghost, pausedMs: widget.pausedMs);
   }
 
   @override
@@ -707,7 +789,12 @@ class _GhostSummaryState extends State<GhostSummary> {
     future: _f,
     builder: (c, s) => s.connectionState != ConnectionState.done
         ? const SizedBox.shrink()
-        : GhostSummaryCard(s.data),
+        : s.hasError
+        ? _GhostReadFailed(onRetry: () {
+            _cache.remove(_key);
+            setState(() => _f = _cache.putIfAbsent(_key, _load));
+          })
+        : GhostSummaryCard(s.data, hapticKey: _key),
   );
 }
 
@@ -715,10 +802,46 @@ class _GhostSummaryState extends State<GhostSummary> {
 /// was not computed.
 class GhostSummaryCard extends StatefulWidget {
   final GhostComparison? comparison;
-  const GhostSummaryCard(this.comparison, {super.key});
+
+  /// Set: the win haptic plays once per key for the life of the process.
+  final String? hapticKey;
+  const GhostSummaryCard(this.comparison, {super.key, this.hapticKey});
 
   @override
   State<GhostSummaryCard> createState() => _GhostSummaryCardState();
+}
+
+final Set<String> _hapticDone = {};
+
+/// A route read that threw: said as such, with a retry, never as "not the
+/// same route".
+class _GhostReadFailed extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _GhostReadFailed({required this.onRetry});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    return Pressable(
+      onTap: onRetry,
+      child: Surface(
+        child: Row(
+          children: [
+            Icon(LucideIcons.refreshCw, size: 18, color: p.ink2),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Text(
+                l?.ghostReadFailed ??
+                    'Could not read your saved routes. Tap to retry.',
+                style: F.body.copyWith(color: p.ink2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _GhostSummaryCardState extends State<GhostSummaryCard> {
@@ -727,6 +850,8 @@ class _GhostSummaryCardState extends State<GhostSummaryCard> {
     super.initState();
     // The win moment: one firm tap, once, when the card first shows a win.
     if (widget.comparison?.won == true && widget.comparison!.finalGapSec >= 1) {
+      final k = widget.hapticKey;
+      if (k != null && !_hapticDone.add(k)) return;
       HapticFeedback.heavyImpact();
     }
   }
@@ -770,7 +895,7 @@ class _GhostSummaryCardState extends State<GhostSummaryCard> {
       (m, s) => math.max(m, s.deltaSec.abs()),
     );
 
-    String km(GhostSplit s) => '${s.index}';
+    String km(GhostSplit s) => ghostSplitKm(s);
     final best = cmp.biggestGain, worst = cmp.biggestLoss;
     return Surface(
       color: p.wash(accent),
@@ -864,7 +989,7 @@ class _GhostSummaryCardState extends State<GhostSummaryCard> {
     final up = s.deltaSec >= 0;
     final accent = up ? C.green : C.orange;
     final f = (s.deltaSec.abs() / maxAbs).clamp(0.0, 1.0);
-    final label = l?.ghostSplitLabel('${s.index}') ?? 'km ${s.index}';
+    final label = l?.ghostSplitLabel(ghostSplitKm(s)) ?? 'km ${ghostSplitKm(s)}';
     final txt = '${up ? '+' : '-'}${ghostTimeText(s.deltaSec)}';
     return Semantics(
       label: '$label, $txt',

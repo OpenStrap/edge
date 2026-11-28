@@ -1376,7 +1376,10 @@ ActivityHost activityHost(AppState app,
 Future<List<GhostCandidate>> ghostCandidatesFor(String typeKey) async {
   final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   final rows = await LocalDb.sessionsInRange(now - 730 * 86400, now);
+  // Slots go to routes the user can race first; refusals only explain what
+  // is left, so a pile of unusable newer runs can not hide a usable one.
   final out = <GhostCandidate>[];
+  final refused = <GhostCandidate>[];
   for (final r in rows) {
     if (out.length >= 25) break;
     final id = r['id'] as String?;
@@ -1385,14 +1388,16 @@ Future<List<GhostCandidate>> ghostCandidatesFor(String typeKey) async {
     if (!await LocalDb.sessionHasRoute(id)) continue;
     final pts = await ghostRouteOf(id);
     if (pts == null || pts.length < 2) continue;
-    out.add(GhostCandidate(
+    final why = ghostUnusableReason(pts);
+    if (why != null && refused.length >= 5) continue;
+    (why == null ? out : refused).add(GhostCandidate(
         id: id,
         start: DateTime.fromMillisecondsSinceEpoch(pts.first.tsMs),
         durationSec: (pts.last.tsMs - pts.first.tsMs) ~/ 1000,
         distanceM: totalDistanceMeters(pts),
-        refusal: ghostUnusableReason(pts)));
+        refusal: why));
   }
-  return out;
+  return [...out, ...refused];
 }
 
 /// A session's stored route points in order, or null when it has none.
@@ -1434,7 +1439,11 @@ LiveFeed _feedOf(AppState app) {
     // x axis is the session clock. `perMinuteHr()` is for statistics.
     hrCurve: _curveOverSession(w),
     distanceKm: app.liveDistanceKm,
-    position: app.routeTracker?.current.value,
+    // No fix while the stream is stalled: `current` keeps the last accepted
+    // fix, and a frozen runner against a moving ghost is a false gap.
+    position: app.routeTracker?.stalled.value == true
+        ? null
+        : app.routeTracker?.current.value,
     gpsActive: app.routeTracking,
     bandConnected: app.isConnected,
     // Both were implemented at the state layer and read by nothing, so a

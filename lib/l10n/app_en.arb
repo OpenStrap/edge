@@ -18498,6 +18498,7 @@
   },
   "ghostPickerTitle": "Pick a ghost",
   "ghostPickerEmpty": "No earlier session of this activity has a recorded route yet. Finish one with location on, then come back.",
+  "ghostReadFailed": "Could not read your saved routes. Tap to retry.",
   "ghostPickerNone": "No ghost",
   "ghostRefusedFewPoints": "Too few GPS points",
   "ghostRefusedShort": "Too short to race",
@@ -18562,7 +18563,7 @@
       }
     }
   },
-  "ghostTied": "Dead level with your ghost",
+  "ghostTied": "Practically level with your ghost",
   "ghostNoCompare": "Not compared: this was not the same route as the ghost, or too little of it was covered.",
   "ghostBestStretch": "Most time gained: km {km}, {t} up",
   "@ghostBestStretch": {
