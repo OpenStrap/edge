@@ -124,6 +124,13 @@ class CoachDb {
     'select', 'from', 'with',
   };
 
+  /// Keywords that end a FROM clause (after them a depth-0 comma is a
+  /// GROUP BY / ORDER BY list, not another table).
+  static const Set<String> _fromEnd = {
+    'where', 'group', 'order', 'limit', 'offset', 'having', 'window', 'union',
+    'intersect', 'except', 'values', 'returning', 'select',
+  };
+
   static Database? _ro;
   static Set<int>? _allowedRoots;
 
@@ -392,9 +399,15 @@ class CoachDb {
   /// comma-separated members of an implicit cross-join.
   static List<String> _tableRefs(List<_Tok> toks, {required Set<String> allowed}) {
     final refs = <String>[];
+    // Commas that start another table after a join's ON/USING constraint
+    // (`a JOIN b ON 1, x`) — validated like a FROM when the walk reaches them.
+    final commaStarts = <int>{};
     for (var i = 0; i < toks.length; i++) {
       final t = toks[i];
-      if (!t.ident || (t.text != 'from' && t.text != 'join')) continue;
+      if (!commaStarts.contains(i) &&
+          (!t.ident || (t.text != 'from' && t.text != 'join'))) {
+        continue;
+      }
       var j = i + 1;
       while (true) {
         if (j >= toks.length) {
@@ -441,6 +454,23 @@ class CoachDb {
           continue;
         }
         break;
+      }
+      if (j < toks.length &&
+          toks[j].ident &&
+          (toks[j].text == 'on' || toks[j].text == 'using')) {
+        // A depth-0 comma before the FROM clause ends is another table.
+        var depth = 0;
+        for (var k = j + 1; k < toks.length; k++) {
+          final x = toks[k];
+          if (x.ident) {
+            if (depth == 0 && _fromEnd.contains(x.text)) break;
+            continue;
+          }
+          if (x.text == '(') depth++;
+          if (x.text == ')' && --depth < 0) break;
+          if (x.text == ';') break;
+          if (x.text == ',' && depth == 0) commaStarts.add(k);
+        }
       }
       i = j - 1;
     }
