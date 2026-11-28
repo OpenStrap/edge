@@ -236,6 +236,15 @@ class CoachEngine {
   int _createdAt = 0;
   String get sessionId => _sessionId;
 
+  /// Stamp of the save this engine last loaded or wrote for its chat.
+  String? _rev;
+
+  /// Latest save stamp per chat (`storageKey/id`) in this process. Two screens
+  /// can hold the same chat in two engines, each saving its own copy of the
+  /// whole file; an engine whose [_rev] is behind this would drop the other's
+  /// turn, so it saves as a new chat instead.
+  static final Map<String, String> _savedRevs = {};
+
   final Random _rand = Random();
   static const List<String> _shenanigans = [
     'Reading your overnight RR…',
@@ -504,6 +513,7 @@ class CoachEngine {
   /// Start a brand-new conversation (not written to disk until first message).
   void newSession() {
     _sessionId = _newId();
+    _rev = null;
     _title = '';
     _createdAt = 0;
     _history.clear();
@@ -520,6 +530,7 @@ class CoachEngine {
       }
       final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       _sessionId = id;
+      _rev = _savedRevs['$storageKey/$id'];
       _title = (j['title'] ?? '').toString();
       _createdAt = (j['createdAt'] as num?)?.toInt() ?? 0;
       _history
@@ -546,6 +557,9 @@ class CoachEngine {
     if (_deletedSessionIds.contains('$storageKey/$_sessionId')) return;
     await debugAfterSaveCheck?.call();
     if (_sessionId.isEmpty) _sessionId = _newId();
+    // Another engine saved this chat after we loaded it: writing ours over it
+    // would lose its turn. Keep both, ours as a new chat.
+    if (_savedRevs['$storageKey/$_sessionId'] != _rev) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_createdAt == 0) _createdAt = now;
     if (_title.isEmpty) _title = _deriveTitle();
@@ -564,6 +578,10 @@ class CoachEngine {
         'title': _title, 'createdAt': _createdAt, 'updatedAt': now,
         'history': _history, 'transcript': transcript.map((e) => e.toJson()).toList(),
       }));
+      // Only after the file holds it, so an engine that opens the chat
+      // between the two never pairs the new stamp with the old contents.
+      _rev = _newId();
+      _savedRevs['$storageKey/$_sessionId'] = _rev!;
       await _updateIndex(_sessionId, _title, now, _preview());
     } catch (_) {}
   }

@@ -123,6 +123,44 @@ void main() {
     expect(await _indexIds(dir), isEmpty);
   });
 
+  test('two screens on one chat do not save over each other', () async {
+    final dir = await _documents();
+    final a = await _engine(MockClient((_) async => _reply('first')));
+    a.transcript.add(CoachItem.user('how did I sleep'));
+    await a.persist();
+    final id = a.sessionId;
+    // A long reply is still running on the first screen; a second screen
+    // reopens the chat as it was saved and sends its own turn.
+    a.transcript.add(CoachItem.assistant('slow answer'));
+    final b = await _engine(MockClient((_) async => _reply('unused')));
+    await b.openSession(id);
+    b.transcript.add(CoachItem.user('and today'));
+    await b.persist();
+    await a.persist();
+
+    final saved = [
+      for (final n in _coachFiles(dir))
+        [
+          for (final t in (jsonDecode(File('${dir.path}/$n').readAsStringSync())
+              as Map)['transcript'] as List)
+            (t as Map)['text'],
+        ],
+    ];
+    expect(saved, unorderedEquals([
+      ['how did I sleep', 'and today'],
+      ['how did I sleep', 'slow answer'],
+    ]));
+    expect(await _indexIds(dir), hasLength(2));
+    expect(await _indexIds(dir), contains(id));
+
+    // Each engine keeps saving to its own chat from here on.
+    final aId = a.sessionId;
+    a.transcript.add(CoachItem.user('more'));
+    await a.persist();
+    expect(a.sessionId, aId);
+    expect(await _indexIds(dir), hasLength(2));
+  });
+
   test('a delete waits for a save already writing that chat', () async {
     final dir = await _documents();
     final engine = await _engine(MockClient((_) async => _reply('ok')));
