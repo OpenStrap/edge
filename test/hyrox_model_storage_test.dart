@@ -957,6 +957,43 @@ void main() {
       await LocalDb.close();
     });
 
+    for (final moved in [false, true]) {
+      test('removeBoundary stays removed after the next reconcile'
+          '${moved ? ' (boundary moved by hand first)' : ''}', () async {
+        final db = await freshDb('hx_rmb_tap_${moved}_test.db');
+        final id = 'hx_rmb_tap_$moved';
+        final t0 = 1_000_000;
+        await HyroxDb.create(db, armedSession(id, createdAt: t0 * 1000));
+        for (final ts in [600, 602, 604, 900, 902, 904, 905]) {
+          await db.insert('band_events', {
+            'device_id': '',
+            'hex': 'dtap_${t0 + ts}',
+            'event_id': 14,
+            'name': 'DOUBLE_TAP',
+            'ts': t0 + ts,
+            'payload_json': '{}',
+            'captured_at': (t0 + ts) * 1000,
+          });
+        }
+        final reconciler = HyroxReconciler(db);
+        expect(await reconciler.reconcile(id, deviceId: ''), hasLength(2));
+        if (moved) {
+          await HyroxDb.adjustBoundary(
+              db: db, sessionId: id, idx: 0, newTs: t0 + 880);
+        }
+        await HyroxDb.removeBoundary(db: db, sessionId: id, idx: 0);
+
+        // The rest of the 900 burst (902/904/905) still clears the gate on
+        // its own; it must not split the round again.
+        expect(await reconciler.reconcile(id, deviceId: ''), isEmpty);
+        final segs = await HyroxDb.segments(db, id);
+        expect(segs[0].startTs, t0 + 600);
+        expect(segs[0].endTs, isNull);
+        expect(segs[1].startTs, isNull);
+        await LocalDb.close();
+      });
+    }
+
     test('an open segment from yesterday is deleted with today', () async {
       final db = await freshDb('hx_open_overlap_test.db');
       final now = DateTime.now();

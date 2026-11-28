@@ -34,6 +34,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'hyrox_plan.dart';
+import '../state/hyrox_reconciler.dart' show kHyroxDoubleTapEventId;
 
 /// schemaVersion 62. Parent before child on every create. (Rung 60 belongs to
 /// the triathlon storage PR; rung 61 created these tables, rung 62 adds the
@@ -919,9 +920,20 @@ class HyroxDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx + 1],
       );
-      // Persist the removed boundary anchor so a later reconcile does not
-      // re-derive the same boundary from the still-present band taps.
-      await _addExcludedTap(txn, sessionId, right.startTs!);
+      // Exclude every stored tap the reconciler could still use: anything at
+      // or before the merged start is already below its floor. Excluding only
+      // the boundary time is not enough, the rest of the burst re-forms it a
+      // couple of seconds later, and a boundary moved by hand matches no tap.
+      final taps = await txn.query(
+        'band_events',
+        columns: ['ts'],
+        where: 'event_id = ? AND ts > ?',
+        whereArgs: [kHyroxDoubleTapEventId, left.startTs!],
+      );
+      await _addExcludedTaps(txn, sessionId, [
+        right.startTs!,
+        for (final r in taps) (r['ts'] as num).toInt(),
+      ]);
       _validateTimeline(await segmentsStrict(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId);
     });
@@ -1064,8 +1076,8 @@ class HyroxDb {
     });
   }
 
-  /// Tap-cluster anchors the athlete manually removed via removeBoundary;
-  /// reconcile must never re-derive them. Stored as a JSON int list on the
+  /// Strap tap times dropped by removeBoundary; reconcile skips them so a
+  /// removed boundary is never re-derived. Stored as a JSON int list on the
   /// session row (rung 62 column).
   static Future<List<int>> excludedTaps(DatabaseExecutor db, String id) async {
     final rows = await db.query(
@@ -1082,11 +1094,11 @@ class HyroxDb {
     return decoded is List ? [for (final v in decoded) (v as num).toInt()] : const [];
   }
 
-  static Future<void> _addExcludedTap(
-      DatabaseExecutor db, String id, int tapSec) async {
+  static Future<void> _addExcludedTaps(
+      DatabaseExecutor db, String id, List<int> tapSecs) async {
     final cur = await excludedTaps(db, id);
-    if (cur.contains(tapSec)) return;
-    final next = [...cur, tapSec]..sort();
+    final next = {...cur, ...tapSecs}.toList()..sort();
+    if (next.length == cur.length) return;
     await db.update(
       'hyrox_session',
       {'excluded_taps_json': jsonEncode(next), 'updated_at': DateTime.now().millisecondsSinceEpoch},
