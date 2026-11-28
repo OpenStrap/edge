@@ -18,7 +18,7 @@
 // [kMiBandColumn]. Readiness and movement are the estimates (PLAN §3b).
 
 import 'canonical.dart';
-import 'garmin_inputs.dart' show at;
+import 'garmin_inputs.dart' show at, zoneMinutes;
 import 'pebble_inputs.dart' show rhrOnlyReadiness;
 
 /// The adapter id the host stamps on this band's `decoded_onehz` rows.
@@ -90,9 +90,7 @@ final Map<String, Cell> kMiBandColumn = {
   // ponytail: off HR zones, not the band's per-minute intensity byte; move
   // to that once its scale is checked against a worn band.
   'movement': Cell(
-    estimated: (d, _) => d['zones'] is Map
-        ? (d['zones'] as Map).values.whereType<num>().fold<num>(0, (a, b) => a + b)
-        : null,
+    estimated: (d, _) => zoneMinutes(d),
     estimatedMethod: 'hr_1min_zone_minutes',
     reason: Why.noWakeHr,
   ),

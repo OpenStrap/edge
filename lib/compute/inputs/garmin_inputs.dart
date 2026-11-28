@@ -207,6 +207,15 @@ num? at(Map m, List<String> path) {
   return v is num ? v : null;
 }
 
+/// Minutes summed across the stored HR zones, or null when no zone set was
+/// computed (an empty map means abstained, not a measured zero).
+num? zoneMinutes(Map d) {
+  final z = d['zones'];
+  if (z is! Map) return null;
+  final mins = z.values.whereType<num>();
+  return mins.isEmpty ? null : mins.fold<num>(0, (a, b) => a + b);
+}
+
 /// Garmin's column of the metric x device table (PLAN §3b), as served.
 final Map<String, Cell> kGarminColumn = {
   // Ours is the HR-led window off its one-a-minute HR (in bed); the watch's
@@ -286,9 +295,7 @@ final Map<String, Cell> kGarminColumn = {
   // ponytail: off HR zones, not the watch's activity records; move to those
   // once its FIT activity fields are decoded and checked against a real watch.
   'movement': Cell(
-    estimated: (d, _) => d['zones'] is Map
-        ? (d['zones'] as Map).values.whereType<num>().fold<num>(0, (a, b) => a + b)
-        : null,
+    estimated: (d, _) => zoneMinutes(d),
     estimatedMethod: 'hr_1min_zone_minutes',
     reason: Why.noWakeHr,
   ),
