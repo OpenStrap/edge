@@ -1478,7 +1478,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // A rolling RMSSD of the same beats: none on an over-counted stream.
   final hrvTimeline = rrCov?.overCounted == true
       ? const <Map<String, num>>[]
-      : _hrvTimeline(nn, nnTimes, hrvOriginMs);
+      : rollingHrvTimeline(nn, nnTimes, hrvOriginMs);
   // CV-06 — the SHAPE of the night: per-bin RMSSD over the same cleaned NN the
   // headline uses, so the curve and the number can never disagree. Bins that
   // fall under the beat floor stay in the series as HOLES on purpose — dropping
@@ -2528,7 +2528,11 @@ List<Map<String, num>> _downsampleHr(List<int> tsSec, List<int> hr) {
 /// `t` is EPOCH SECONDS. [originMs] is the wall clock at `nnTimes == 0` (see
 /// the call site); with no origin there is no honest x-axis, so nothing is
 /// emitted rather than a curve stamped in 1970.
-List<Map<String, num>> _hrvTimeline(
+///
+/// Successive in TIME, not in the compacted list: across a recording gap or a
+/// dropped artifact run the two neighbours in [nn] are not neighbouring beats,
+/// so that pair is skipped (same contiguity test `hrvTime` uses).
+List<Map<String, num>> rollingHrvTimeline(
   List<double> nn,
   List<double> nnTimes,
   double? originMs,
@@ -2550,11 +2554,15 @@ List<Map<String, num>> _hrvTimeline(
     if (nnTimes[i] - nnTimes[0] < winMs) continue;
     if (i - lo >= 10) {
       var ssd = 0.0;
+      var pairs = 0;
       for (var k = lo + 1; k <= i; k++) {
+        if (nnTimes[k] - nnTimes[k - 1] > nn[k] + 0.5) continue;
         final diff = nn[k] - nn[k - 1];
         ssd += diff * diff;
+        pairs++;
       }
-      final rmssd = math.sqrt(ssd / (i - lo));
+      if (pairs < 10) continue;
+      final rmssd = math.sqrt(ssd / pairs);
       final tSec = ((originMs + nnTimes[i]) / 1000).round();
       if (out.isEmpty || tSec - out.last['t']! > 60) {
         out.add({'t': tSec, 'v': _round(rmssd, 1)});
