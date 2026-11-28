@@ -447,11 +447,27 @@ class WidgetService {
     }
   }
 
+  /// How often an unchanged battery reading is re-pushed while connected.
+  /// `batt_at` is the widget's "last contact" stamp and it mutes after 18 h,
+  /// so a value that never moves still has to refresh the stamp.
+  static const batteryHeartbeat = Duration(hours: 1);
+
+  /// True when the device-state hook should re-push an unchanged reading:
+  /// connected, and nothing pushed within [batteryHeartbeat].
+  static bool batteryHeartbeatDue(
+    DateTime? lastPush,
+    DateTime now, {
+    required bool connected,
+  }) =>
+      connected &&
+      (lastPush == null || now.difference(lastPush) >= batteryHeartbeat);
+
   /// Push the band's battery snapshot for the lock-screen Band Battery widget.
   /// Battery is a live BLE value (not in /today), so that widget never refreshes
   /// over the network — it renders whatever we last wrote here. Call from the
-  /// device-state hook, but only when pct/charging actually changed (the hook
-  /// fires ~1 Hz on live HR; reloading the widget every tick is wasteful).
+  /// device-state hook, only when pct/charging changed or [batteryHeartbeatDue]
+  /// (the hook fires ~1 Hz on live HR; reloading the widget every tick is
+  /// wasteful).
   /// Sentinel: pct -1 = never seen the band. [name] is the strap's advertising
   /// name (the widget falls back to "Strap" when empty/null).
   static Future<void> pushBattery(int? pct, bool? charging, String? name) async {
