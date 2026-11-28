@@ -15072,12 +15072,21 @@ class LocalDb {
   /// have started. The job is already marked `running`, so it has to be handed
   /// back explicitly or it sits claimed until the next [recoverComputeJobs].
   /// The attempt increment is undone too — being deferred is not a failure.
-  static Future<void> requeueComputeJob(String id) async {
+  /// [countAttempt] keeps it, for a pass that ran and failed.
+  static Future<void> requeueComputeJob(
+    String id, {
+    bool countAttempt = false,
+  }) async {
     final db = await instance;
     await db.rawUpdate(
       'UPDATE compute_jobs SET state = ?, '
-      'attempts = MAX(attempts - 1, 0), updated_at = ? WHERE id = ?',
-      ['queued', DateTime.now().millisecondsSinceEpoch, id],
+      'attempts = MAX(attempts - ?, 0), updated_at = ? WHERE id = ?',
+      [
+        'queued',
+        countAttempt ? 0 : 1,
+        DateTime.now().millisecondsSinceEpoch,
+        id,
+      ],
     );
   }
 
