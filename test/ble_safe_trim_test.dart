@@ -175,6 +175,22 @@ void main() {
       expect(d.lastTrimAdvanced, isTrue);
     });
 
+    test('a token whose ACK never went out still counts as an advance when '
+        're-delivered', () async {
+      final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.lastTrimAdvanced, isTrue);
+      d.ackNotSent(); // ACK write exhausted: the band did not trim
+      expect(d.lastTrimAdvanced, isFalse);
+
+      // The band re-delivers the same chunk with the same token.
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.lastTrimAdvanced, isTrue,
+          reason: 'this ACK is the one that trims');
+    });
+
     test('an empty buffer commit does not claim trim advanced', () async {
       final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
       expect(await d.commit(_tokenA), isTrue);
