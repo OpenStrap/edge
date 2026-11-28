@@ -133,6 +133,39 @@ void main() {
       expect(repo.stored['caffeine_mg']?.atMinuteOfDay, 21 * 60);
       expect(repo.stored['water_ml']?.atMinuteOfDay, isNull);
     });
+
+    test('water adds to what was already logged', () async {
+      final repo = _FakeRepo()
+        ..stored = {
+          'water_ml': const JournalMetricValue(1500),
+          'caffeine_mg': const JournalMetricValue(100, atMinuteOfDay: 15 * 60),
+          'mood': const JournalMetricValue(4),
+        };
+      await CoachActions.logJournalFields(repo, {
+        'date': '2026-08-14',
+        'time': '08:00',
+        'fields': {'water_ml': 1000, 'caffeine_mg': 80, 'mood': 2},
+      });
+      expect(repo.stored['water_ml']?.value, 2500);
+      expect(repo.stored['caffeine_mg']?.value, 180);
+      // An earlier cup never moves the latest-dose time.
+      expect(repo.stored['caffeine_mg']?.atMinuteOfDay, 15 * 60);
+      // A rating is still a replace.
+      expect(repo.stored['mood']?.value, 2);
+    });
+
+    test('a running total past the range is refused, nothing written', () async {
+      final repo = _FakeRepo()
+        ..stored = {'water_ml': const JournalMetricValue(5500)};
+      await expectLater(
+        CoachActions.logJournalFields(repo, {
+          'fields': {'water_ml': 1000},
+        }),
+        throwsA(isA<CoachActionError>()),
+      );
+      expect(repo.wroteDay, isNull);
+      expect(repo.stored['water_ml']?.value, 5500);
+    });
   });
 
   group('setStepGoal actually stores something (P2)', () {

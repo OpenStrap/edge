@@ -1396,7 +1396,8 @@ class CoachEngine {
         'Record the user\'s own numbers for a day (asks them to confirm). This '
         'is where WATER and MOOD live. Fields: mood, sleep_quality, energy, '
         'stress, soreness (all 1–5), water_ml, caffeine_mg, alcohol_units, '
-        'screens_min, weight_kg. Fields you do not pass are left as they are.',
+        'screens_min, weight_kg. Fields you do not pass are left as they are. '
+        'water_ml, caffeine_mg and alcohol_units add to the day\'s total.',
         {
           'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
           'fields': {'type': 'object', 'description': 'field key -> number'},

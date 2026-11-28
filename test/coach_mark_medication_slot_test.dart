@@ -70,4 +70,31 @@ void main() {
     );
     expect(slots.single.state, DoseState.taken);
   });
+
+  test('adding a dose to a paused med makes it active again', () async {
+    final db = await open();
+    final def = (await MedDb.defs(db)).single;
+    await MedDb.putDef(
+      db,
+      MedDef(
+        key: def.key,
+        label: def.label,
+        schedule: def.schedule,
+        active: false,
+        createdAt: def.createdAt,
+      ),
+    );
+    expect(await MedDb.defs(db), isEmpty);
+    await CoachActions.addMedication(db, {'name': 'vitamin D', 'time': '21:00'});
+    final back = (await MedDb.defs(db)).single;
+    expect(back.schedule.map((s) => s.minuteOfDay), [480, 1260]);
+    // And the follow-up "mark it taken" finds it.
+    await CoachActions.markMedication(db, {
+      'name': 'Vitamin D',
+      'date': '2026-10-17',
+      'time': '21:00',
+      'state': 'taken',
+    });
+    expect(await MedDb.dosesForDay(db, '2026-10-17'), hasLength(1));
+  });
 }
