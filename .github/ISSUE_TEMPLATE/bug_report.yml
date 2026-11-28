@@ -15,7 +15,7 @@ body:
       label: What happened?
       description: What you saw, and what you expected instead.
       placeholder: |
-        Readiness showed "—" all morning even though the band synced overnight.
+        Recovery showed no score all morning even though the band synced overnight.
         I expected a score by the time I woke up.
     validations:
       required: true
@@ -28,7 +28,7 @@ body:
       placeholder: |
         1. Wear the band overnight
         2. Open the app in the morning
-        3. Today screen shows "—"
+        3. Today screen shows no recovery score
     validations:
       required: false
 
@@ -63,10 +63,13 @@ body:
   - type: dropdown
     id: band
     attributes:
-      label: Which band?
+      label: Which device?
       options:
         - WHOOP 4.0
-        - WHOOP 5.0 / MG (experimental — expect breakage)
+        - WHOOP 5.0 / MG
+        - Oura Ring
+        - Bluetooth heart-rate strap (Polar, Garmin HRM, etc.)
+        - Another device (say which above)
         - Not sure
     validations:
       required: true
@@ -88,7 +91,7 @@ body:
     attributes:
       label: Quick checks
       options:
-        - label: The official WHOOP app is not also connected to this band
+        - label: The device's own app is not also connected to it
           required: false
         - label: I've searched existing issues for this
           required: false
