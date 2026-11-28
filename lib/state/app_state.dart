@@ -453,6 +453,7 @@ class AppState extends ChangeNotifier {
   int _widgetBattPct = -2;
   bool? _widgetBattCharging;
   String? _widgetBattName;
+  DateTime? _widgetBattAt;
   int? _storedBatteryPct;
 
   /// Raw strapName last seen from the engine — change-gates the per-tick
@@ -5083,11 +5084,21 @@ class AppState extends ChangeNotifier {
       pairedIsMaverick = true;
       unawaited(_ecgGuard.rememberMaverick(mgSerial));
     }
-    // Keep the lock-screen Band Battery widget current — only when it changed.
+    // Keep the lock-screen Band Battery widget current — when it changed, or
+    // on a heartbeat while connected so a reading that sits still (100% on
+    // the charger overnight) doesn't age into "last known".
     final battPct = roundedPct ?? -1;
+    final now = DateTime.now();
     if (battPct != _widgetBattPct ||
         s.charging != _widgetBattCharging ||
-        s.strapName != _widgetBattName) {
+        s.strapName != _widgetBattName ||
+        (s.batteryPct != null &&
+            WidgetService.batteryHeartbeatDue(
+              _widgetBattAt,
+              now,
+              connected: s.connection == 'connected',
+            ))) {
+      _widgetBattAt = now;
       _widgetBattPct = battPct;
       _widgetBattCharging = s.charging;
       _widgetBattName = s.strapName;
