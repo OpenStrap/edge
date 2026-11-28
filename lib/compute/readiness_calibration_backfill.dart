@@ -159,6 +159,8 @@ Future<int> _seedZ(Iterable<String> days) async {
 Future<int> seedRecentReadinessZ() async {
   if (await LocalDb.computeFreshness(kReadinessZSeedKey) != null) return 0;
   final days = await _storedDays();
+  // Empty store: leave unmarked so a later restore is still seeded.
+  if (days.isEmpty) return 0;
   final n = await _seedZ(
       days.skip(days.length > kReadinessZSeedDays
           ? days.length - kReadinessZSeedDays
@@ -201,6 +203,10 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   };
   final waiting = state?['pending'] is Map ? waited.keys.toList() : null;
   final days = waiting ?? await _storedDays();
+  // Empty store: leave unmarked so a later restore is still re-scored.
+  if (days.isEmpty && waiting == null) {
+    return (seeded: 0, rescored: 0, forced: 0);
+  }
   final seeded = waiting == null ? await _seedZ(days) : 0;
   final lookup = await zHistoryLoader();
   final versions = await LocalDb.dayResultVersions();

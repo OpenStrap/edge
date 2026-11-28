@@ -163,6 +163,12 @@ void main() {
   });
 
   group('backfillStrainScale — the stored history', () {
+    test('an empty store is left UNMARKED for a later restore', () async {
+      final r = await backfillStrainScale(female: false);
+      expect(r.didWork, isFalse);
+      expect(await LocalDb.computeFreshness(kStrainRescaleKey), isNull);
+    });
+
     test('waits, UNMARKED, until a quiet-waking level exists', () async {
       await seedDay('2026-07-09',
           trimp: 177.80394321843846, strain: 12.790964777435558,
