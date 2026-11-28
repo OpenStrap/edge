@@ -583,8 +583,11 @@ class GarminAdapter extends BandAdapter {
       }
       gfdiHandle = reg.handle;
 
-      // A watch that never sends its configuration still gets synced.
-      final kick = Timer(configWait, () => unawaited(startSync()));
+      // A watch that never sends its configuration still gets synced. Queued
+      // on the dispatch chain, so it never cuts into a reply mid-write.
+      final kick = Timer(configWait, () {
+        dispatch = dispatch.then((_) => startSync());
+      });
       final timer = Timer(sessionWindow, () {
         if (!events.isClosed) events.close();
       });

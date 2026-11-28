@@ -243,6 +243,32 @@ void main() {
     expect(sent[2].payload, [kGarminEventHandshakeComplete, 0]);
   });
 
+  test('the config-wait fallback waits for a configuration reply still being '
+      'written', () async {
+    final slow = GarminAdapter(
+      handshakeTimeout: const Duration(milliseconds: 200),
+      registerTimeout: const Duration(milliseconds: 200),
+      sessionWindow: const Duration(seconds: 5),
+      configWait: const Duration(milliseconds: 50),
+    );
+    final link = ReplayBandLink();
+    await replay(slow, link, whileRunning: (l) async {
+      await _open(l);
+      l.writeDelay = const Duration(milliseconds: 20);
+      // Lands just before the fallback fires, so it fires mid-reply.
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      await _push(l, garminBuildGfdiFrame(kGarminMsgConfiguration, [1, 0x10]));
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+    });
+    expect([for (final f in _sent(link)) garminMessageType(f.type)], [
+      kGarminMsgResponse,
+      kGarminMsgConfiguration,
+      kGarminMsgSystemEvent,
+      kGarminMsgProtobufRequest,
+      kGarminMsgDownloadRequest,
+    ]);
+  });
+
   test('no HANDSHAKE_COMPLETE for a watch whose configuration does not ask',
       () async {
     final link = ReplayBandLink();
