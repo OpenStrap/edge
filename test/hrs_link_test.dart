@@ -22,6 +22,7 @@ import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/compute/inputs/canonical.dart'
     show wearableEnabledCursor;
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/sync/paired_device.dart' show kBandSourceTier;
 
 /// Frames as the three common flag shapes put them on the wire.
 ///
@@ -579,6 +580,13 @@ void main() {
   group('tier derivation', () {
     test('a strap that declares beat-to-beat gets that tier by default', () {
       expect(HrsLink.deriveTier(null, kBleHrs.id), 'beatToBeat');
+    });
+
+    test('a plain-paired watch or ring is optical, not beat-to-beat', () {
+      for (final e in [kGarmin, kColmi, kUltrahuman, kHelioStrap, kPebble, kCoros]) {
+        expect(HrsLink.deriveTier(null, e.id), kBandSourceTier, reason: e.id);
+      }
+      expect(HrsLink.deriveTier(null, kPolarPmd.id), 'beatToBeat');
     });
 
     test('a band that declares no signals stays null, not inherited', () {
