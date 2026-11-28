@@ -11,7 +11,7 @@
 
 import 'dart:math' as math;
 
-import 'route_math.dart' show haversineMeters;
+import 'route_math.dart' show haversineMeters, isImplausibleSegment;
 import 'route_models.dart';
 
 /// Gaps smaller than this read as "level": consumer GPS wanders a few metres
@@ -23,6 +23,13 @@ const double kGhostOffRouteM = 50.0;
 
 /// Start must be within this of the ghost's start to race it.
 const double kGhostStartNearM = 250.0;
+
+/// The runner must be this close to the ghost's endpoint to be finished.
+const double kGhostFinishNearM = 30.0;
+
+/// Fastest believable progress along the route, m/s. A fix whose progress the
+/// previous fix and the elapsed time cannot reach is not accepted.
+const double kGhostMaxSpeedMps = 12.0;
 
 /// The start-proximity check applies to fixes this early in the race.
 const int kGhostStartWindowSec = 120;
@@ -46,13 +53,15 @@ GhostRefusal? ghostUnusableReason(List<RoutePoint> pts) {
   var m = 0.0;
   var gapMs = 0;
   for (var i = 1; i < pts.length; i++) {
-    m += haversineMeters(
+    final dt = pts[i].tsMs - pts[i - 1].tsMs;
+    final seg = haversineMeters(
       pts[i - 1].lat,
       pts[i - 1].lng,
       pts[i].lat,
       pts[i].lng,
     );
-    final dt = pts[i].tsMs - pts[i - 1].tsMs;
+    // Same rule as totalDistanceMeters: an implausible step is a break.
+    if (!isImplausibleSegment(seg, dt)) m += seg;
     if (dt > 60000) gapMs += dt;
   }
   if (m < kGhostMinMeters) return GhostRefusal.tooShort;
@@ -83,15 +92,14 @@ class GhostTrack {
     if (ghostUnusableReason(pts) != null) return null;
     final cum = <double>[0];
     for (var i = 1; i < pts.length; i++) {
-      cum.add(
-        cum.last +
-            haversineMeters(
-              pts[i - 1].lat,
-              pts[i - 1].lng,
-              pts[i].lat,
-              pts[i].lng,
-            ),
+      final seg = haversineMeters(
+        pts[i - 1].lat,
+        pts[i - 1].lng,
+        pts[i].lat,
+        pts[i].lng,
       );
+      final broken = isImplausibleSegment(seg, pts[i].tsMs - pts[i - 1].tsMs);
+      cum.add(cum.last + (broken ? 0.0 : seg));
     }
     return GhostTrack._(pts, cum);
   }
@@ -136,10 +144,11 @@ class GhostTrack {
 
   /// Milliseconds after its start that the ghost was [distM] along. Clamped
   /// to [0, durationMs]. Where the ghost stood still the EARLIEST time at
-  /// that distance is returned (you were "there" when it first arrived).
+  /// that distance is returned (you were "there" when it first arrived), the
+  /// finish included.
   int timeAtDistM(double distM) {
     if (distM <= 0) return 0;
-    if (distM >= totalM) return durationMs;
+    if (distM > totalM) distM = totalM;
     var lo = 0, hi = cum.length - 1;
     while (hi - lo > 1) {
       final mid = (lo + hi) >> 1;
@@ -180,16 +189,32 @@ class GhostTrack {
     final mLat = 111320.0;
     final mLng = 111320.0 * math.cos(lat * math.pi / 180);
     var bestOff = double.infinity, bestAlong = 0.0;
-    for (var i = 0; i + 1 < pts.length; i++) {
-      if (cum[i + 1] < fromM || cum[i] > toM) continue;
+    // First segment that reaches fromM (cum is non-decreasing).
+    var lo = 0, hi = pts.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (cum[mid + 1] < fromM) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    for (var i = lo; i + 1 < pts.length; i++) {
+      if (cum[i] > toM) break;
+      if (cum[i + 1] < fromM) continue;
       final ax = (pts[i].lng - lng) * mLng, ay = (pts[i].lat - lat) * mLat;
       final bx = (pts[i + 1].lng - lng) * mLng,
           by = (pts[i + 1].lat - lat) * mLat;
       final dx = bx - ax, dy = by - ay;
       final len2 = dx * dx + dy * dy;
+      // Clip to the search window so a segment straddling its edge can not
+      // match outside it.
+      final segM = cum[i + 1] - cum[i];
+      final tLo = segM <= 0 ? 0.0 : math.max(0.0, (fromM - cum[i]) / segM);
+      final tHi = segM <= 0 ? 1.0 : math.min(1.0, (toM - cum[i]) / segM);
       final t = len2 == 0
-          ? 0.0
-          : (-(ax * dx + ay * dy) / len2).clamp(0.0, 1.0).toDouble();
+          ? tLo
+          : (-(ax * dx + ay * dy) / len2).clamp(tLo, tHi).toDouble();
       final px = ax + dx * t, py = ay + dy * t;
       final off = math.sqrt(px * px + py * py);
       if (off < bestOff) {
@@ -250,6 +275,11 @@ class GhostReading {
 class GhostRace {
   final GhostTrack track;
   double? _lastAlong;
+  int _lastElapsedMs = 0;
+
+  // The gap at the moment the runner first finished: kept for the rest of the
+  // race, so standing at the line does not turn a win into a loss.
+  double? _finGapM, _finGapSec, _finAlong;
   GhostRace(this.track);
 
   /// [elapsedMs] is your session clock; [lat]/[lng] your latest fix, or null
@@ -272,6 +302,14 @@ class GhostRace {
       ghostAlongM: g.distM,
       offsetM: off,
     );
+    if (_finGapSec != null) {
+      return r(
+        GhostState.finished,
+        gapM: _finGapM,
+        gapSec: _finGapSec,
+        along: _finAlong,
+      );
+    }
     if (lat == null || lng == null) return r(GhostState.waiting);
     // Before any progress is known you must be at the start; this is the
     // "different place" refusal, in metres, not a guess.
@@ -287,13 +325,28 @@ class GhostRace {
     if (p.offsetM > kGhostOffRouteM) {
       return r(GhostState.offRoute, off: p.offsetM);
     }
+    // Progress the last accepted fix and the elapsed time can not reach (a
+    // fallback match on a revisited stretch) is not accepted or reported.
+    final last = _lastAlong;
+    if (last != null) {
+      final dtSec = math.max(0, elapsedMs - _lastElapsedMs) / 1000.0;
+      if ((p.alongM - last).abs() >
+          kGhostMaxSpeedMps * dtSec + 2 * kGhostOffRouteM) {
+        return r(GhostState.offRoute, off: p.offsetM);
+      }
+    }
     _lastAlong = p.alongM;
+    _lastElapsedMs = elapsedMs;
     final gapM = p.alongM - g.distM;
     // Seconds: the ghost stood where you stand at time tg; you are here at
     // `elapsed`. Arriving sooner is ahead, so the gap is tg - elapsed.
     final tg = track.timeAtDistM(p.alongM);
     final gapSec = (tg - elapsedMs) / 1000.0;
-    if (p.alongM >= track.totalM - kGhostLevelM) {
+    final endD = haversineMeters(lat, lng, track.pts.last.lat, track.pts.last.lng);
+    if (p.alongM >= track.totalM - kGhostLevelM && endD <= kGhostFinishNearM) {
+      _finGapM = gapM;
+      _finGapSec = gapSec;
+      _finAlong = p.alongM;
       return r(
         GhostState.finished,
         gapM: gapM,
@@ -437,6 +490,7 @@ GhostComparison? compareRuns(
   List<RoutePoint> ghost, {
   double splitM = 1000,
 }) {
+  if (!splitM.isFinite || splitM <= 0) return null;
   final g = GhostTrack.tryBuild(ghost);
   final u = GhostTrack.tryBuild(you);
   if (g == null || u == null) return null;
@@ -449,17 +503,39 @@ GhostComparison? compareRuns(
   final marks = <(double, int)>[];
   double? near;
   var best = -1.0;
+  // Your own path length since the last accepted mark: projected progress
+  // must be coverable by it, or a skipped stretch (a loop cut off by a direct
+  // path) would be credited as time gained.
+  var pathSince = 0.0;
+  var skipped = false;
+  RoutePoint? prev;
   for (final p in you) {
+    if (prev != null) {
+      pathSince += haversineMeters(prev.lat, prev.lng, p.lat, p.lng);
+    }
+    prev = p;
     final pr = g.project(p.lat, p.lng, nearM: near);
     if (pr.offsetM > kGhostOffRouteM) continue;
+    if (marks.isNotEmpty && pr.alongM - best > pathSince * 1.1 + kGhostOffRouteM) {
+      skipped = true;
+      continue;
+    }
+    skipped = false;
     near = pr.alongM;
     if (pr.alongM <= best) continue;
     best = pr.alongM;
+    pathSince = 0;
     marks.add((best, p.tsMs - you.first.tsMs));
   }
-  if (marks.length < 2) return null;
-  final shared = marks.last.$1;
+  // The run ends on a stretch it did not cover: no honest comparison.
+  if (skipped || marks.length < 2) return null;
+  // Both times are measured from where your run joins the ghost's route.
+  final startM = marks.first.$1;
+  final startYouMs = marks.first.$2;
+  final shared = marks.last.$1 - startM;
   if (shared < math.min(splitM, kGhostMinMeters)) return null;
+  final endM = marks.last.$1;
+  final startGhostMs = g.timeAtDistM(startM);
 
   int? youAt(double d) {
     if (d < marks.first.$1 || d > marks.last.$1) return null;
@@ -475,10 +551,10 @@ GhostComparison? compareRuns(
   }
 
   final splits = <GhostSplit>[];
-  var from = 0.0;
+  var from = startM;
   var i = 1;
-  while (from < shared - 1) {
-    final to = math.min(from + splitM, shared);
+  while (from < endM - 1) {
+    final to = math.min(from + splitM, endM);
     // A trailing sliver is not a split: it would show a noisy ±seconds.
     if (to - from < splitM * 0.25 && splits.isNotEmpty) break;
     final y0 = youAt(from);
@@ -497,8 +573,9 @@ GhostComparison? compareRuns(
     from = to;
     i++;
   }
-  final endYou = youAt(shared)!;
-  final gap = (g.timeAtDistM(shared) - endYou) / 1000.0;
+  final yourMs = youAt(endM)! - startYouMs;
+  final ghostMs = g.timeAtDistM(endM) - startGhostMs;
+  final gap = (ghostMs - yourMs) / 1000.0;
   GhostSplit? gain, loss;
   for (final s in splits) {
     if (s.deltaSec > 0 && (gain == null || s.deltaSec > gain.deltaSec)) {

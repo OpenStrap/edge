@@ -172,6 +172,60 @@ void main() {
     });
   });
 
+  group('review fixes', () {
+    test('finish time is first arrival even with a stationary tail', () {
+      final pts = line(n: 61); // 900 m in 300 s
+      for (var i = 0; i < 5; i++) {
+        pts.add(RoutePoint(
+          seq: 61 + i,
+          tsMs: pts.last.tsMs + 5000,
+          lat: pts.last.lat,
+          lng: pts.last.lng,
+        ));
+      }
+      final tr = GhostTrack.tryBuild(pts);
+      // 900 m route is long enough? needs >= 120 s and 400 m: yes.
+      expect(tr!.timeAtDistM(tr.totalM), 300000);
+    });
+    test('finish gap is kept while standing at the line', () {
+      final race = GhostRace(ghost);
+      // reach the end at 900 s (ghost needs 1000 s): 100 s ahead
+      race.update(0, lat: 0, lng: 0);
+      for (var t = 5; t <= 880; t += 5) {
+        race.update(t * 1000, lat: 0, lng: lngAt(t * 3.4));
+      }
+      final a = race.update(900000, lat: 0, lng: lngAt(3000));
+      expect(a.state, GhostState.finished);
+      final b = race.update(1100000, lat: 0, lng: lngAt(3000));
+      expect(b.gapSec, a.gapSec);
+      expect(b.gapSec!, greaterThan(90));
+    });
+    test('passing the endpoint 40 m sideways is not a finish', () {
+      final race = GhostRace(ghost);
+      race.update(0, lat: 0, lng: 0);
+      for (var t = 5; t <= 880; t += 5) {
+        race.update(t * 1000, lat: 0, lng: lngAt(t * 3.4));
+      }
+      final r = race.update(900000, lat: 40 / _mPerDeg, lng: lngAt(3000));
+      expect(r.state, isNot(GhostState.finished));
+    });
+    test('a jump the elapsed time cannot cover is not accepted', () {
+      final race = GhostRace(ghost);
+      race.update(0, lat: 0, lng: 0);
+      race.update(10000, lat: 0, lng: lngAt(30));
+      // 2000 m further along in 5 s
+      final r = race.update(15000, lat: 0, lng: lngAt(2030));
+      expect(r.state, GhostState.offRoute);
+    });
+    test('window search does not match beyond the window', () {
+      final p = ghost.project(0, lngAt(690), nearM: 300, backM: 0, aheadM: 300);
+      // window ends at 600 m; 690 m is 90 m off -> falls back to whole track
+      expect(p.alongM, closeTo(690, 1));
+      final w = ghost.project(0, lngAt(590), nearM: 300, backM: 0, aheadM: 300);
+      expect(w.alongM, closeTo(590, 1));
+    });
+  });
+
   group('buzz policy', () {
     GhostReading at(double gap) => GhostReading(
       gap > 0 ? GhostState.ahead : GhostState.behind,
@@ -268,6 +322,54 @@ void main() {
       expect(c.splits[1].deltaSec, lessThan(-100)); // ~167 s vs 333 s
       expect(c.biggestLoss!.index, 2);
       expect(c.won, isFalse);
+    });
+    test('splitM <= 0 refuses instead of looping', () {
+      expect(compareRuns(line(), line(), splitM: 0), isNull);
+      expect(compareRuns(line(), line(), splitM: double.nan), isNull);
+    });
+    test('a run joining 100 m in is timed from there, not from its start', () {
+      // ghost: 3 m/s from 0. runner: same speed but starts at 100 m.
+      final you = [
+        for (var i = 0; i < 181; i++)
+          RoutePoint(
+            seq: i,
+            tsMs: 1000000 + i * 5000,
+            lat: 0,
+            lng: lngAt(100 + 15.0 * i),
+          ),
+      ];
+      final c = compareRuns(you, line())!;
+      expect(c.finalGapSec.abs(), lessThan(2));
+      expect(c.sharedM, closeTo(2700, 40));
+    });
+    test('skipping a loop is not credited as time gained', () {
+      // Ghost goes east 1000 m, loops north 150 m and back (300 m), east on.
+      // Runner cuts straight across.
+      RoutePoint p(int i, double e, double n) => RoutePoint(
+        seq: i,
+        tsMs: 0,
+        lat: n / _mPerDeg,
+        lng: e / _mPerDeg,
+      );
+      final gp = <RoutePoint>[];
+      var t = 0, k = 0;
+      void add(double e, double n) {
+        gp.add(RoutePoint(seq: k++, tsMs: 1000000 + t, lat: n / _mPerDeg, lng: e / _mPerDeg));
+        t += 5000;
+      }
+      for (var e = 0.0; e <= 1000; e += 15) { add(e, 0); }
+      for (var n = 15.0; n <= 150; n += 15) { add(1000, n); }
+      for (var n = 135.0; n >= 0; n -= 15) { add(1000, n); }
+      for (var e = 1015.0; e <= 2000; e += 15) { add(e, 0); }
+      final you = <RoutePoint>[];
+      var j = 0;
+      for (var e = 0.0; e <= 2000; e += 15) {
+        you.add(RoutePoint(seq: j, tsMs: 1000000 + 5000 * j, lat: 0, lng: e / _mPerDeg));
+        j++;
+      }
+      expect(p(0, 0, 0).seq, 0);
+      expect(routeSimilarity(you, gp)!, greaterThan(kSameRouteShare));
+      expect(compareRuns(you, gp), isNull);
     });
     test('a different route refuses instead of inventing a gap', () {
       expect(compareRuns(line(offM: 300), line()), isNull);
