@@ -283,6 +283,17 @@ void main() {
     );
   });
 
+  test('an error skip marker keeps the exception text', () async {
+    const day = '2026-02-20';
+    final dayEndSec = DateTime(2026, 2, 21).millisecondsSinceEpoch ~/ 1000;
+    await DerivationEngine().debugMarkDaySkipped(day, dayEndSec, dayEndSec,
+        reason: 'error', detail: 'no such function: json_each');
+    final row = await LocalDb.dayResult(day);
+    final payload = jsonDecode(row!['payload_json'] as String) as Map;
+    expect(payload['reason'], 'error');
+    expect(payload['detail'], 'no such function: json_each');
+  });
+
   test('a skip marker does not overwrite an existing skip marker\'s reason '
       'with a worse one — but is allowed to replace it', () async {
     const day = '2026-02-14';

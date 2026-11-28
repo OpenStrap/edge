@@ -400,6 +400,20 @@ void main() {
     expect(await LocalDb.getCursor('baseline_sig'), 'stale');
     expect(await DerivationEngine().rescanRecent(_profile), 5);
     expect(await LocalDb.getCursor('baseline_sig'), isNot('stale'));
+    // A refresh that throws after the days re-derived is capped like a failed
+    // day: a few retries, then the signature is stored.
+    await LocalDb.setCursor('baseline_sig', 'stale');
+    DerivationEngine.debugFailRescanRefresh = true;
+    try {
+      for (var i = 0; i < 3; i++) {
+        await DerivationEngine().rescanRecent(_profile);
+        expect(await LocalDb.getCursor('baseline_sig'), 'stale');
+      }
+      await DerivationEngine().rescanRecent(_profile);
+    } finally {
+      DerivationEngine.debugFailRescanRefresh = false;
+    }
+    expect(await LocalDb.getCursor('baseline_sig'), isNot('stale'));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('the 5-minute stager reads a record against the night\'s levels', () {

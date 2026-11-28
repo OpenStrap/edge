@@ -9855,36 +9855,51 @@ class LocalDb {
   /// Decoded 1 Hz frames in record-time order. This is the preferred derive
   /// read path: smaller than raw hex, directly queryable, and already split into
   /// canonical columns.
+  ///
+  /// The keyset cursor is (rec_ts, counter, device_id, ts_ms): since v47 two
+  /// devices can share a second, and every secondary device writes counter 0,
+  /// so (rec_ts, counter) alone ties and a page boundary inside the tie
+  /// skipped the second device's row. (device_id, ts_ms) is the table key, so
+  /// the full tuple is unique and the order is total.
   static Future<List<Map<String, dynamic>>> decodedOneHzBatchByRecTsRange({
     required int limit,
     required int fromRecTs,
     required int toRecTs,
     int? afterRecTs,
     int? afterCounter,
+    String? afterDeviceId,
+    int? afterTsMs,
   }) async {
     final db = await instance;
-    if (afterRecTs == null || afterCounter == null) {
-      return db.rawQuery(
-        'SELECT counter, rec_ts, hr, ax, ay, az, '
+    const cols = 'SELECT counter, rec_ts, hr, ax, ay, az, '
         'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
         'step_count, step_cadence, activity_class, skin_temp_c, '
-        'on_wrist, hr_valid, hr_alt, device_family, device_id, band_sleep_state '
-        'FROM decoded_onehz '
+        'on_wrist, hr_valid, hr_alt, device_family, device_id, ts_ms, '
+        'band_sleep_state '
+        'FROM decoded_onehz ';
+    const order = 'ORDER BY rec_ts ASC, counter ASC, device_id ASC, ts_ms ASC '
+        'LIMIT ?';
+    if (afterRecTs == null ||
+        afterCounter == null ||
+        afterDeviceId == null ||
+        afterTsMs == null) {
+      return db.rawQuery(
+        '$cols'
         'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
-        'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
+        '$order',
         [fromRecTs, toRecTs, limit],
       );
     }
     return db.rawQuery(
-      'SELECT counter, rec_ts, hr, ax, ay, az, '
-      'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
-      'step_count, step_cadence, activity_class, skin_temp_c, '
-      'on_wrist, hr_valid, hr_alt, device_family, device_id, band_sleep_state '
-      'FROM decoded_onehz '
+      '$cols'
       'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
-      'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
-      'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
-      [fromRecTs, toRecTs, afterRecTs, afterRecTs, afterCounter, limit],
+      'AND (rec_ts > ? OR (rec_ts = ? AND (counter > ? OR (counter = ? AND '
+      '(device_id > ? OR (device_id = ? AND ts_ms > ?)))))) '
+      '$order',
+      [
+        fromRecTs, toRecTs, afterRecTs, afterRecTs, afterCounter, afterCounter,
+        afterDeviceId, afterDeviceId, afterTsMs, limit,
+      ],
     );
   }
 

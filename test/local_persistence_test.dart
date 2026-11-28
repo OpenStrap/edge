@@ -451,4 +451,38 @@ void main() {
       ); // always latest ACK
     },
   );
+
+  test('decoded 1 Hz paging keeps both devices on a shared second', () async {
+    // Two secondary devices (counter 0 each) on the same seconds: a page
+    // boundary inside the (rec_ts, counter) tie used to drop the second one.
+    final db = await LocalDb.instance;
+    const base = 1760000000;
+    for (final id in const ['ring-TEST-0001', 'watch-TEST-0001']) {
+      for (var t = base; t < base + 3; t++) {
+        await db.insert('decoded_onehz', {
+          'device_id': id, 'ts_ms': t * 1000, 'rec_ts': t, 'counter': 0,
+          'hr': 60,
+        });
+      }
+    }
+    final seen = <String>[];
+    int? recTs, counter, tsMs;
+    String? deviceId;
+    while (true) {
+      final page = await LocalDb.decodedOneHzBatchByRecTsRange(
+        limit: 1, fromRecTs: base, toRecTs: base + 2,
+        afterRecTs: recTs, afterCounter: counter,
+        afterDeviceId: deviceId, afterTsMs: tsMs,
+      );
+      if (page.isEmpty) break;
+      final r = page.single;
+      seen.add('${r['rec_ts']}/${r['device_id']}');
+      recTs = r['rec_ts'] as int;
+      counter = r['counter'] as int;
+      deviceId = r['device_id'] as String;
+      tsMs = r['ts_ms'] as int;
+    }
+    expect(seen, hasLength(6));
+    expect(seen.toSet(), hasLength(6));
+  });
 }
