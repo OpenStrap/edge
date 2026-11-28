@@ -270,8 +270,18 @@ class MedDb {
   /// Letters and digits of ANY script survive: an ASCII-only class turned
   /// every Chinese or Hindi name into the same `custom__`, so adding a second
   /// one replaced the first and inherited its dose history.
-  static String keyFor(String label) =>
-      'custom_${label.trim().toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), '_')}';
+  ///
+  /// A name with no letter or digit at all ("💊", "+") slugs to a bare `_`
+  /// that every such name shares, so it is spelled by code point instead.
+  /// The `-` can never come out of the slug, so these keys cannot collide
+  /// with a lettered name either.
+  static String keyFor(String label) {
+    final t = label.trim().toLowerCase();
+    final slug = t.replaceAll(
+        RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), '_');
+    if (t.isEmpty || slug.replaceAll('_', '').isNotEmpty) return 'custom_$slug';
+    return 'custom_u-${t.runes.map((r) => r.toRadixString(16)).join('-')}';
+  }
 
   static Future<List<MedDef>> defs(Database db, {bool activeOnly = true}) async {
     final rows = await db.query(
