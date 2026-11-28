@@ -2848,9 +2848,10 @@ class _BaselineHistoryCache {
     }
 
     final loaded = await Future.wait([for (final k in keys) hist(k)]);
+    final versions = await LocalDb.metricSeriesVersions();
     // Each value's method family (see [_families]).
     final dayFamily = <String, String>{
-      for (final r in await LocalDb.metricSeriesVersions())
+      for (final r in versions)
         if (r['date'] case final String d)
           if (methodFamily(r['device_family'] as String?) case final String f)
             d: f,
@@ -2863,7 +2864,7 @@ class _BaselineHistoryCache {
     // ring's finger in centi-°C is not another ring's, nor a band's wrist),
     // so its baseline is that device family's nights, not the resolution's
     // (see [_seriesFamily]). Band days keep their method family.
-    for (final r in await LocalDb.metricSeriesVersions()) {
+    for (final r in versions) {
       final d = r['date'], f = r['device_family'] as String?;
       if (d is String && isWearableFamily(f)) {
         families['skin_temp_adc']![d] = f!;
@@ -3575,7 +3576,21 @@ class DerivationEngine {
   /// passes could then derive the same day at once, and `partial`/`finalized`
   /// are decided before the write transaction, so the slower one's PARTIAL row
   /// could land on top of the faster one's complete row.
-  static bool _running = false;
+  static bool _runningFlag = false;
+  static bool get _running => _runningFlag;
+  static set _running(bool v) {
+    if (v) _latchTakes++;
+    _runningFlag = v;
+  }
+
+  /// How many times the latch has been taken. An import reuses one baseline
+  /// snapshot across its days only while nothing else took the latch between
+  /// them (see [deriveImportedDays]).
+  static int _latchTakes = 0;
+
+  /// The import's shared baseline snapshot, valid while [_latchTakes] still
+  /// equals the value stored with it.
+  static (int, _BaselineHistoryCache)? _importHistory;
 
   static int _autoLoggedNaps = 0;
 
@@ -4049,6 +4064,9 @@ class DerivationEngine {
       var done = 0;
       var completed = 0;
       var failures = 0;
+      // Days that came back partial or declined: not re-derived in full, so
+      // they hold the timezone guard just like a failure does.
+      var incomplete = 0;
       var unchanged = 0;
       final activeDays = <String>{};
       _diag['stage'] = 'per_day';
@@ -4131,6 +4149,7 @@ class DerivationEngine {
                 prepared, profile, dataNowSec, history,
                 allowSessionReuse: !heavy && !force);
             done++;
+            if (!complete) incomplete++;
             _diag['done_days'] = done;
             // Stored only when the derive was a fixed point; see
             // [_dayInputFingerprint]. Never for a partial or declined result
@@ -4163,6 +4182,7 @@ class DerivationEngine {
             dayEndSec,
             dataNowSec,
             reason: _skipReasonForError(e),
+            detail: '$e',
           );
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
@@ -4213,14 +4233,15 @@ class DerivationEngine {
         // "finish" with days still unresolved; clearing the hold then would
         // drop it without the adjacency ever having been fixed. (A day kept
         // deliberately — a pruned override day — is not a failure.)
-        if (failures == 0) {
+        if (failures == 0 && incomplete == 0) {
           await LocalDb.putBaseline(
             'tz_travel_guard',
             jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
           );
         } else {
           _log(
-            'derive: $failures day(s) unresolved — keeping the timezone hold',
+            'derive: ${failures + incomplete} day(s) unresolved — keeping the '
+            'timezone hold',
           );
         }
       }
@@ -5761,6 +5782,8 @@ class DerivationEngine {
       if (seed != null) worker.send(seed.seed(fromRecTs));
       int? afterRecTs;
       int? afterCursor;
+      String? afterDeviceId;
+      int? afterTsMs;
       final rawRowsByBucket = <int, int>{
         if (seed != null)
           for (final e in (seed.extras['raw_rows_by_bucket'] as Map<int, int>).entries)
@@ -5796,6 +5819,8 @@ class DerivationEngine {
           toRecTs: toRecTs,
           afterRecTs: afterRecTs,
           afterCounter: afterCursor,
+          afterDeviceId: afterDeviceId,
+          afterTsMs: afterTsMs,
         );
         if (decodedRows.isNotEmpty) {
           _trackPrepareBatch(decodedRows.length);
@@ -5870,6 +5895,8 @@ class DerivationEngine {
           final last = decodedRows.last;
           afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
           afterCursor = (last['counter'] as num?)?.toInt() ?? afterCursor;
+          afterDeviceId = last['device_id'] as String? ?? afterDeviceId;
+          afterTsMs = (last['ts_ms'] as num?)?.toInt() ?? afterTsMs;
           if (isFinalPage) break;
           continue;
         }
@@ -6488,10 +6515,20 @@ class DerivationEngine {
       await _runDayPool(orderedDays, processDay);
 
       if (orderedDays.isNotEmpty) {
-        await _refreshBaselines();
-        // Cross-day rollup + notifications reflect the refreshed scalars.
-        await _runCrossDay(profile);
-        await _runNotifications();
+        // A throw here (the cross-day input build timing out on a loaded
+        // phone) goes through the same retry cap as a failed day. Escaping to
+        // the outer catch skipped it, and the artifact signature had already
+        // moved, so every tick re-derived the whole window again.
+        try {
+          if (debugFailRescanRefresh) throw StateError('debugFailRescanRefresh');
+          await _refreshBaselines();
+          // Cross-day rollup + notifications reflect the refreshed scalars.
+          await _runCrossDay(profile);
+          await _runNotifications();
+        } catch (e) {
+          failed++;
+          _log('rescan: post-derive refresh failed: $e');
+        }
       }
       // A failed or partial day keeps scalars priced on the old baseline, and
       // a finalized day has no other path back. Leave the signature (and the
@@ -6723,6 +6760,10 @@ class DerivationEngine {
   /// Test seam: days [rescanRecent] fails as if their derive threw.
   @visibleForTesting
   static Set<String> debugFailRescanDays = {};
+
+  /// Test seam: throw from rescanRecent's post-derive refresh.
+  @visibleForTesting
+  static bool debugFailRescanRefresh = false;
   static const _rescanRetriesCursor = 'baseline_sig_retries';
   static const _rescanMaxRetries = 3;
 
@@ -6797,6 +6838,15 @@ class DerivationEngine {
       final days = calendarDays(sub,
           targetDay: target, skipUnusedDays: target != null);
       final dataNowSec = sub.lastTs ?? 0;
+      // One snapshot for the whole import, not a full history reload per day
+      // (NoopIngest calls this once per date). Imported dates are masked out
+      // of it anyway, so the import's own writes do not move it; any other
+      // pass taking the latch in between (one take is this call's) does, and
+      // forces a reload.
+      final cached = _importHistory;
+      final history = cached != null && cached.$1 == _latchTakes - 1
+          ? cached.$2
+          : await _BaselineHistoryCache.load();
       var done = 0;
       for (var i = 0; i < days.length; i++) {
         final day = days[i];
@@ -6813,7 +6863,7 @@ class DerivationEngine {
           continue;
         }
         try {
-          await _deriveDay(sub, day, profile, dataNowSec,
+          await _deriveDay(sub, day, profile, dataNowSec, history,
               forceFinalize: true,
               next: i + 1 < days.length ? days[i + 1] : null);
           done++;
@@ -6822,6 +6872,7 @@ class DerivationEngine {
           _log('import day ${day.date} FAILED/skipped: $e');
         }
       }
+      _importHistory = (_latchTakes, history);
       return done;
     });
   }
@@ -6833,6 +6884,7 @@ class DerivationEngine {
   /// and notification passes below write one artifact each (last write wins,
   /// and the artifact is version/day stamped), so they are safe to interleave.
   Future<void> finalizeImport(Profile profile) async {
+    _importHistory = null;
     await _refreshBaselines();
     // A false here is a failed rollup or a newer review revision racing it; the
     // imported rows have landed either way and queued review jobs retry on
@@ -6869,7 +6921,8 @@ class DerivationEngine {
     Substrate sub,
     PhysioDay day,
     Profile profile,
-    int dataNowSec, {
+    int dataNowSec,
+    _BaselineHistoryCache history, {
     bool forceFinalize = false,
     PhysioDay? next,
   }) async {
@@ -6931,7 +6984,7 @@ class DerivationEngine {
       ),
       profile,
       dataNowSec,
-      await _BaselineHistoryCache.load(),
+      history,
       forceFinalize: forceFinalize,
       suppliedSubstrate: true,
     );
@@ -8481,8 +8534,10 @@ class DerivationEngine {
     int dayEndSec,
     int dataNowSec, {
     required String reason,
+    String? detail,
   }) =>
-      _markDaySkipped(dayId, dayEndSec, dataNowSec, reason: reason);
+      _markDaySkipped(dayId, dayEndSec, dataNowSec,
+          reason: reason, detail: detail);
 
   /// Persist a minimal skip marker so a pathological day isn't retried forever.
   ///
@@ -8501,6 +8556,7 @@ class DerivationEngine {
     int dayEndSec,
     int dataNowSec, {
     required String reason,
+    String? detail,
   }) async {
     try {
       final existing = await LocalDb.dayResult(dayId);
@@ -8512,7 +8568,13 @@ class DerivationEngine {
       await LocalDb.putDayResult(
         dayId: dayId,
         algoVersion: kAlgoVersion,
-        payloadJson: jsonEncode({'skipped': true, 'reason': reason}),
+        payloadJson: jsonEncode({
+          'skipped': true,
+          'reason': reason,
+          // The cause, so a report shows more than a bare 'error'.
+          if (detail != null)
+            'detail': detail.length > 300 ? detail.substring(0, 300) : detail,
+        }),
         windowJson: '{}',
         // Structural failures (a day that can never be prepared / blows the
         // prepare budget) still finalize once aged out, so they aren't retried
@@ -8850,28 +8912,81 @@ class DerivationEngine {
     // decoding up to _crossDayWindow (90) full day payloads + re-encoding
     // them was previously ALL synchronous main-isolate work with zero
     // offloading — this is the confirmed source of the ~3.5-4.7s production
-    // hang (Crashlytics jank_watchdog), since _refreshBaselines calls this
-    // unconditionally on every heavy pass. _decodeBundle/_crossDayRecord are
+    // hang (Crashlytics jank_watchdog). _decodeBundle/_crossDayRecord are
     // both static, so this whole transform+encode step is isolate-safe.
+    //
+    // INCREMENTAL. This runs on every pass that derived anything, light ones
+    // included, and a light pass rewrites only today. The artifact keeps a
+    // per-day row signature (`row_sigs`); a day whose served row has the same
+    // signature as when its record was built reuses that record, so only the
+    // changed rows' payloads are read and decoded. Any envelope this build
+    // cannot reuse (another day, revision, zone or version, or no signatures)
+    // rebuilds everything, as before.
     final reviewRevision = await LocalDb.activityReviewRevision();
-    final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
     final imported = await LocalDb.importedDates();
     final zone = crossDayZoneStamp();
-    final (days, json) = await _runIsolateCancellable(() {
-      final days = <Map<String, dynamic>>[];
-      for (final row in rows.reversed) {
-        final payload = _decodeBundle(row['payload_json']);
-        if (payload == null) continue;
-        if (payload['skipped'] == true) continue;
-        final rec = crossDayInputRecord(
-          row,
-          payload,
-          today: today,
-          imported: imported,
-        );
-        if (rec != null) days.add(rec);
+    final meta = await LocalDb.recentDayResultsMeta(_crossDayWindow);
+    String rowSig(Map<String, dynamic> r) =>
+        '${r['algo_version']}:${r['computed_at']}:${r['skipped']}:'
+        '${imported.contains(r['day_id']) ? 1 : 0}';
+
+    var prevSigs = const <String, dynamic>{};
+    final prevRecords = <String, Map<String, dynamic>>{};
+    try {
+      final raw = (await LocalDb.baseline('crossday_input'))?['payload_json'];
+      final decoded = raw is String && raw.isNotEmpty ? jsonDecode(raw) : null;
+      if (crossDayArtifactUsableToday(decoded, today) &&
+          (decoded as Map)['review_revision'] == reviewRevision &&
+          decoded['zone'] == zone &&
+          decoded['row_sigs'] is Map) {
+        prevSigs = (decoded['row_sigs'] as Map).cast<String, dynamic>();
+        for (final rec in decoded['days'] as List) {
+          if (rec is Map && rec['date'] is String) {
+            prevRecords[rec['date'] as String] = rec.cast<String, dynamic>();
+          }
+        }
       }
+    } catch (_) {
+      prevSigs = const {};
+      prevRecords.clear();
+    }
+
+    final changed = <String>{
+      for (final m in meta)
+        if (prevSigs[m['day_id']] != rowSig(m)) m['day_id'] as String,
+    };
+    // Nothing reusable: one ranged read, as before. Otherwise only the
+    // changed days' rows.
+    final rows = prevSigs.isEmpty
+        ? await LocalDb.recentDayResults(_crossDayWindow)
+        : [
+            for (final d in changed) ?await LocalDb.dayResult(d),
+          ];
+    final sigs = <String, String>{
+      for (final m in meta) m['day_id'] as String: rowSig(m),
+      // The fetched row is what the record is built from: its own signature
+      // wins over the meta read, should the day have been rewritten between.
+      for (final r in rows) r['day_id'] as String: rowSig(r),
+    };
+    final order = [for (final m in meta.reversed) m['day_id'] as String];
+    final (days, json) = await _runIsolateCancellable(() {
+      final fresh = <String, Map<String, dynamic>?>{};
+      for (final row in rows) {
+        final payload = _decodeBundle(row['payload_json']);
+        fresh[row['day_id'] as String] = payload == null ||
+                payload['skipped'] == true
+            ? null
+            : crossDayInputRecord(
+                row,
+                payload,
+                today: today,
+                imported: imported,
+              );
+      }
+      final days = <Map<String, dynamic>>[
+        for (final d in order) ?(changed.contains(d) ? fresh[d] : prevRecords[d]),
+      ];
       // `built_for_day` is what makes the `is_today` stamps inside `days`
       // interpretable later. Without it the envelope carries day-relative facts
       // with no day attached, and any reader has to assume freshness.
@@ -8882,6 +8997,7 @@ class DerivationEngine {
           'built_for_day': today,
           'review_revision': reviewRevision,
           'zone': zone,
+          'row_sigs': sigs,
           'days': days,
         })
       );
@@ -8953,6 +9069,8 @@ class DerivationEngine {
             date: notice.date,
             route: '/heart',
           ),
+          // A headless pass has no foreground scene to ask from.
+          allowPermissionPrompt: !background,
         );
         if (notice.medical && fired) {
           await const FiredKeyStore().recordFired('${notice.date}:exception');
