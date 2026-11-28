@@ -2321,37 +2321,32 @@ class LocalRepositoryImpl extends LocalRepository {
     final dayStart = _localMidnightSec(date);
     final dayEnd = _localDayEndSec(date);
     final db = await LocalDb.instance;
+    // Same per-minute mean as onehz_pipeline.dart's `_downsampleHr`, bucketed
+    // in SQL so a full day is <=1440 rows, not 86400 maps on the UI isolate.
+    // Ranges on ts_ms (= rec_ts * 1000) to ride the (device_id, ts_ms) PK.
     final rows = await db.rawQuery(
-      'SELECT rec_ts, hr FROM decoded_onehz '
-      'WHERE device_id = ? AND rec_ts >= ? AND rec_ts < ? AND hr > 0 '
-      'ORDER BY rec_ts',
-      [deviceId, dayStart, dayEnd],
+      'SELECT ts_ms / 60000 AS m, SUM(hr) AS s, COUNT(*) AS n '
+      'FROM decoded_onehz '
+      'WHERE device_id = ? AND ts_ms >= ? AND ts_ms < ? AND hr > 0 '
+      'GROUP BY m ORDER BY m',
+      [deviceId, dayStart * 1000, dayEnd * 1000],
     );
-    // Bucketing copied verbatim from onehz_pipeline.dart's `_downsampleHr`
-    // (the source of truth for this arithmetic) rather than importing the
-    // derive path into the read seam.
-    final buckets = <int, List<double>>{};
-    for (final r in rows) {
-      final ts = (r['rec_ts'] as num).toInt();
-      final hr = (r['hr'] as num).toInt();
-      final min = ts ~/ 60;
-      (buckets[min] ??= []).add(hr.toDouble());
-    }
-    final keys = buckets.keys.toList()..sort();
     final points = [
-      for (final k in keys)
+      for (final r in rows)
         {
-          't': k * 60,
-          'v': (buckets[k]!.reduce((a, b) => a + b) / buckets[k]!.length)
-              .round(),
+          't': (r['m'] as num).toInt() * 60,
+          'v': ((r['s'] as num) / (r['n'] as num)).round(),
         },
     ];
 
+    // One-row PK seek; MIN(rec_ts) scanned the device's whole history.
     final oldestRow = await db.rawQuery(
-      'SELECT MIN(rec_ts) AS m FROM decoded_onehz WHERE device_id = ?',
+      'SELECT ts_ms FROM decoded_onehz WHERE device_id = ? '
+      'ORDER BY ts_ms LIMIT 1',
       [deviceId],
     );
-    final oldestTs = (oldestRow.firstOrNull?['m'] as num?)?.toInt();
+    final oldestMs = (oldestRow.firstOrNull?['ts_ms'] as num?)?.toInt();
+    final oldestTs = oldestMs == null ? null : oldestMs ~/ 1000;
     // Bounded = the whole day predates this device's oldest kept row. The
     // prune removes whole days, so the oldest kept day is complete even though
     // its first row lands after midnight.
