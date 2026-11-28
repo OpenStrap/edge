@@ -716,7 +716,8 @@ class BandHost {
       // A late sample for a second just committed would replace its row
       // (and delete its beats) on the next flush: fold the snapshot back in.
       _foldBack(batchRows, all: false);
-      _stored = true;
+      // Archive-only (frames no decoder reads): nothing a derive reads.
+      if (neutrals.isNotEmpty) _stored = true;
       return true;
     } catch (e) {
       // Put the snapshot back so the next flush can retry it, same shape as

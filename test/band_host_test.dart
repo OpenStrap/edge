@@ -3,6 +3,8 @@
 // not yet call it — see M1's commit order) using the real `BleHrsAdapter`
 // over a `ReplayBandLink`, the same fixture shape as `test/hrs_link_test.dart`.
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -12,6 +14,7 @@ import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/host.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/models.dart' show ArchiveRecord;
 import 'package:openstrap_edge/sync/reset_gate.dart';
 
 const List<int> kBpmOnly = <int>[0x00, 61];
@@ -324,6 +327,46 @@ void main() {
     );
   });
 
+  group('a wearable sync queues a derive', () {
+    tearDown(() => BandHost.onWearableStored = null);
+
+    Future<int> pokesAfter(_WearableAdapter adapter) async {
+      var pokes = 0;
+      BandHost.onWearableStored = () => pokes++;
+      final host = BandHost(
+        adapter: adapter,
+        deviceId: deviceId,
+        buildArchive: (raw, at) => ArchiveRecord(
+            hex: raw
+                .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                .join(),
+            packetType: 0,
+            capturedAt: at,
+            reason: 'test_raw'),
+      );
+      final link = ReplayBandLink();
+      final future = host.run(link);
+      await link.close();
+      await future;
+      await host.stop();
+      return pokes;
+    }
+
+    test('not when only archive frames were banked', () async {
+      final db = await LocalDb.instance;
+      final before = (await db.query(LocalDb.rawArchiveTable)).length;
+      expect(await pokesAfter(_WearableAdapter(withSample: false)), 0);
+      final rows = await db.query(LocalDb.rawArchiveTable);
+      expect(rows.length, before + 1, reason: 'the frame is still archived');
+      expect(rows.any((r) => r['hex'] == '010203' || (r['frame'] is List && (r['frame'] as List).join(',') == '1,2,3')), isTrue,
+          reason: 'with its own bytes');
+    });
+
+    test('when a sample was banked', () async {
+      expect(await pokesAfter(_WearableAdapter(withSample: true)), 1);
+    });
+  });
+
   group('sessionFailed', () {
     Future<BandHost> runOnce(_CheckpointAdapter adapter) async {
       final host = BandHost(adapter: adapter, deviceId: deviceId);
@@ -395,5 +438,28 @@ class _CheckpointAdapter extends BandAdapter {
     ]);
     yield OffloadCheckpoint(_confirm);
     if (failAtEnd) throw StateError('transfer cut short');
+  }
+}
+
+/// A wearable that sends one frame no decoder reads, plus one sample when
+/// [withSample].
+class _WearableAdapter extends BandAdapter {
+  final bool withSample;
+  _WearableAdapter({required this.withSample});
+
+  @override
+  BandEntry get entry => kPebble;
+
+  @override
+  Map<InputSignal, Duration> get signals => const {};
+
+  @override
+  Stream<BandEvent> run(BandLink link) async* {
+    yield SampleBatch(const [], raw: [Uint8List.fromList([1, 2, 3])]);
+    if (withSample) {
+      yield SampleBatch([
+        NeutralSample(anchor: entry.timeAnchor, tsEpoch: 1_800_000_060, hr: 60),
+      ]);
+    }
   }
 }
