@@ -482,6 +482,19 @@ List<Map<String, Object?>> heartRateMinuteRows(
   ];
 }
 
+/// The heart-rate CSV for stored day bundles, each paired with its source.
+/// Null when no bundle carries an `hr_curve`. Pure, so it can run in an
+/// isolate: decoding a bundle is the expensive part of an export.
+String? heartRateCsvFromPayloads(List<(Object?, String?)> days) {
+  final rows = <Map<String, Object?>>[];
+  for (final (payload, source) in days) {
+    final b = SeriesCodec.decodePayloadJson(payload);
+    final curve = (b?['series'] as Map?)?['hr_curve'];
+    if (curve is List) rows.addAll(heartRateMinuteRows(curve, source));
+  }
+  return rows.isEmpty ? null : renderCsv(kHeartRateCsvColumns, rows);
+}
+
 /// Write minute-by-minute heart rate for derived days [from]..[to]
 /// (inclusive, `yyyy-MM-dd`) to one CSV. Null when there was nothing in the
 /// range — no header-only file, same rule as [exportCsvFiles].
@@ -504,18 +517,16 @@ Future<String?> exportHeartRateCsv(String from, String to,
       (r['date'] as String, (r['algo_version'] as num?)?.toInt()):
           r['source'] as String?,
   };
-  final rows = <Map<String, Object?>>[];
+  final bundles = <(Object?, String?)>[];
   for (final day in days) {
     final res = await LocalDb.dayResult(day);
-    final b = SeriesCodec.decodePayloadJson(res?['payload_json']);
-    final curve = (b?['series'] as Map?)?['hr_curve'];
     final v = (res?['algo_version'] as num?)?.toInt();
-    if (curve is List) rows.addAll(heartRateMinuteRows(curve, source[(day, v)]));
+    bundles.add((res?['payload_json'], source[(day, v)]));
   }
-  if (rows.isEmpty) return null;
-  // A long range is hundreds of thousands of rows: render off the UI isolate.
-  final csv =
-      await Isolate.run(() => renderCsv(kHeartRateCsvColumns, rows));
+  // A long range is hundreds of day bundles and hundreds of thousands of
+  // rows: decode and render off the UI isolate.
+  final csv = await Isolate.run(() => heartRateCsvFromPayloads(bundles));
+  if (csv == null) return null;
   final (dir, stamp) = await _newRunDir(now);
   final file =
       File(p.join(dir.path, 'openstrap_heart_rate_${from}_${to}_$stamp.csv'));
