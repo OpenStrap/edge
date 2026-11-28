@@ -332,9 +332,18 @@ int hrCeilingForAge(int? age) {
 /// sparse samples take no further smoothing and the dense ones keep theirs,
 /// even when one session holds both. Null [capsSec]: [smoothedMaxHrAt].
 (int, int)? cadenceAwareMaxHrAt(List<int> hr, List<int>? capsSec,
-    {int? age}) {
+        {int? age}) =>
+    _cadenceAwareExtremeAt(hr, capsSec, wantMax: true, age: age);
+
+/// The trough counterpart of [cadenceAwareMaxHrAt].
+(int, int)? cadenceAwareMinHrAt(List<int> hr, List<int>? capsSec,
+        {int? age}) =>
+    _cadenceAwareExtremeAt(hr, capsSec, wantMax: false, age: age);
+
+(int, int)? _cadenceAwareExtremeAt(List<int> hr, List<int>? capsSec,
+    {required bool wantMax, int? age}) {
   if (capsSec == null || capsSec.length != hr.length) {
-    return smoothedMaxHrAt(hr, age: age);
+    return _smoothedExtremeHrAt(hr, wantMax: wantMax, age: age);
   }
   (int, int)? best;
   for (final sparse in const [false, true]) {
@@ -343,9 +352,10 @@ int hrCeilingForAge(int? age) {
         if ((capsSec[i] >= kHrSmoothWindow) == sparse) i,
     ];
     if (idx.isEmpty) continue;
-    final at = smoothedMaxHrAt([for (final i in idx) hr[i]],
-        age: age, window: sparse ? 1 : kHrSmoothWindow);
-    if (at != null && (best == null || at.$1 > best.$1)) {
+    final at = _smoothedExtremeHrAt([for (final i in idx) hr[i]],
+        wantMax: wantMax, age: age, window: sparse ? 1 : kHrSmoothWindow);
+    if (at != null &&
+        (best == null || (wantMax ? at.$1 > best.$1 : at.$1 < best.$1))) {
       best = (at.$1, idx[at.$2]);
     }
   }

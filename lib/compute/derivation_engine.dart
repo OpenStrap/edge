@@ -73,7 +73,11 @@ import 'inputs/garmin_inputs.dart'
 import 'inputs/oura_inputs.dart' show kOuraFamily, ouraStrapOwnsNight;
 import 'inputs/ultrahuman_inputs.dart' show ultrahumanDayBlock;
 import 'hr_max.dart'
-    show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
+    show
+        cadenceAwareMaxHrAt,
+        cadenceAwareMinHrAt,
+        estimatedMaxHr,
+        kHrFloorBpm;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'ed2b_checkpoint_diagnostics.dart';
@@ -2197,7 +2201,9 @@ const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // doesn't fit 4- or 8-byte records decodes to nothing). NO kAlgoVersion bump:
 // ingest only, and the Helio adapter already passes the checked count; WHOOP
 // output unchanged.
-const String kProtocolPin = 'e4ccba263dc94d772af122546fc93396243151fd';
+// REPIN: protocol main @ dc699ce (#86 merge commit, same tree as e4ccba2).
+// NO kAlgoVersion bump: no code change.
+const String kProtocolPin = 'dc699ce491c5eec4c924fafe8e29c637ea758b5a';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -7489,10 +7495,11 @@ class DerivationEngine {
       // sendable object (never `this`, `day`, or `bundle`).
       // Read HERE, on the main isolate — the worker has no database.
       final reviewDb = await LocalDb.instance;
-      final previousDay = await LocalDb.dayResult(day.date);
-      if (previousDay != null) {
+      // Only the nap list is read (json_extract), not the whole bundle.
+      final previousNaps = await LocalDb.storedNaps(day.date);
+      if (previousNaps != null) {
         await reviewDb.transaction((tx) => ActivityStore.preserveLegacyNaps(tx, day.date,
-          Map<String, dynamic>.from(jsonDecode(previousDay['payload_json'] as String) as Map)));
+          {'naps': {'value': previousNaps}}));
       }
       // WHOOP 4 ambient check: how closely the night's skin temp moves with
       // the band's ambient channel. Read here (the isolate has no DB) and
@@ -8590,8 +8597,7 @@ class DerivationEngine {
 
   /// Whether a persisted `crossday_input` artifact may be reused AS-IS today.
   ///
-  /// Pure, so it is unit-testable without a database — the seam that consumes it
-  /// ([_crossDayInputDays]) cannot be.
+  /// Pure, so it is unit-testable without a database.
   ///
   /// The artifact stamps `is_today: true` on the row that was today WHEN IT WAS
   /// BUILT. That is a fact about a day stored as a bare boolean, in a DURABLE
@@ -8599,11 +8605,6 @@ class DerivationEngine {
   /// that still claims to be today — and yesterday's strain and nap minutes land
   /// inside tonight's `need_sec`. That is the exact imputation the stamp exists
   /// to prevent (§3.3), arriving through the cache instead of through `_lastNum`.
-  ///
-  /// Every current `_runCrossDay` call site refreshes the artifact immediately
-  /// beforehand, so the stale read is not reachable today. That is an unenforced
-  /// ordering coincidence and not something to rely on: one new caller, or one
-  /// early return inside `_refreshBaselines`, makes it live and silent.
   ///
   /// An artifact with no `built_for_day` (written before this field existed)
   /// cannot be SHOWN to be fresh, so it is rebuilt rather than assumed fresh.
@@ -8627,7 +8628,11 @@ class DerivationEngine {
       // The zone the inputs are read in, taken BEFORE they are read: a change
       // during the build must not stamp old-zone shifts with the new zone.
       final zone = crossDayZoneStamp();
-      final days = await _crossDayInputDays();
+      // Built once here and used as returned. Reading the artifact back just
+      // after writing it cost a main-isolate jsonDecode of 90 days of curves.
+      // ponytail: still reads 90 full payloads per pass; key records by
+      // computed_at and refetch only changed days if this shows up again.
+      final days = await _refreshCrossDayInputArtifact();
       if (days.length < 3) {
         _log('crossday: only ${days.length} usable day(s) — skip');
         return true;
@@ -8818,39 +8823,12 @@ class DerivationEngine {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
-    final reviewRevision = await LocalDb.activityReviewRevision();
-    final artifact = await LocalDb.baseline('crossday_input');
-    final raw = artifact?['payload_json'];
-    if (raw is String && raw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        // Day-gated, NOT just well-formed. The rows carry `is_today`, which is a
-        // fact about the day the artifact was BUILT on; serving them on a later
-        // day makes `_todayNum` read yesterday's strain and nap minutes as
-        // today's (§3.3). See [crossDayArtifactUsableToday].
-        if (crossDayArtifactUsableToday(decoded, LocalDb.localDayLabelNow()) &&
-            (decoded as Map)['review_revision'] == reviewRevision &&
-            decoded['zone'] == crossDayZoneStamp()) {
-          final rows = decoded['days'] as List;
-          return [
-            for (final row in rows)
-              if (row is Map) row.cast<String, dynamic>(),
-          ];
-        }
-      } catch (_) {
-        // Fall through to rebuild from day_result.
-      }
-    }
-    return _refreshCrossDayInputArtifact();
-  }
-
   Future<List<Map<String, dynamic>>> _refreshCrossDayInputArtifact() async {
     // The DB read itself must stay on the main isolate (sqflite), but
     // decoding up to _crossDayWindow (90) full day payloads + re-encoding
     // them was previously ALL synchronous main-isolate work with zero
     // offloading — this is the confirmed source of the ~3.5-4.7s production
-    // hang (Crashlytics jank_watchdog), since _refreshBaselines calls this
+    // hang (Crashlytics jank_watchdog), since _runCrossDay calls this
     // unconditionally on every heavy pass. _decodeBundle/_crossDayRecord are
     // both static, so this whole transform+encode step is isolate-safe.
     final reviewRevision = await LocalDb.activityReviewRevision();
@@ -9188,7 +9166,6 @@ class DerivationEngine {
         .cast<String, dynamic>();
     await LocalDb.putBaseline('rolling_artifact', jsonEncode(artifact));
     await LocalDb.putBaseline('rolling', jsonEncode(rolling));
-    await _refreshCrossDayInputArtifact();
   }
 
   // ── raw pruning (raw-first invariant) ──────────────────────────────────────
@@ -10393,6 +10370,26 @@ class DerivationEngine {
       for (final h in daySub.hr)
         if (h > 0) h.toDouble(),
     ];
+    // What each valid sample stands for, for the peak/trough below: a
+    // wearable's reading is already a minute (or five) of averaged HR, while
+    // 1 Hz seconds laid over its day stand for themselves. Null on a 1 Hz day.
+    final hrCadence = ana.calibrationFor(kHrCadenceSec, daySub.deviceFamily);
+    List<int>? dayHrCaps;
+    if (hrCadence != null) {
+      final ts = [
+        for (var i = 0; i < daySub.hr.length && i < daySub.tsSec.length; i++)
+          if (daySub.hr[i] > 0) daySub.tsSec[i],
+      ];
+      bool near(int a, int b) => (a - b).abs() <= kOneHzRunGapSec;
+      dayHrCaps = [
+        for (var i = 0; i < ts.length; i++)
+          (i > 0 && near(ts[i], ts[i - 1])) ||
+                  (i + 1 < ts.length && near(ts[i], ts[i + 1]))
+              ? 1
+              : hrCadence,
+      ];
+      if (dayHrCaps.length != dayHrValid.length) dayHrCaps = null;
+    }
     // NEVER IMPUTE A PROFILE. These used to default to age 30 / 70 kg / sex 'm'
     // / RHR 60 "so new users still get Strain" — and the results were then
     // persisted as REAL scalars (strain, calories, calories_total, steps) into
@@ -10595,9 +10592,9 @@ class DerivationEngine {
     final hrStats = dayHrValid.isEmpty
         ? null
         : {
-            'max': smoothedMaxHr(dayHrInt, age: age) ??
+            'max': cadenceAwareMaxHrAt(dayHrInt, dayHrCaps, age: age)?.$1 ??
                 dayHrValid.reduce(math.max).round(),
-            'min': smoothedMinHr(dayHrInt, age: age) ??
+            'min': cadenceAwareMinHrAt(dayHrInt, dayHrCaps, age: age)?.$1 ??
                 dayHrValid.reduce(math.min).round(),
             'avg': _meanWake(dayHrValid)?.round(),
           };
@@ -10835,7 +10832,11 @@ class DerivationEngine {
         'coverage_pct': observableSec > 0 ? 0 : null,
       };
     }
-    const offGapSec = 120; // a >2-min hole in the 1 Hz stream = off / not worn
+    // A >2-min hole in the 1 Hz stream = off / not worn. A wearable stores one
+    // reading every [kHrCadenceSec] seconds: each stands for its cadence, and
+    // only a hole longer than one missed reading is off.
+    final cadence = ana.calibrationFor(kHrCadenceSec, s.deviceFamily) ?? 1;
+    final offGapSec = math.max(120, 2 * cadence);
     final firstOn = s.tsSec.first;
     final lastOn = s.tsSec.last + 1;
 
@@ -10848,12 +10849,12 @@ class DerivationEngine {
     for (var i = 1; i < n; i++) {
       final ts = s.tsSec[i];
       if (ts - prev > offGapSec) {
-        runs.add([runStart, prev + 1]);
+        runs.add([runStart, prev + cadence]);
         runStart = ts;
       }
       prev = ts;
     }
-    runs.add([runStart, prev + 1]);
+    runs.add([runStart, prev + cadence]);
 
     final segments = <Map<String, dynamic>>[];
     var longestOff = 0, wornSec = 0;
@@ -11120,8 +11121,7 @@ class DerivationEngine {
 
   /// Quiet-second ENMO cut (g), per sensor package.
   ///
-  /// ENMO here is `||a|| − 1 g` — the same amplitude index `restlessness_map`
-  /// and `enmoSeries` use. A sedentary/still wrist sits at ~0.01-0.02 g and
+  /// Compared against the gravity-removed amplitude of [_stillSeconds]. A sedentary/still wrist sits at ~0.01-0.02 g and
   /// walking at ~0.066 g, so 0.02 g separates sitting from moving without
   /// pretending to separate postures. Listed per family because the cut is only
   /// meaningful against that family's accel scale; an unknown strap gets no cut
@@ -11150,8 +11150,14 @@ class DerivationEngine {
   /// `a - trailingMean(a)` over the analytics high-pass window, the same
   /// construction as `dynAmp`, so a per-axis offset cancels. Absent seconds
   /// are never still and never enter the mean.
-  static List<bool> _stillSeconds(Substrate s, double cut) {
-    final out = List<bool>.filled(s.length, false);
+  static List<bool> _stillSeconds(Substrate s, double cut) => [
+        for (final a in _dynAmplitude(s)) a != null && a <= cut,
+      ];
+
+  /// Per substrate index: the gravity-removed accel magnitude (g) described
+  /// on [_stillSeconds], null where accel is absent.
+  static List<double?> _dynAmplitude(Substrate s) {
+    final out = List<double?>.filled(s.length, null);
     final idx = <int>[
       for (var i = 0; i < s.length; i++)
         if (s.accelPresentAt(i)) i,
@@ -11172,7 +11178,7 @@ class DerivationEngine {
       }
       final n = k - lo + 1;
       final dx = s.ax[i] - sx / n, dy = s.ay[i] - sy / n, dz = s.az[i] - sz / n;
-      out[i] = math.sqrt(dx * dx + dy * dy + dz * dz) <= cut;
+      out[i] = math.sqrt(dx * dx + dy * dy + dz * dz);
     }
     return out;
   }
@@ -11292,6 +11298,41 @@ class DerivationEngine {
 
   /// Nocturnal restlessness from sleep-window orientation change: minutes with
   /// movement, number of distinct movement bouts, longest still stretch (min).
+  @visibleForTesting
+  static Map<String, dynamic> restlessness(Substrate s) => _restlessness(s);
+
+  /// 5-min movement density over [s] (the sleep window), 0..1 per bucket.
+  @visibleForTesting
+  static List<Map<String, dynamic>> restlessnessMap(Substrate s) {
+    const bucketSec = 300; // 5 min
+    final moveSum = <int, double>{};
+    final moveCount = <int, int>{};
+    // Gravity-removed amplitude, not `||a| - 1 g|`: that reads the posture's
+    // calibration offset (~0.03 g on a still gen4 wrist), so a motionless
+    // night painted a flat ~0.3 everywhere. See [_stillSeconds].
+    final amp = _dynAmplitude(s);
+    for (var i = 0; i < s.length; i++) {
+      // Absent accel is no data, not movement; a bucket with no present
+      // second is omitted.
+      final enmo = amp[i];
+      if (enmo == null) continue;
+      final b = s.tsSec[i] ~/ bucketSec;
+      moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
+      moveCount[b] = (moveCount[b] ?? 0) + 1;
+    }
+    final out = <Map<String, dynamic>>[];
+    final keys = moveSum.keys.toList()..sort();
+    for (final b in keys) {
+      final avgEnmo = moveSum[b]! / moveCount[b]!;
+      final density = math.min(1.0, avgEnmo * 10.0);
+      out.add({
+        't': b * bucketSec,
+        'density': double.parse(density.toStringAsFixed(3)),
+      });
+    }
+    return out;
+  }
+
   static Map<String, dynamic> _restlessness(Substrate s) {
     final n = s.length;
     if (n < 60) {
@@ -11328,7 +11369,15 @@ class DerivationEngine {
     }
     var restless = 0, bouts = 0, longestStill = 0, curStill = 0;
     var prevMoved = false;
+    int? prevMin;
     for (final m in keys) {
+      // A minute with no records is unobserved, not still: a run of either
+      // kind does not carry across it.
+      if (prevMin != null && m != prevMin + 1) {
+        curStill = 0;
+        prevMoved = false;
+      }
+      prevMin = m;
       final moved = (byMinMove[m] ?? 0) / (byMinTot[m] ?? 1) >= 0.20;
       if (moved) {
         restless++;
@@ -12065,35 +12114,9 @@ class DerivationEngine {
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};
 
-    // Feature 6: Restlessness Map (5-min ENMO heatmap of the sleep window).
+    // Feature 6: Restlessness Map (5-min movement heatmap of the sleep window).
     if (sleepSub.length > 0) {
-      const bucketSec = 300; // 5 min
-      final moveSum = <int, double>{};
-      final moveCount = <int, int>{};
-      for (var i = 0; i < sleepSub.length; i++) {
-        // Absent accel would score ENMO |0 - 1| = 1.0 — maximal restlessness
-        // from no data. Skip it; a bucket with no present second is omitted.
-        if (!sleepSub.accelPresentAt(i)) continue;
-        final b = sleepSub.tsSec[i] ~/ bucketSec;
-        final ax = sleepSub.ax[i];
-        final ay = sleepSub.ay[i];
-        final az = sleepSub.az[i];
-        final mag = math.sqrt(ax * ax + ay * ay + az * az);
-        final enmo = (mag - 1.0).abs();
-        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
-        moveCount[b] = (moveCount[b] ?? 0) + 1;
-      }
-      final out = <Map<String, dynamic>>[];
-      final keys = moveSum.keys.toList()..sort();
-      for (final b in keys) {
-        final avgEnmo = moveSum[b]! / moveCount[b]!;
-        final density = math.min(1.0, avgEnmo * 10.0);
-        out.add({
-          't': b * bucketSec,
-          'density': double.parse(density.toStringAsFixed(3)),
-        });
-      }
-      bundlePatch['restlessness_map'] = out;
+      bundlePatch['restlessness_map'] = restlessnessMap(sleepSub);
     }
 
     // Feature 2 (fit-quality diagnostic) is GONE, not disabled. It scored band
