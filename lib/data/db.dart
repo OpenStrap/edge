@@ -778,7 +778,7 @@ class LocalDb {
   /// (updated_at is epoch MILLISECONDS, window bounds are seconds); a
   /// FINALIZED race (incl. an abandoned DNF) keeps the end-time bound
   /// COALESCE(session.end_ts, session.start_ts) for the open branch.
-  /// Args: [startSec, endSec, endSec, startSec, startSec, endSec, startSec].
+  /// Args: [startSec, endSec, endSec, startSec, startSec, startSec, startSec].
   static const String _hyroxInWindowSql = '(SELECT id FROM hyrox_session '
       'WHERE start_ts >= ? AND start_ts < ? '
       'UNION SELECT session_id FROM hyrox_segment '
@@ -3182,6 +3182,10 @@ class LocalDb {
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_vendor_sleep_epoch_night '
         'ON vendor_sleep_epoch(night_onset_ts)');
+    // The overlap and chain lookups in [_putVendorSleepEpochs] range on
+    // end_ts: through the PK the newest night would walk every older row.
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_vendor_sleep_epoch_end '
+        'ON vendor_sleep_epoch(device_id, end_ts)');
   }
 
   static const int _kVendorNightChainSec = 30 * 60;
@@ -3231,29 +3235,48 @@ class LocalDb {
     final sorted = [...epochs]..sort((a, b) => a.startSec.compareTo(b.startSec));
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final db = await instance;
+    // Contiguous epochs merge into one span: a stored row overlaps the span
+    // exactly when it overlaps one of its epochs, so one delete per span.
+    final spans = <(int, int)>[];
+    for (final e in sorted) {
+      if (spans.isNotEmpty && e.startSec <= spans.last.$2) {
+        final (a, b) = spans.removeLast();
+        spans.add((a, e.endSec > b ? e.endSec : b));
+      } else {
+        spans.add((e.startSec, e.endSec));
+      }
+    }
     await db.transaction((txn) async {
-      for (final e in sorted) {
+      // `+start_ts` keeps these on idx_vendor_sleep_epoch_end (bounded by
+      // the span) instead of the PK, whose start_ts range is open below.
+      final deletes = txn.batch();
+      for (final (lo, hi) in spans) {
         // A re-reported whole night that starts later would otherwise keep
         // the old report's leading epochs, chained in by onset.
         if (wholeNights) {
-          await txn.rawDelete(
+          deletes.rawDelete(
               'DELETE FROM vendor_sleep_epoch WHERE device_id = ? AND '
               'night_onset_ts IN (SELECT night_onset_ts FROM '
-              'vendor_sleep_epoch WHERE device_id = ? AND start_ts < ? '
+              'vendor_sleep_epoch WHERE device_id = ? AND +start_ts < ? '
               'AND end_ts > ?)',
-              [deviceId, deviceId, e.endSec, e.startSec]);
+              [deviceId, deviceId, hi, lo]);
         }
-        await txn.delete('vendor_sleep_epoch',
-            where: 'device_id = ? AND start_ts < ? AND end_ts > ?',
-            whereArgs: [deviceId, e.endSec, e.startSec]);
+        deletes.delete('vendor_sleep_epoch',
+            where: 'device_id = ? AND +start_ts < ? AND end_ts > ?',
+            whereArgs: [deviceId, hi, lo]);
       }
+      await deletes.commit(noResult: true);
       int? onset;
       var prevEnd = 0;
+      var inserts = txn.batch();
       for (final e in sorted) {
         if (onset == null || e.startSec - prevEnd > _kVendorNightChainSec) {
+          // The chain lookup must see the epochs queued so far.
+          await inserts.commit(noResult: true);
+          inserts = txn.batch();
           final prior = await txn.rawQuery(
             'SELECT night_onset_ts FROM vendor_sleep_epoch '
-            'WHERE device_id = ? AND end_ts >= ? AND start_ts < ? '
+            'WHERE device_id = ? AND end_ts >= ? AND +start_ts < ? '
             'ORDER BY end_ts DESC LIMIT 1',
             [deviceId, e.startSec - _kVendorNightChainSec, e.startSec],
           );
@@ -3261,7 +3284,7 @@ class LocalDb {
               ? e.startSec
               : (prior.first['night_onset_ts'] as num).toInt();
         }
-        await txn.insert('vendor_sleep_epoch', {
+        inserts.insert('vendor_sleep_epoch', {
           'device_id': deviceId,
           'night_onset_ts': onset,
           'start_ts': e.startSec,
@@ -3272,6 +3295,7 @@ class LocalDb {
         }, conflictAlgorithm: ConflictAlgorithm.replace);
         prevEnd = e.endSec;
       }
+      await inserts.commit(noResult: true);
     });
   }
 
@@ -11607,12 +11631,12 @@ class LocalDb {
       await copyRows(
         'hyrox_session',
         where: 'id IN $_hyroxInWindowSql',
-        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, startSec, startSec],
       );
       await copyRows(
         'hyrox_segment',
         where: 'session_id IN $_hyroxInWindowSql',
-        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, startSec, startSec],
       );
       // Same midnight rule as deleteDays: a race is exported for a day when
       // it starts that day OR one of its segments does, and always whole.
@@ -11866,7 +11890,7 @@ class LocalDb {
             'hyrox_session',
             columns: ['id'],
             where: 'id IN $_hyroxInWindowSql',
-            whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
+            whereArgs: [startSec, endSec, endSec, startSec, startSec, startSec, startSec],
           ))
             r['id'] as String,
         ];

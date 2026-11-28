@@ -1202,6 +1202,41 @@ void main() {
       await LocalDb.close();
     });
 
+    test('a finalized race whose open segment runs past midnight is deleted '
+        'with the second day', () async {
+      final db = await freshDb('hx_open_past_midnight_test.db');
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      final midnightSec = midnight.millisecondsSinceEpoch ~/ 1000;
+      await HyroxDb.create(db, armedSession('hx_open_mid_1',
+          createdAt: (midnightSec - 3600) * 1000));
+      // Round 2 starts yesterday and stays open; the race is abandoned.
+      await HyroxDb.startSegment(
+        db: db, sessionId: 'hx_open_mid_1', ts: midnightSec - 3000,
+        boundarySource: 'gesture');
+      await HyroxDb.transitionSegment(
+        db: db, sessionId: 'hx_open_mid_1', currentIdx: 0,
+        transitionTs: midnightSec - 600, boundarySource: 'gesture');
+      final current = (await HyroxDb.byId(db, 'hx_open_mid_1'))!;
+      await HyroxDb.updateSession(
+        db,
+        HyroxSession(
+          id: current.id, kind: current.kind, preset: current.preset,
+          status: 'abandoned', plan: current.plan,
+          createdAt: current.createdAt, updatedAt: current.updatedAt,
+        ),
+      );
+      await HyroxDb.finalize(db, 'hx_open_mid_1');
+      // The session itself ends 20 min into today.
+      await db.update('hyrox_session', {'end_ts': midnightSec + 1200},
+          where: 'id = ?', whereArgs: ['hx_open_mid_1']);
+
+      await LocalDb.deleteDays({dayLabelOf(now)});
+      expect(await HyroxDb.byId(db, 'hx_open_mid_1'), isNull,
+          reason: 'the open segment runs into today');
+      await LocalDb.close();
+    });
+
     // CodeRabbit follow-up: re-importing an OLDER snapshot must not overwrite
     // the segments of a locally newer session whose parent row was skipped.
     test('restore keeps segments of a locally newer (skipped) session',
