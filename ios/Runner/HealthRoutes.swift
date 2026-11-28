@@ -166,7 +166,8 @@ enum HealthRouteBridge {
       }
       group.notify(queue: queue) {
         // A failed point read must not look like "no route" (Dart remembers those).
-        if failed || all.isEmpty {
+        // A read that worked but held no valid fixes IS "no route": empty list.
+        if failed {
           completion(nil)
           return
         }
@@ -192,7 +193,7 @@ enum HealthRouteBridge {
             Int(loc.timestamp.timeIntervalSince1970 * 1000),
           ])
         }
-        completion(out.isEmpty ? nil : out)
+        completion(out)
       }
     }
     store.execute(routeQuery)
