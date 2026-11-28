@@ -268,6 +268,17 @@ void main() {
       expect(todayLine, isNot(contains('80')));
     });
 
+    test('TODAY carries every column, not a cut-off cap note', () async {
+      await seed({'2026-03-10': 70, '2026-03-09': 60});
+      final ins =
+          await instructionsFor((day: '2026-03-10', readiness: 70));
+      final todayLine =
+          ins.split('\n').firstWhere((l) => l.startsWith('TODAY'));
+      expect(todayLine, contains('"hrv"'));
+      expect(todayLine, isNot(endsWith('…')));
+      expect(ins, isNot(contains('query cap')));
+    });
+
     test('no row for today says so instead of using yesterday', () async {
       await seed({'2026-03-09': 60});
       final ins =
