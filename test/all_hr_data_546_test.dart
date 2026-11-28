@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/csv_export.dart';
+import 'package:openstrap_edge/data/series_codec.dart';
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -83,6 +86,31 @@ void main() {
       ], null);
       expect(renderCsv(kHeartRateCsvColumns, rows).split('\n')[1],
           endsWith(',60,'));
+    });
+  });
+
+  group('heartRateCsvFromPayloads', () {
+    test('decodes stored bundles, including encoded curves', () {
+      final payload = SeriesCodec.encodePayloadJson(jsonEncode({
+        'series': {
+          'hr_curve': [
+            for (var i = 0; i < 3; i++) {'t': 60 * i, 'v': 60 + i},
+          ],
+        },
+      }));
+      expect(payload, isNot(contains('"t":60')));
+      final csv = heartRateCsvFromPayloads([
+        (payload, 'band'),
+        (null, null),
+        (jsonEncode({'skipped': true}), null),
+      ])!;
+      final lines = csv.trim().split('\n');
+      expect(lines, hasLength(4));
+      expect(lines[3], endsWith(',62,band'));
+    });
+
+    test('nothing to export is null, not a header-only file', () {
+      expect(heartRateCsvFromPayloads([(null, null)]), isNull);
     });
   });
 
