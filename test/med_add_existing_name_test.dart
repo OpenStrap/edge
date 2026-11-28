@@ -97,9 +97,11 @@ void main() {
     await MedDb.addScheduledTime(db, '💊', const MedSchedule(480, []));
     await MedDb.addScheduledTime(db, '🧴', const MedSchedule(1260, []));
     await MedDb.addScheduledTime(db, '+', const MedSchedule(600, []));
+    await MedDb.addScheduledTime(db, '❤️', const MedSchedule(700, []));
+    await MedDb.addScheduledTime(db, '☀️', const MedSchedule(710, []));
     final all = await MedDb.defs(db, activeOnly: false);
-    expect(all.map((d) => d.label).toSet(), {'💊', '🧴', '+'});
-    expect(all.map((d) => d.key).toSet().length, 3);
+    expect(all.map((d) => d.label).toSet(), {'💊', '🧴', '+', '❤️', '☀️'});
+    expect(all.map((d) => d.key).toSet().length, 5);
     expect(MedDb.keyFor('💊'), isNot(MedDb.keyFor('1f48a')));
   });
 }

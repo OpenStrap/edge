@@ -279,7 +279,9 @@ class MedDb {
     final t = label.trim().toLowerCase();
     final slug = t.replaceAll(
         RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), '_');
-    if (t.isEmpty || slug.replaceAll('_', '').isNotEmpty) return 'custom_$slug';
+    if (t.isEmpty || RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(t)) {
+      return 'custom_$slug';
+    }
     return 'custom_u-${t.runes.map((r) => r.toRadixString(16)).join('-')}';
   }
 
