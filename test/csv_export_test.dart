@@ -208,13 +208,24 @@ void main() {
       });
 
       final journal = kCsvExportSets.firstWhere((s) => s.name == 'journal');
-      final rows = await db.rawQuery(journal.sql);
+      final rows = [
+        for (final r in await db.rawQuery(journal.sql))
+          {...r, ...journal.addColumns!(r)},
+      ];
       final tagged = rows.firstWhere((r) => r['date'] == '2026-04-09');
       expect(tagged['tags'], 'stressed; alcohol');
       // A malformed doc costs the reader nothing — it comes through verbatim
       // rather than taking the row (or the whole set) down.
       final broken = rows.firstWhere((r) => r['date'] == '2026-04-10');
       expect(broken['tags'], 'not json');
+    });
+
+    test('no export set calls a JSON1 function', () {
+      // Some Android SQLite builds ship without JSON1; a json_*() call there
+      // throws and the whole set silently drops out of the export.
+      for (final s in kCsvExportSets) {
+        expect(s.sql, isNot(matches(RegExp(r'json_\w+\s*\('))), reason: s.name);
+      }
     });
 
     test('a private session\'s sets stay out of the strength set', () async {

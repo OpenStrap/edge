@@ -136,18 +136,12 @@ const kCsvExportSets = <CsvExportSet>[
     columns: ['date', 'tags', 'note'],
     // Tags as a readable list, not the storage document: this used to hand the
     // cell `["stressed","alcohol"]`, brackets and quotes and all, in a file
-    // whose whole job is being openable in a spreadsheet. json_each falls over
-    // on a malformed doc, so an unparseable one is passed through verbatim
-    // rather than costing the row.
-    sql: """
-      SELECT date,
-             CASE WHEN json_valid(tags_json)
-                  THEN COALESCE((SELECT group_concat(value, '; ')
-                                 FROM json_each(journal.tags_json)), '')
-                  ELSE replace(tags_json, char(10), ' ') END AS tags,
-             note
-      FROM journal ORDER BY date ASC
-    """,
+    // whose whole job is being openable in a spreadsheet. Decoded in Dart, not
+    // with json_each: some Android SQLite builds have no JSON1, and the query
+    // threw there, so the journal never made it into the export at all. An
+    // unparseable doc is passed through verbatim rather than costing the row.
+    sql: 'SELECT date, tags_json, note FROM journal ORDER BY date ASC',
+    addColumns: _journalTags,
   ),
   CsvExportSet(
     name: 'labs',
@@ -299,6 +293,24 @@ const kCsvExportSets = <CsvExportSet>[
 Map<String, Object?> _exerciseName(Map<String, Object?> row) => {
   'exercise_name': exerciseByKey(row['exercise'] as String)?.label,
 };
+
+Map<String, Object?> _journalTags(Map<String, Object?> row) {
+  final raw = row['tags_json'] as String?;
+  if (raw == null) return {'tags': null};
+  Object? doc;
+  try {
+    doc = jsonDecode(raw);
+  } on FormatException {
+    return {'tags': raw.replaceAll('\n', ' ')};
+  }
+  final items = doc is List ? doc : doc is Map ? doc.values : [doc];
+  return {
+    'tags': [
+      for (final v in items)
+        if (v != null) v is String ? v : jsonEncode(v),
+    ].join('; '),
+  };
+}
 
 /// What CSV deliberately does NOT carry, and why. Shown to the user on the
 /// export screen, because "your data" with a silent gap in it is the same
