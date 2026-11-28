@@ -238,11 +238,14 @@ class AppleOnDevice {
       // Re-formatted from its parsed parts: only a clean label reaches the SQL.
       final d0 = dayLabelBefore(today?.day ?? '', 0) ?? todayLabel();
       final d6 = dayLabelBefore(d0, 6)!, d13 = dayLabelBefore(d0, 13)!;
+      // Each rowCap sits one above what its query can return: a full page
+      // gets runCoachSql's 'query cap' note, which lands before the rows and
+      // would eat the clip budget (today's row lost everything past strain).
       final rows = await CoachDb.runCoachSql(
           'SELECT date, readiness, strain, sleep_min, deep_min, rem_min, '
           'resting_hr, hrv, resp_rate, stress, steps FROM v_daily '
           "WHERE date BETWEEN '$d13' AND '$d0' ORDER BY date DESC LIMIT 14",
-          rowCap: 14,
+          rowCap: 15,
           today: today);
       final week = await CoachDb.runCoachSql(
           "SELECT CASE WHEN date >= '$d6' THEN 'last 7 days' ELSE "
@@ -251,12 +254,12 @@ class AppleOnDevice {
           'AS sleep_min, ROUND(AVG(resting_hr)) AS resting_hr, '
           'ROUND(AVG(hrv)) AS hrv FROM v_daily '
           "WHERE date BETWEEN '$d13' AND '$d0' GROUP BY 1",
-          rowCap: 2,
+          rowCap: 3,
           today: today);
       final todayRow = await CoachDb.runCoachSql(
           'SELECT date, readiness AS recovery, strain, sleep_min, resting_hr, '
           "hrv FROM v_daily WHERE date = '$d0'",
-          rowCap: 1,
+          rowCap: 2,
           today: today);
       return 'TODAY ($d0): ${_hasRows(todayRow) ? _clip(todayRow, 300, keepEnd: false) : 'no data for today yet.'}\n'
           'THE WEEK (averages): ${_clip(week, 500, keepEnd: false)}\n'
