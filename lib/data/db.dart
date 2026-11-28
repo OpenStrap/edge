@@ -437,6 +437,11 @@ class LocalDb {
     try {
       return await _open();
     } catch (e) {
+      // A lock held by another isolate, a full disk or an IO hiccup says
+      // nothing about the file. Quarantining on one renames the database out
+      // from under whoever still has it open, and on low disk the salvage
+      // fails too. Let the caller retry; the file is fine.
+      if (isTransientOpenError(e)) rethrow;
       final dir = await getDatabasesPath();
       final path = p.join(dir, dbName);
       // A UNIQUE quarantine name every time. A fixed one would let a SECOND
@@ -502,6 +507,21 @@ class LocalDb {
       return fresh;
     }
   }
+
+  /// True for an open failure that is about the moment (lock, busy, full
+  /// disk, IO, can't open the file right now), not about the file's contents.
+  /// Those must never trigger the quarantine-and-rebuild in [_openOrRebuild].
+  @visibleForTesting
+  static bool isTransientOpenError(Object e) {
+    if (e is FileSystemException) return true;
+    return _transientOpenError.hasMatch('$e'.toLowerCase());
+  }
+
+  static final _transientOpenError = RegExp(
+    r'database is locked|database table is locked|sqlite_busy|sqlite_locked'
+    r'|disk is full|sqlite_full|disk i/o error|sqlite_ioerr'
+    r'|unable to open database file|sqlite_cantopen',
+  );
 
   static Future<void> close() => _withReaderInvalidated(() async {
     // A cold open may have started before close, even without a screen lease.
@@ -792,6 +812,24 @@ class LocalDb {
       '               AND COALESCE(s.end_ts, s.start_ts, 0) > ?) '
       '             OR (s.status <> \'finalized\' '
       '               AND s.updated_at >= ? * 1000))))) )';
+
+  /// The same window rule for a triathlon, args as [_hyroxInWindowSql]. Its
+  /// own copy used to accept ANY open segment of a non-finalized race, so an
+  /// abandoned race with an open segment matched every later day: deleting
+  /// one November day took a March race with it.
+  static final String _triathlonInWindowSql =
+      _hyroxInWindowSql.replaceAll('hyrox_', 'triathlon_');
+
+  /// A vendor night belongs to the day its last epoch ends in, the same
+  /// "the sleep that ended that morning" rule the day model uses. Whole
+  /// nights only. The key is concatenated, not a row value, so it runs on
+  /// old platform SQLite too.
+  /// Args: [endSec, endSec, startSec, endSec].
+  static const String _vendorNightInWindowSql =
+      "night_onset_ts < ? AND device_id || '|' || night_onset_ts IN "
+      "(SELECT device_id || '|' || night_onset_ts FROM vendor_sleep_epoch "
+      'WHERE night_onset_ts < ? GROUP BY device_id, night_onset_ts '
+      'HAVING MAX(end_ts) > ? AND MAX(end_ts) <= ?)';
 
   /// THE PRIMARY BAND'S `device_id`, and it is reserved permanently.
   ///
@@ -3232,20 +3270,31 @@ class LocalDb {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final db = await instance;
     await db.transaction((txn) async {
+      // A lower bound on start_ts so each overlap probe range-scans the PK
+      // (device_id, start_ts) near the epoch instead of the device's whole
+      // history: no stored epoch that ends after e.startSec can start before
+      // e.startSec - longest. One scan per write, not one per epoch.
+      final longest = Sqflite.firstIntValue(await txn.rawQuery(
+              'SELECT MAX(end_ts - start_ts) FROM vendor_sleep_epoch '
+              'WHERE device_id = ?',
+              [deviceId])) ??
+          0;
       for (final e in sorted) {
+        final floor = e.startSec - longest;
         // A re-reported whole night that starts later would otherwise keep
         // the old report's leading epochs, chained in by onset.
         if (wholeNights) {
           await txn.rawDelete(
               'DELETE FROM vendor_sleep_epoch WHERE device_id = ? AND '
               'night_onset_ts IN (SELECT night_onset_ts FROM '
-              'vendor_sleep_epoch WHERE device_id = ? AND start_ts < ? '
-              'AND end_ts > ?)',
-              [deviceId, deviceId, e.endSec, e.startSec]);
+              'vendor_sleep_epoch WHERE device_id = ? AND start_ts >= ? '
+              'AND start_ts < ? AND end_ts > ?)',
+              [deviceId, deviceId, floor, e.endSec, e.startSec]);
         }
         await txn.delete('vendor_sleep_epoch',
-            where: 'device_id = ? AND start_ts < ? AND end_ts > ?',
-            whereArgs: [deviceId, e.endSec, e.startSec]);
+            where: 'device_id = ? AND start_ts >= ? AND start_ts < ? '
+                'AND end_ts > ?',
+            whereArgs: [deviceId, floor, e.endSec, e.startSec]);
       }
       int? onset;
       var prevEnd = 0;
@@ -4250,7 +4299,9 @@ class LocalDb {
     const kMaxGapBuckets = 2;
 
     final specs = <String, String>{
-      'hr1Hz': 'hr IS NOT NULL',
+      // hr = 0 is the off-skin sentinel pre-v43 rows still carry, not a
+      // reading. Same rule as the ingest writer's `s.hr > 0`.
+      'hr1Hz': 'hr IS NOT NULL AND hr > 0',
       'accel1Hz': 'ax IS NOT NULL AND ay IS NOT NULL AND az IS NOT NULL',
       'ppgRedIr': 'spo2_red_raw IS NOT NULL OR spo2_ir_raw IS NOT NULL',
       'skinTempRaw': 'skin_temp_raw IS NOT NULL',
@@ -4341,6 +4392,7 @@ class LocalDb {
     required String deviceId,
     required List<Sample?> samples,
     required List<int> sampleSecs,
+    Set<int> rrOnly = const {},
     List<NeutralSample>? neutrals,
     Map<String, int>? toleranceSec,
     String? deviceFamily,
@@ -4357,6 +4409,12 @@ class LocalDb {
       // A record with no usable timestamp describes no second, so it can
       // found no interval. `_queueDecodedOneHz` refuses the same rows.
       if (sec <= 0) continue;
+      // Gen4 R10-lite banks only its beats, no decoded_onehz row, so it may
+      // claim rrIntervals and nothing else.
+      if (rrOnly.contains(i)) {
+        if (s.rrIntervalsMs.isNotEmpty) observe('rrIntervals', sec);
+        continue;
+      }
       if (s.hr > 0) observe('hr1Hz', sec);
       if (s.ax != null && s.ay != null && s.az != null) {
         observe('accel1Hz', sec);
@@ -5299,6 +5357,7 @@ class LocalDb {
         // trip the parallel-length assert. An unvisited slot stays 0, which
         // [_extendCoverageVia] reads as "no second", so it claims nothing.
         final sampleSecs = List<int>.filled(samples.length, 0);
+        final rrOnly = <int>{};
         // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
         // ONE platform-channel message, and the native side builds a single
         // ArrayList of every argument. A large backlog offload (raws in the
@@ -5381,6 +5440,7 @@ class LocalDb {
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
           sampleSecs[i] = recTs;
+          if (_isGen4R10LiteHistorical(raw.hex)) rrOnly.add(i);
           if (ops >= chunkOps) await flushChunk();
         }
         // NEUTRAL ROWS. No flash counter to advance maxCounter from — both
@@ -5414,6 +5474,7 @@ class LocalDb {
           deviceId: deviceId,
           samples: samples,
           sampleSecs: sampleSecs,
+          rrOnly: rrOnly,
           neutrals: neutrals,
           toleranceSec: coverageToleranceSec,
           deviceFamily: deviceFamily,
@@ -6283,18 +6344,30 @@ class LocalDb {
     );
     // A pre-release build keyed it by session alone; rebuild that shape so a
     // second sensor stops replacing the first. Every open, so a no-op after.
-    final pk = await db.rawQuery('PRAGMA table_info(session_sensor)');
-    if (!pk.any((c) => c['name'] == 'source' && (c['pk'] as int? ?? 0) > 0)) {
-      // Plain statements, no transaction: this also runs inside onUpgrade's.
-      await db.execute('ALTER TABLE session_sensor RENAME TO session_sensor_v1');
-      await db.execute(
-        'CREATE TABLE session_sensor (session_id TEXT NOT NULL, '
+    // One transaction (joined to onUpgrade's from the ladder, real from
+    // onOpen), and an orphaned `session_sensor_v1` left by a kill mid-rebuild
+    // in an older build is resumed, same as [_migrateLegacyTable].
+    await db.transaction((txn) async {
+      final orphan = (await txn.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'session_sensor_v1'",
+      )).isNotEmpty;
+      if (!orphan) {
+        final pk = await txn.rawQuery('PRAGMA table_info(session_sensor)');
+        if (pk.any((c) => c['name'] == 'source' && (c['pk'] as int? ?? 0) > 0)) {
+          return;
+        }
+        await txn
+            .execute('ALTER TABLE session_sensor RENAME TO session_sensor_v1');
+      }
+      await txn.execute(
+        'CREATE TABLE IF NOT EXISTS session_sensor (session_id TEXT NOT NULL, '
         'source TEXT NOT NULL, PRIMARY KEY (session_id, source))',
       );
-      await db.execute('INSERT INTO session_sensor SELECT session_id, source '
-          'FROM session_sensor_v1');
-      await db.execute('DROP TABLE session_sensor_v1');
-    }
+      await txn.execute('INSERT OR IGNORE INTO session_sensor '
+          'SELECT session_id, source FROM session_sensor_v1');
+      await txn.execute('DROP TABLE session_sensor_v1');
+    });
     // `sessions` is keyed by a TEXT id, so every read that matters — the
     // workouts list, the activity tab, both `decoded_onehz` HR joins,
     // [sessionsInRange], [liveSessions] — was a full table scan plus a full
@@ -11601,6 +11674,32 @@ class LocalDb {
         where: 'start_ts >= ? AND start_ts < ?',
         whereArgs: [startSec, endSec],
       );
+      // The sessions' children, the same set deleteDays removes with them:
+      // a restored run without its route, splits or sets is half a record.
+      for (final child in const [
+        'workout_route',
+        'workout_split',
+        'strength_set',
+        'session_sensor',
+        'external_hr',
+      ]) {
+        await copyRows(
+          child,
+          where: 'session_id IN '
+              '(SELECT id FROM sessions WHERE start_ts >= ? AND start_ts < ?)',
+          whereArgs: [startSec, endSec],
+        );
+      }
+      await copyRows(
+        'external_hr',
+        where: 'ts >= ? AND ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'vendor_sleep_epoch',
+        where: _vendorNightInWindowSql,
+        whereArgs: [endSec, endSec, startSec, endSec],
+      );
       // Same midnight rule as deleteDays (shared predicate _hyroxInWindowSql):
       // a race is exported for a day when it starts that day OR one of its
       // segments starts that day or overlaps it, and always whole.
@@ -11614,31 +11713,16 @@ class LocalDb {
         where: 'session_id IN $_hyroxInWindowSql',
         whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
       );
-      // Same midnight rule as deleteDays: a race is exported for a day when
-      // it starts that day OR one of its segments does, and always whole.
-      // An open segment only overlaps later days while the session is still
-      // live; a FINALIZED race (incl. an abandoned DNF with an open cut
-      // segment) is bounded by COALESCE(session.end_ts, session.start_ts),
-      // so it does not match every later day.
-      const triInWindow = '(SELECT id FROM triathlon_session '
-          'WHERE start_ts >= ? AND start_ts < ? '
-          'UNION SELECT session_id FROM triathlon_segment '
-          'WHERE start_ts IS NOT NULL AND start_ts < ? '
-          'AND ( (end_ts IS NOT NULL AND end_ts > ?) '
-          '   OR (end_ts IS NULL AND start_ts < ? '
-          '   AND EXISTS (SELECT 1 FROM triathlon_session s '
-          '        WHERE s.id = triathlon_segment.session_id '
-          '        AND (s.status <> \'finalized\' '
-          '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
+      // Same midnight rule as deleteDays (shared _triathlonInWindowSql).
       await copyRows(
         'triathlon_session',
-        where: 'id IN $triInWindow',
-        whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
+        where: 'id IN $_triathlonInWindowSql',
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
       );
       await copyRows(
         'triathlon_segment',
-        where: 'session_id IN $triInWindow',
-        whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
+        where: 'session_id IN $_triathlonInWindowSql',
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
       );
       await copyRows(
         'live_coverage',
@@ -11832,6 +11916,7 @@ class LocalDb {
           'workout_split',
           'strength_set',
           'session_sensor',
+          'external_hr',
         ]) {
           deleted += await txn.rawDelete(
             'DELETE FROM $child WHERE session_id IN '
@@ -11891,6 +11976,8 @@ class LocalDb {
                 where: 'session_id = ?', whereArgs: [wid]);
             await txn.delete('strength_set',
                 where: 'session_id = ?', whereArgs: [wid]);
+            await txn.delete('external_hr',
+                where: 'session_id = ?', whereArgs: [wid]);
             deleted += await txn.delete('sessions',
                 where: 'id = ?', whereArgs: [wid]);
           }
@@ -11920,25 +12007,13 @@ class LocalDb {
         // before the parent statement would empty the very subquery the parent
         // delete is built from, which is how a cross-midnight race used to
         // survive its own deletion.
-        // An open segment only overlaps later days while the session is still
-        // live; a FINALIZED race (incl. an abandoned DNF with an open cut
-        // segment) is bounded by COALESCE(session.end_ts, session.start_ts).
-        const triInWindow = '(SELECT id FROM triathlon_session '
-            'WHERE start_ts >= ? AND start_ts < ? '
-            'UNION SELECT session_id FROM triathlon_segment '
-            'WHERE start_ts IS NOT NULL AND start_ts < ? '
-            'AND ( (end_ts IS NOT NULL AND end_ts > ?) '
-            '   OR (end_ts IS NULL AND start_ts < ? '
-            '   AND EXISTS (SELECT 1 FROM triathlon_session s '
-            '        WHERE s.id = triathlon_segment.session_id '
-            '        AND (s.status <> \'finalized\' '
-            '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
+        // Same predicate as the export: _triathlonInWindowSql.
         final triIds = <String>[
           for (final r in await txn.query(
             'triathlon_session',
             columns: ['id'],
-            where: 'id IN $triInWindow',
-            whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
+            where: 'id IN $_triathlonInWindowSql',
+            whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
           ))
             r['id'] as String,
         ];
@@ -11963,6 +12038,8 @@ class LocalDb {
                 where: 'session_id = ?', whereArgs: [wid]);
             await txn.delete('strength_set',
                 where: 'session_id = ?', whereArgs: [wid]);
+            await txn.delete('external_hr',
+                where: 'session_id = ?', whereArgs: [wid]);
             deleted += await txn.delete('sessions',
                 where: 'id = ?', whereArgs: [wid]);
           }
@@ -11979,6 +12056,19 @@ class LocalDb {
           'sessions',
           where: 'start_ts >= ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
+        );
+        // Kept forever elsewhere as "the only copy", which is exactly why a
+        // privacy delete must take them: a chest strap's per-second HR, and
+        // the night a ring or watch staged for this day (a re-derive would
+        // rebuild the deleted night from it).
+        deleted += await txn.delete(
+          'external_hr',
+          where: 'ts >= ? AND ts < ?',
+          whereArgs: [startSec, endSec],
+        );
+        deleted += await txn.rawDelete(
+          'DELETE FROM vendor_sleep_epoch WHERE $_vendorNightInWindowSql',
+          [endSec, endSec, startSec, endSec],
         );
         deleted += await txn.delete(
           'live_coverage',
@@ -12832,11 +12922,13 @@ class LocalDb {
 
       for (final r in await db.query(
         'triathlon_session',
-        columns: ['id', 'status', 'updated_at', 'plan_json'],
+        columns: ['id', 'status', 'updated_at', 'finalized_at', 'plan_json'],
         distinct: true,
       )) {
         final id = '${r['id']}';
-        if (r['status'] == 'discarded') {
+        // Same rule as hyrox: finalization is one-way, so a finalized local
+        // race is never replaced by an import, however new.
+        if (r['status'] == 'discarded' || r['finalized_at'] != null) {
           protectedTriathlons.add(id);
         }
         final planned = plannedSegments(r['plan_json']);
@@ -14290,11 +14382,18 @@ class LocalDb {
   /// Drops stored `spo2` rows that are not a blood oxygen percentage: WHOOP export
   /// cells outside 70-100 banked before the importer dropped them, and the old
   /// cloud_v2 importer's relative index, written under the same key.
+  ///
+  /// Correlated per walked row, like [notImportedRowSql]: the old
+  /// `date NOT IN (...)` built the whole cloud_v2 set first, a LIKE over every
+  /// stored day bundle on each read.
   static String _validSql(String key) => key != 'spo2'
       ? ''
-      : ' AND value BETWEEN 70 AND 100 AND date NOT IN ('
-          'SELECT r.day_id FROM day_result r $_servedDayJoin '
-          "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"source\":\"cloud_v2\"%')";
+      : ' AND value BETWEEN 70 AND 100 AND NOT EXISTS ('
+          'SELECT 1 FROM day_result r WHERE r.day_id = metric_series.date '
+          'AND r.algo_version = (SELECT MAX(x.algo_version) FROM day_result x '
+          'WHERE x.day_id = metric_series.date '
+          'AND x.algo_version <= $_servedAlgoCeiling) '
+          "AND r.payload_json LIKE '%\"source\":\"cloud_v2\"%')";
 
   /// The TRAILING [n] non-null values for [key] — the newest n days, returned
   /// oldest→newest. Unlike [metricSeries] (which is `date ASC LIMIT n`, i.e. the
@@ -14749,8 +14848,15 @@ class LocalDb {
   /// derive pass has no use for.
   static Future<Map<String, dynamic>> _freshnessRawStats() async {
     final db = await instance;
+    // Only rows that can become this morning's numbers: the band (or an
+    // admitted source) and the active wearable. A workout sensor's or a
+    // flag-off device's second says nothing about whether last night arrived.
+    final wearable = sessionWearableSource;
     final hi = (await db.rawQuery(
-      'SELECT MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0',
+      'SELECT MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0 '
+      'AND (${derivableSourceSql()}'
+      '${wearable != null ? ' OR source = ?' : ''})',
+      [?wearable],
     )).first['hi'];
     final oneHz =
         Sqflite.firstIntValue(

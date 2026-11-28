@@ -437,6 +437,13 @@ void main() {
     final rr = await db.query('decoded_rr',
         where: 'rec_ts = ?', whereArgs: [ts], orderBy: 'beat_index ASC');
     expect([for (final r in rr) r['rr_ms']], [1010, 1030]);
+    // Coverage claims only what was banked: the beats, never 1 Hz HR for a
+    // second with no decoded_onehz row.
+    final cov = await db.query('device_coverage',
+        where: 'start_ts <= ? AND end_ts > ?', whereArgs: [ts, ts]);
+    final signals = {for (final c in cov) c['signal']};
+    expect(signals, contains('rrIntervals'));
+    expect(signals, isNot(contains('hr1Hz')));
   });
 
   // Protects the hex-conversion fallback in `LocalDb._decodeOneHzSample`: when

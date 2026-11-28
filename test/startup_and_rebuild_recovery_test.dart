@@ -211,6 +211,28 @@ void main() {
       expect(LocalDb.lastRebuild, isNull);
       await LocalDb.close();
     });
+
+    test('a lock, full disk or io error never counts as an unopenable file',
+        () {
+      for (final e in <Object>[
+        Exception('DatabaseException(database is locked (code 5 SQLITE_BUSY))'),
+        Exception('Error Domain=FMDatabase Code=5 "database is locked"'),
+        Exception('database or disk is full (code 13 SQLITE_FULL)'),
+        Exception('disk I/O error (code 10 SQLITE_IOERR)'),
+        Exception('unable to open database file (code 14 SQLITE_CANTOPEN)'),
+        const FileSystemException('rename failed'),
+      ]) {
+        expect(LocalDb.isTransientOpenError(e), isTrue, reason: '$e');
+      }
+      for (final e in <Object>[
+        Exception('file is not a database (code 26 SQLITE_NOTADB)'),
+        Exception('database disk image is malformed (code 11)'),
+        Exception('no such column: device_id'),
+        StateError('ladder step failed'),
+      ]) {
+        expect(LocalDb.isTransientOpenError(e), isFalse, reason: '$e');
+      }
+    });
   });
 
   // ── F-2, end to end ────────────────────────────────────────────────────────
