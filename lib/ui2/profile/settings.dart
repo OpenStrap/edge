@@ -268,7 +268,18 @@ class _MoreSettingsState extends State<MoreSettings>
           : app.requestPhoneSteps(),
       onToggleSleepHmm: () =>
           app.setSleepHmmStages(!app.sleepHmmStagesEnabled),
-      onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
+      onToggleTelemetry: () async {
+        final messenger = ScaffoldMessenger.of(c);
+        try {
+          await app.setTelemetryConsent(!app.telemetryConsent);
+        } catch (_) {
+          // Collection already follows the tap this session; only the save failed.
+          if (!messenger.mounted) return;
+          messenger.showSnackBar(const SnackBar(
+              content: Text("Couldn't save that choice. It may reset when the "
+                  'app restarts.')));
+        }
+      },
       onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),
       onToggleHealthSync: () => _toggleHealthSync(app),
@@ -898,7 +909,7 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.bug, C.orange,
                       l?.settingsCrashReportsRowTitle ?? 'Crash reports',
                       sub: l?.settingsCrashReportsRowSub ??
-                          'Nothing is sent until you say so',
+                          'Crash reports and usage counts, tied to a random install ID. No health data',
                       value: telemetry ? on : off,
                       onTap: onToggleTelemetry),
                   SetRow(LucideIcons.messageSquareWarning, C.orange,

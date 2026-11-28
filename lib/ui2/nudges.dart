@@ -8,6 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../l10n/app_localizations.dart';
+import 'package:provider/provider.dart';
+
+import '../state/app_state.dart';
 import '../state/prefs.dart';
 import 'ui2.dart';
 
@@ -174,6 +177,107 @@ class _AskCard extends StatelessWidget {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// One-time notice that anonymous diagnostics are on by default. Shown once per
+/// install while diagnostics are still on; "Got it" or "Turn off" ends it.
+class TelemetryNotice extends StatefulWidget {
+  /// Gallery only: render regardless of consent and dismissal.
+  final bool always;
+  const TelemetryNotice({super.key, this.always = false});
+
+  @override
+  State<TelemetryNotice> createState() => _TelemetryNoticeState();
+}
+
+class _TelemetryNoticeState extends State<TelemetryNotice> {
+  static const _seenKey = 'nudge.telemetry.dismissed';
+  bool _seen = Prefs.getBool(_seenKey, false);
+  bool _saveFailed = false; // keeps the card (and its retry) up after a failed save
+
+  // No AppState above (tests, previews) means nothing to disclose.
+  static bool _consentOn(BuildContext c) {
+    try {
+      return c.select<AppState, bool>((a) => a.telemetryConsent);
+    } on ProviderNotFoundException {
+      return false;
+    }
+  }
+
+  void _done() {
+    Prefs.setBool(_seenKey, true);
+    setState(() => _seen = true);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    if (!widget.always && (_seen || (!_saveFailed && !_consentOn(c)))) {
+      return const SizedBox.shrink();
+    }
+    final p = P.of(c);
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x5, bottom: S.x3),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: R.rLg,
+          border: Border.all(color: p.on(C.indigo).withValues(alpha: .55)),
+        ),
+        child: Surface(
+        color: p.wash(C.indigo),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(LucideIcons.shieldCheck, size: 18, color: p.on(C.indigo)),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text('Diagnostics are on',
+                  style: F.body
+                      .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+            ),
+          ]),
+          const SizedBox(height: 2),
+          Text(
+              'We collect crash reports and usage counts, tied to a random '
+              'install ID rather than your name, only to fix technical '
+              'problems. No health data or personal information is included, '
+              "just your phone model, OS and app version, plus the band's "
+              'battery level and connection status. You can turn this off '
+              'anytime in Settings.',
+              style: F.over.copyWith(color: p.ink3)),
+          if (_saveFailed) ...[
+            const SizedBox(height: S.x2),
+            Text(
+                "Couldn't save that. Diagnostics are off for now; tap Turn off "
+                'to try again.',
+                style: F.over.copyWith(color: p.ink)),
+          ],
+          const SizedBox(height: S.x3),
+          BigButton('Got it', color: C.indigo, onTap: _done),
+          const SizedBox(height: S.x2),
+          Center(
+            child: Pressable(
+              onTap: () async {
+                final app = c.read<AppState>();
+                try {
+                  await app.setTelemetryConsent(false);
+                } catch (_) {
+                  // Collection is already off for this session; keep the card
+                  // up so the save can be retried.
+                  if (mounted) setState(() => _saveFailed = true);
+                  return;
+                }
+                if (mounted) _done();
+              },
+              semanticLabel: 'Turn off diagnostics',
+              child: Text('Turn off',
+                  style: F.over.copyWith(
+                      color: p.ink3, decoration: TextDecoration.underline)),
+            ),
+          ),
+        ]),
+      ),
       ),
     );
   }

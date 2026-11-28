@@ -1285,8 +1285,10 @@ class AppState extends ChangeNotifier {
   // afterwards `setHealthShareConsent` had no caller anywhere — an install
   // carrying `consent_health_data = true` from before the rebuild kept
   // uploading its whole database with no way to stop it. Nothing here may be
-  // enabled except by an explicit tap; `consentChosen` records only that the
-  // user has answered at least once.
+  // enabled except by an explicit tap (health-data sharing). Anonymous
+  // diagnostics are the one exception: ON by default, announced once on Home,
+  // off in Settings. `consentChosen` records only that the user has answered
+  // at least once.
   static const String _kDeviceId = 'install_device_id';
   static const String _kTelemetryConsent = 'consent_telemetry';
   static const String _kHealthShareConsent = 'consent_health_data';
@@ -1316,7 +1318,9 @@ class AppState extends ChangeNotifier {
         deviceId = const Uuid().v4();
         await prefs.setString(_kDeviceId, deviceId);
       }
-      telemetryConsent = prefs.getBool(_kTelemetryConsent) ?? false;
+      // Diagnostics are ON unless the user switched them off; Home shows a
+      // one-time notice (TelemetryNotice). Health-data sharing stays default OFF.
+      telemetryConsent = prefs.getBool(_kTelemetryConsent) ?? true;
       healthShareConsent = prefs.getBool(_kHealthShareConsent) ?? false;
       consentChosen = prefs.getBool(_kConsentChosen) ?? false;
       CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
@@ -1399,11 +1403,16 @@ class AppState extends ChangeNotifier {
   Future<void> setTelemetryConsent(bool on) async {
     telemetryConsent = on;
     consentChosen = true;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kTelemetryConsent, on);
-    await prefs.setBool(_kConsentChosen, true);
+    // Apply before persisting: an opt-out must stop collection now, even if the
+    // preference write below fails.
     TelemetryService.instance.applyConsent(on);
+    final prefs = await SharedPreferences.getInstance();
+    final saved = await prefs.setBool(_kTelemetryConsent, on) &&
+        await prefs.setBool(_kConsentChosen, true);
     notifyListeners();
+    // Collection is already switched as asked above; a rejected write must not
+    // look like a saved choice (the absent key means ON after a restart).
+    if (!saved) throw StateError('telemetry consent was not saved');
     // Flush only after the terms version is learned, so the first batch is
     // stamped with the live version, not the compiled-in placeholder.
     unawaited(_postConsent('telemetry', on).whenComplete(() {

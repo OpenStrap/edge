@@ -5631,7 +5631,7 @@
   "settingsTaskerShortcutsRowSub": "Передача событий — только на Android. В iOS команда может вызвать вибрацию, но браслет не может её запустить",
   "settingsGroupPrivacy": "Конфиденциальность",
   "settingsCrashReportsRowTitle": "Отчёты о сбоях",
-  "settingsCrashReportsRowSub": "Ничего не отправляется без вашего согласия",
+  "settingsCrashReportsRowSub": "Отчёты о сбоях и статистика использования, привязанные к случайному ID установки. Без данных о здоровье",
   "settingsBarcodeLookupRowTitle": "Поиск штрихкодов в интернете",
   "settingsBarcodeLookupRowSub": "Отправляет штрихкод в openfoodfacts.org без сведений о вас",
   "settingsContributeHealthDataRowTitle": "Передавать мои данные о здоровье",

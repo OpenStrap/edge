@@ -2394,7 +2394,7 @@
   "settingsTaskerShortcutsRowSub": "Solo Android para eventos salientes. iOS puede hacer vibrar la banda, pero no puede ser activado por ella",
   "settingsGroupPrivacy": "Privacidad",
   "settingsCrashReportsRowTitle": "Informes de fallos",
-  "settingsCrashReportsRowSub": "No se envía nada hasta que tú lo autorices",
+  "settingsCrashReportsRowSub": "Informes de fallos y recuentos de uso, vinculados a un ID de instalación aleatorio. Sin datos de salud",
   "settingsBarcodeLookupRowTitle": "Buscar códigos de barras en línea",
   "settingsBarcodeLookupRowSub": "Envía un código de barras escaneado a openfoodfacts.org. Nada sobre ti va con él",
   "settingsContributeHealthDataRowTitle": "Contribuir con mis datos de salud",

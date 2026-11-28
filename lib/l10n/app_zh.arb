@@ -2380,7 +2380,7 @@
   "settingsTaskerShortcutsRowSub": "仅 Android 支持事件外发。iOS 可以让手环振动，但无法被手环触发",
   "settingsGroupPrivacy": "隐私",
   "settingsCrashReportsRowTitle": "崩溃报告",
-  "settingsCrashReportsRowSub": "在你同意之前不会发送任何内容",
+  "settingsCrashReportsRowSub": "崩溃报告和使用次数，关联一个随机安装 ID。不含健康数据",
   "settingsBarcodeLookupRowTitle": "在线查询条形码",
   "settingsBarcodeLookupRowSub": "将扫描到的条形码发送到 openfoodfacts.org。不会附带任何与你相关的信息",
   "settingsContributeHealthDataRowTitle": "贡献我的健康数据",

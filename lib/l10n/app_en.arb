@@ -12073,7 +12073,7 @@
   "@settingsCrashReportsRowTitle": {
     "description": "Settings row title toggling crash telemetry"
   },
-  "settingsCrashReportsRowSub": "Nothing is sent until you say so",
+  "settingsCrashReportsRowSub": "Crash reports and usage counts, tied to a random install ID. No health data",
   "@settingsCrashReportsRowSub": {
     "description": "Settings row subtitle for the crash-reports toggle"
   },
