@@ -24,6 +24,7 @@ import '../../l10n/app_localizations.dart';
 import '../../l10n/date_text.dart';
 import '../grammar.dart';
 import '../screens/home_screen.dart' show unitsOf;
+import '../skeleton/guide_plot.dart';
 import '../theme.dart';
 import 'live.dart' show say;
 
@@ -490,7 +491,7 @@ class _GhostPanelState extends State<GhostPanel> {
 /// The ghost's path, your trail, and the two markers: you filled, the ghost
 /// hollow. Uniform scale with the cos(lat) squeeze, so the shape drawn is the
 /// shape run.
-class _GhostMapPainter extends CustomPainter {
+class _GhostMapPainter extends CustomPainter implements GuidePlot {
   final List<LatLng> ghost, trail;
   final LatLng ghostNow;
   final Color pathInk, youInk, ghostInk, haloInk;
@@ -503,6 +504,9 @@ class _GhostMapPainter extends CustomPainter {
     required this.ghostInk,
     required this.haloInk,
   });
+
+  @override
+  Color get guideLineColor => pathInk;
 
   @override
   void paint(Canvas cv, Size s) {
@@ -660,9 +664,9 @@ class _GhostPickerState extends State<_GhostPicker> {
                                   l?.ghostReadFailed ??
                                   'Could not read your saved routes. Tap to retry.',
                               icon: LucideIcons.refreshCw,
-                              onTap: () => setState(
-                                () => _f = widget.load(widget.typeKey),
-                              ),
+                              onTap: () => setState(() {
+                                _f = widget.load(widget.typeKey);
+                              }),
                             )
                           else if (list.isEmpty)
                             Padding(
@@ -792,7 +796,9 @@ class _GhostSummaryState extends State<GhostSummary> {
         : s.hasError
         ? _GhostReadFailed(onRetry: () {
             _cache.remove(_key);
-            setState(() => _f = _cache.putIfAbsent(_key, _load));
+            setState(() {
+              _f = _cache.putIfAbsent(_key, _load);
+            });
           })
         : GhostSummaryCard(s.data, hapticKey: _key),
   );
