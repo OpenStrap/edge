@@ -429,6 +429,85 @@ void main() {
       expect(out['mean_rmssd'], isNull);
       expect(out['n_buckets'], 0);
     });
+
+    // One beat every 30 s on a still wrist: nothing between them was seen,
+    // so no two of them are successive and no RMSSD can be read.
+    Substrate sparseBeats() {
+      const t0 = 1750000000;
+      const n = 3600;
+      final rrTs = <double>[], rrMs = <double>[];
+      for (var i = 0; i < n; i += 30) {
+        rrTs.add((t0 + i) * 1000.0);
+        rrMs.add(i % 60 == 0 ? 700.0 : 800.0);
+      }
+      return Substrate(
+        tsSec: [for (var i = 0; i < n; i++) t0 + i],
+        hr: List<int>.filled(n, 60),
+        rrTsMs: rrTs,
+        rrMs: rrMs,
+        ax: List<double>.filled(n, 0.02),
+        ay: List<double>.filled(n, 0.01),
+        az: List<double>.filled(n, 1.0),
+        spo2Red: List<int>.filled(n, 0),
+        spo2Ir: List<int>.filled(n, 0),
+        skinTemp: List<int>.filled(n, 0),
+        skinContact: List<int>.filled(n, 0),
+        deviceFamily: 'gen4',
+      );
+    }
+
+    test('beats either side of a gap are never paired', () {
+      final out = DerivationEngine.daytimeHrv(sparseBeats(), 0, 0);
+      expect(out['n_buckets'], 0);
+      expect(out['mean_rmssd'], isNull);
+      expect(DerivationEngine.dayHrvCurve(sparseBeats()), isEmpty);
+    });
+  });
+
+  group('restlessness', () {
+    // An hour with a 20-minute hole (minutes 20-39) where no gravity vector
+    // was recorded; every minute outside [moving] is still.
+    Substrate holeyNight(Set<int> moving) {
+      const t0 = 1750000020 - 1750000020 % 60;
+      final ts = <int>[];
+      final ax = <double>[], ay = <double>[], az = <double>[];
+      for (var m = 0; m < 60; m++) {
+        if (m >= 20 && m < 40) continue;
+        for (var sec = 0; sec < 60; sec++) {
+          ts.add(t0 + m * 60 + sec);
+          final tilt = moving.contains(m) && sec.isEven ? 0.5 : 0.0;
+          ax.add(math.sin(tilt));
+          ay.add(0.0);
+          az.add(math.cos(tilt));
+        }
+      }
+      final n = ts.length;
+      return Substrate(
+        tsSec: ts,
+        hr: List<int>.filled(n, 55),
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: ax,
+        ay: ay,
+        az: az,
+        spo2Red: List<int>.filled(n, 0),
+        spo2Ir: List<int>.filled(n, 0),
+        skinTemp: List<int>.filled(n, 0),
+        skinContact: List<int>.filled(n, 0),
+      );
+    }
+
+    test('a hole is not still time', () {
+      final r = DerivationEngine.restlessness(holeyNight({5, 55}));
+      // 6-19 and 40-54, never the 29 minutes across the hole.
+      expect(r['longest_still_min'], 15);
+    });
+
+    test('moving either side of a hole is two bouts, not one', () {
+      final r = DerivationEngine.restlessness(holeyNight({19, 40}));
+      expect(r['restless_min'], 2);
+      expect(r['movement_bouts'], 2);
+    });
   });
 }
 

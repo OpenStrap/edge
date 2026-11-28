@@ -177,7 +177,9 @@ Future<int> seedRecentReadinessZ() async {
 /// One-shot.
 Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   /// Days with substrate: decoded band rows AND the active wearable's rows.
-  required Set<String> rawDays,
+  /// A loader, read only when there is work: once the one-shot is done every
+  /// pass returns before it, so the per-day walk behind it is never paid.
+  required Future<Set<String>> Function() rawDays,
   required Future<List<double> Function(String day, String? deviceFamily)>
       Function()
       zHistoryLoader,
@@ -204,6 +206,7 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   final seeded = waiting == null ? await _seedZ(days) : 0;
   final lookup = await zHistoryLoader();
   final versions = await LocalDb.dayResultVersions();
+  final substrate = await rawDays();
   var rescored = 0;
   // Days below v112 left to the derive because they still have substrate. A
   // light pass need not reach them all, and their raw can be pruned before it
@@ -213,7 +216,7 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   var forced = 0;
   for (final day in days) {
     if ((versions[day] ?? 0) >= kAlgoVersion) continue;
-    final raw = rawDays.contains(day);
+    final raw = substrate.contains(day);
     // This day's last allowed pass: its derive has failed this long, so it
     // is re-scored from its stored inputs like a pruned day.
     final passes = (waited[day] ?? 0) + 1;

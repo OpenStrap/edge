@@ -90,7 +90,7 @@ void main() {
     // newest included; the two substrate days are left for the derive.
     final zBy = <String, double>{};
     final r = await backfillReadinessCalibration(
-        rawDays: {day(20), day(21)},
+        rawDays: () async => {day(20), day(21)},
         zHistoryLoader: () async {
       for (final row in await LocalDb.metricSeries('readiness_z')) {
         zBy[row['date'] as String] = (row['value'] as num).toDouble();
@@ -125,14 +125,19 @@ void main() {
     // Not done while substrate days are still below v112: their raw was
     // pruned before any derive reached them, so the next pass re-scores them.
     final later = await backfillReadinessCalibration(
-        rawDays: const {}, zHistoryLoader: () async => (_, _) => const <double>[]);
+        rawDays: () async => const {}, zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(later.rescored, 2);
     expect((await LocalDb.dayResult(day(20)))!['algo_version'], kAlgoVersion);
 
     // Now everything is at v112: done, and one-shot from here.
     final again = await backfillReadinessCalibration(
-        rawDays: const {}, zHistoryLoader: () async => (_, _) => const <double>[]);
+        rawDays: () async => const {}, zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(again.seeded + again.rescored, 0);
+    // Once done, the substrate-day walk is never paid again.
+    final done = await backfillReadinessCalibration(
+        rawDays: () async => fail('substrate read after done'),
+        zHistoryLoader: () async => (_, _) => const <double>[]);
+    expect(done.seeded + done.rescored, 0);
   });
 
   test('an interrupted re-score is completed: bundle and trend agree', () async {
@@ -149,7 +154,7 @@ void main() {
     );
     await LocalDb.putMetricSeriesValue(day(45), 'readiness', 99);
     final r = await backfillReadinessCalibration(
-        rawDays: const {},
+        rawDays: () async => const {},
         force: true,
         zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(r.rescored, 1);
@@ -174,7 +179,7 @@ void main() {
       readiness: 30,
     );
     final r = await backfillReadinessCalibration(
-        rawDays: const {},
+        rawDays: () async => const {},
         force: true,
         zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(r.rescored, 1);
@@ -208,7 +213,7 @@ void main() {
     final results = [
       for (var i = 0; i < kReadinessBackfillMaxPasses + 1; i++)
         await backfillReadinessCalibration(
-            rawDays: {day(50)}, zHistoryLoader: none),
+            rawDays: () async => {day(50)}, zHistoryLoader: none),
     ];
     // Waiting passes touch only the pending ids: no history-wide seed.
     for (final r in results.take(kReadinessBackfillMaxPasses - 1)) {
@@ -245,7 +250,7 @@ void main() {
     Future<List<double> Function(String, String?)> none() async =>
         (_, _) => const <double>[];
     final r = await backfillReadinessCalibration(
-        rawDays: {day(60), day(61)}, zHistoryLoader: none);
+        rawDays: () async => {day(60), day(61)}, zHistoryLoader: none);
     expect(r.forced, 1);
     expect((await LocalDb.dayResult(day(60)))!['algo_version'], kAlgoVersion);
     expect((await LocalDb.dayResult(day(61)))!['algo_version'], 111);
@@ -254,10 +259,10 @@ void main() {
     expect(state['pending'], {day(61): 1});
     // day 61 then gets its own full count before it is forced.
     expect((await backfillReadinessCalibration(
-            rawDays: {day(61)}, zHistoryLoader: none))
+            rawDays: () async => {day(61)}, zHistoryLoader: none))
         .forced, 0);
     expect((await backfillReadinessCalibration(
-            rawDays: {day(61)}, zHistoryLoader: none))
+            rawDays: () async => {day(61)}, zHistoryLoader: none))
         .forced, 1);
   });
 }
