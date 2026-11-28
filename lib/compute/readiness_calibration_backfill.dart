@@ -131,26 +131,36 @@ Future<Set<String>> _haveZ() async => {
         if (r['value'] is num) r['date'] as String,
     };
 
-/// Write `readiness_z` for [days] that lack it. The payload decode runs off the
-/// calling isolate ([Isolate.run]): it is the expensive part.
+/// Payloads [_seedZ] holds (and copies into its isolate) at once. Bounds the
+/// heap on a multi-year history, and each chunk's rows are written before the
+/// next loads, so a pass killed mid-way resumes where it stopped.
+const int kReadinessZSeedChunk = 30;
+
+/// Write `readiness_z` for [days] that lack it, [kReadinessZSeedChunk] days at
+/// a time. The payload decode runs off the calling isolate ([Isolate.run]): it
+/// is the expensive part.
 Future<int> _seedZ(Iterable<String> days) async {
   final have = await _haveZ();
-  final todo = <(String, String)>[
-    for (final day in days)
-      if (!have.contains(day))
+  final missing = [for (final d in days) if (!have.contains(d)) d];
+  var n = 0;
+  for (var i = 0; i < missing.length; i += kReadinessZSeedChunk) {
+    final todo = <(String, String)>[
+      for (final day in missing.skip(i).take(kReadinessZSeedChunk))
         if ((await LocalDb.dayResult(day))?['payload_json'] case final String j)
           (day, j),
-  ];
-  if (todo.isEmpty) return 0;
-  final zs = await Isolate.run(() => [
-        for (final (day, json) in todo)
-          if (_decode(json) case final p?)
-            if (storedReadinessZ(p) case final s?) (day, s.z),
-      ]);
-  for (final (day, z) in zs) {
-    await LocalDb.putMetricSeriesValue(day, 'readiness_z', z);
+    ];
+    if (todo.isEmpty) continue;
+    final zs = await Isolate.run(() => [
+          for (final (day, json) in todo)
+            if (_decode(json) case final p?)
+              if (storedReadinessZ(p) case final s?) (day, s.z),
+        ]);
+    for (final (day, z) in zs) {
+      await LocalDb.putMetricSeriesValue(day, 'readiness_z', z);
+    }
+    n += zs.length;
   }
-  return zs.length;
+  return n;
 }
 
 /// BEFORE the derive: the readiness_z history today's (and every re-derived

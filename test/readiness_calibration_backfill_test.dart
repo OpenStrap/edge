@@ -75,6 +75,8 @@ void main() {
         series: {'readiness': (b['scalars'] as Map)['readiness'] as double},
       );
     }
+    // The seed below spans more than one chunk.
+    expect(kReadinessZSeedChunk, lessThan(kReadinessZSeedDays));
     // Before the derive: only the newest window is seeded.
     expect(await seedRecentReadinessZ(), kReadinessZSeedDays);
     final seededDates = {
