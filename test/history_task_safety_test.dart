@@ -177,11 +177,17 @@ class _Rig {
 
   late final BleEngine engine;
 
-  _Rig({this.band = BandProfile.gen5}) {
+  _Rig({
+    this.band = BandProfile.gen5,
+    bool deepBuffers = false,
+    void Function()? onDataStored,
+  }) {
     engine = BleEngine(
       onRecord: (_, _) async {},
       onState: (_) {},
       log: logs.add,
+      onDataStored: onDataStored,
+      gen5DeepBuffersEnabled: () => deepBuffers,
     );
     connect();
   }
@@ -355,6 +361,21 @@ void main() {
         d.onComplete();
         async.elapse(const Duration(seconds: 2));
         expect(next?.complete, isTrue);
+      });
+    });
+
+    test('the idle fuse runs on elapsed time, not the wall clock', () {
+      fakeAsync((async) {
+        // fakeAsync moves elapsed time but not DateTime.now(): a fuse read
+        // off the wall clock would never see these 61 s pass.
+        final d = drain();
+        SyncReport? report;
+        d.awaitComplete(isLinkUp: () => true).then((r) => report = r);
+        async.elapse(const Duration(seconds: 59));
+        expect(report, isNull);
+        async.elapse(const Duration(seconds: 3));
+        expect(report, isNotNull);
+        expect(report!.complete, isFalse);
       });
     });
 
@@ -877,6 +898,33 @@ void main() {
       });
     });
 
+    test('a HISTORY_COMPLETE whose tail commit outlives the task does not '
+        'complete it', () {
+      fakeAsync((async) {
+        void pump() => async.elapse(Duration.zero);
+        final r = _Rig();
+        r.claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 900));
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+        r.rx(_historyComplete());
+        pump();
+
+        // The idle watchdog aborts the task while the tail commit is parked.
+        async.elapse(const Duration(seconds: 61));
+        expect(r.aborts, hasLength(1));
+
+        held.complete();
+        pump();
+        expect(
+          r.logs.any((l) => l.contains('HistoryComplete — backlog drained')),
+          isFalse,
+          reason: 'an aborted task gets no completion after its tail commit',
+        );
+      });
+    });
+
     test('a task claim waits for a marker handler still parked in a commit, '
         'not only for the abort', () {
       fakeAsync((async) {
@@ -1093,6 +1141,50 @@ void main() {
       expect(await init, isFalse);
       expect(r.writes.length, at,
           reason: 'the drain trigger must not land on the replacement link');
+      expect(r.drainRequests, isEmpty);
+    });
+  });
+
+  group('derive debounce', () {
+    test('fires on elapsed time, not the wall clock', () {
+      fakeAsync((async) {
+        // fakeAsync moves elapsed time but not DateTime.now(): a debouncer
+        // read off the wall clock never sees the quiet window pass.
+        var derives = 0;
+        final r = _Rig(onDataStored: () => derives++);
+        r.claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 950));
+        r.rx(_historyEnd(expected: 1, token: 0x9950));
+        async.elapse(Duration.zero);
+        expect(r.successResults, hasLength(1));
+        expect(derives, 0);
+        async.elapse(const Duration(minutes: 10));
+        expect(derives, 1);
+      });
+    });
+  });
+
+  group('gen5 deep buffers', () {
+    test('a failed flag write stops the sequence and the drain', () async {
+      final r = _Rig(deepBuffers: true);
+      r.holdOpcode = Cmd.setFfValue;
+      r.holdWrite = Completer<bool>()..complete(false);
+      expect(await r.engine.sendInit(), isFalse);
+      expect(r.writes.where((c) => c.opcode == Cmd.setFfValue), hasLength(1));
+      expect(r.drainRequests, isEmpty);
+    });
+
+    test('the flags are pinned to the INIT session', () async {
+      final r = _Rig(deepBuffers: true);
+      final init = r.engine.sendInit();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final sent = r.writes.where((c) => c.opcode == Cmd.setFfValue).length;
+      expect(sent, greaterThan(0));
+      r.connect();
+      expect(await init, isFalse);
+      expect(r.writes.where((c) => c.opcode == Cmd.setFfValue).length, sent,
+          reason: 'no flag may land on the replacement link');
       expect(r.drainRequests, isEmpty);
     });
   });

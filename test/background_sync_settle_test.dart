@@ -197,9 +197,11 @@ void main() {
       releaseCommit();
       async.elapse(const Duration(seconds: 10));
       expect(settled, isTrue);
-      expect(logs.any((l) => l.contains('[SYNC] auto-continue')), isTrue);
-      expect(logs.any((l) => l.contains('history is held on this link')),
-          isTrue);
+      // The settle ended the task while the tail commit was parked, so the
+      // COMPLETE resumes stale: no completion, no auto-continue.
+      expect(logs.any((l) => l.contains('HistoryComplete — backlog drained')),
+          isFalse);
+      expect(logs.any((l) => l.contains('[SYNC] auto-continue')), isFalse);
       expect(opcodes.sublist(at), isNot(contains(Cmd.sendHistoricalData)));
       expect(opcodes.sublist(at), isNot(contains(Cmd.getDataRange)));
     });
