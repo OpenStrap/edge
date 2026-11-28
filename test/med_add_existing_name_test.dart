@@ -92,4 +92,16 @@ void main() {
     expect(d.doseLabel, 'As directed');
     expect(d.kind, 'medication');
   });
+
+  test('two names with no letters or digits stay two medications', () async {
+    await MedDb.addScheduledTime(db, '💊', const MedSchedule(480, []));
+    await MedDb.addScheduledTime(db, '🧴', const MedSchedule(1260, []));
+    await MedDb.addScheduledTime(db, '+', const MedSchedule(600, []));
+    await MedDb.addScheduledTime(db, '❤️', const MedSchedule(700, []));
+    await MedDb.addScheduledTime(db, '☀️', const MedSchedule(710, []));
+    final all = await MedDb.defs(db, activeOnly: false);
+    expect(all.map((d) => d.label).toSet(), {'💊', '🧴', '+', '❤️', '☀️'});
+    expect(all.map((d) => d.key).toSet().length, 5);
+    expect(MedDb.keyFor('💊'), isNot(MedDb.keyFor('1f48a')));
+  });
 }
