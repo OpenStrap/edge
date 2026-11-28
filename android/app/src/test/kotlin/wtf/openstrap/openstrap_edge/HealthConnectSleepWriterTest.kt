@@ -4,8 +4,11 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class HealthConnectSleepWriterTest {
@@ -55,5 +58,28 @@ class HealthConnectSleepWriterTest {
         assertEquals(localInstant(2026, 10, 24, 12, 0), range.start)
         assertEquals(localInstant(2026, 10, 25, 12, 0), range.end)
         assertEquals(25, Duration.between(range.start, range.end).toHours())
+    }
+
+    @Test
+    fun failedInsertKeepsTheOldNight() = runBlocking {
+        val deleted = mutableListOf<String>()
+        try {
+            insertThenDeleteStale(
+                listOf("old"),
+                insert = { throw IllegalStateException("rate limited") },
+                delete = { deleted += it },
+            )
+            fail("insert error should propagate")
+        } catch (expected: IllegalStateException) {
+        }
+        assertFalse(
+            insertThenDeleteStale(listOf("old"), insert = { false }, delete = { deleted += it }),
+        )
+        assertEquals(emptyList<String>(), deleted)
+
+        assertTrue(
+            insertThenDeleteStale(listOf("old"), insert = { true }, delete = { deleted += it }),
+        )
+        assertEquals(listOf("old"), deleted)
     }
 }
