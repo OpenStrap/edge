@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -64,6 +65,31 @@ void main() {
     await LocalDb.putMovementFloor(
         floorG: -1.0, frozenOn: '2026-08-03', days: 20);
     expect(await LocalDb.getMovementFloor(), isNull);
+  });
+
+  test('the first freeze does not depend on which day gets there first',
+      () async {
+    final db = await LocalDb.instance;
+    // 20 days of dyn_p90, rising, so a later day's window has a different
+    // median than the enrollment days'.
+    for (var i = 0; i < 20; i++) {
+      final d = DateTime(2026, 3, 1 + i);
+      await db.insert('metric_series', {
+        'date': '${d.year}-${'${d.month}'.padLeft(2, '0')}-'
+            '${'${d.day}'.padLeft(2, '0')}',
+        'key': 'dyn_p90',
+        'value': 0.30 + i * 0.01,
+      });
+    }
+    final newest = await debugFrozenMovementFloor('2026-03-21');
+    final a = await LocalDb.getMovementFloor();
+    await db.delete('baselines', where: 'key = ?', whereArgs: ['movement_floor']);
+    final older = await debugFrozenMovementFloor('2026-03-16');
+    final b = await LocalDb.getMovementFloor();
+    expect(newest, isNotNull);
+    expect(older, newest);
+    expect(b!.frozenOn, a!.frozenOn);
+    expect(a.frozenOn, '2026-03-15');
   });
 
   test('the thaw policy only fires on a real change of scale', () {

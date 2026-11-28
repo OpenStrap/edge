@@ -2525,6 +2525,13 @@ int trailingRecTsGroupStart(List<Map<String, dynamic>> rows) {
 Future<List<double>> debugBaselineWindow(String key) async =>
     (await _BaselineHistoryCache.load()).values(key);
 
+/// Test seam: resolve the shared movement floor for [dayId] against the
+/// stored baseline history, exactly as a day derive does.
+@visibleForTesting
+Future<double?> debugFrozenMovementFloor(String dayId) async =>
+    DerivationEngine._frozenMovementFloor(
+        await _BaselineHistoryCache.load(), dayId);
+
 /// Test seam: the EXACT per-day baseline windows one derivation sweep would feed
 /// the readiness pass, in dispatch order (`orderedDays` is newest-first).
 ///
@@ -2926,6 +2933,13 @@ class _BaselineHistoryCache {
     // entries) — this is unreachable today, but `?[...]` costs nothing and
     // survives a future refactor that builds one map without the other.
     return _prefixMax[key]?[end - 1];
+  }
+
+  /// The first [n] stored values of [key] with their dates, oldest first
+  /// (fewer when fewer exist).
+  List<_DatedValue> leading(String key, int n) {
+    final series = _series[key] ?? const <_DatedValue>[];
+    return series.length <= n ? series : series.sublist(0, n);
   }
 
   List<double> valuesBefore(String key, String beforeDate, {String? family}) {
@@ -7447,7 +7461,7 @@ class DerivationEngine {
       final sessionRevision = await _sessionCeilingRevision();
       final savedSessions = await LocalDb.sessionsInRange(
         _localDayLabelToSec(day.date),
-        localNextMidnightSecForDayLabel(day.date),
+        localNextMidnightSecForDayLabel(day.date) - 1,
       );
       final ceilingSigs = debugDisableSessionReuse ? const <String, String>{}
           : await _ceilingSignatures(day, savedSessions, sessionRevision);
@@ -10013,7 +10027,7 @@ class DerivationEngine {
   ///
   /// ORDER-INDEPENDENCE. The floor is ONE persisted scalar shared by every day,
   /// but `run()` dispatches days NEWEST-FIRST through a concurrent worker pool,
-  /// so this read-modify-write is reached by several days at once. Three things
+  /// so this read-modify-write is reached by several days at once. Four things
   /// keep the outcome from depending on which worker finishes last:
   ///
   ///   1. `_floorLock` serializes the whole read/decide/write, so two days can
@@ -10022,6 +10036,8 @@ class DerivationEngine {
   ///      backfill day never reads as a stale floor and never triggers a
   ///      re-freeze just for being old.
   ///   3. `mayCommitFloorOn` stops an older day overwriting a newer freeze.
+  ///   4. The first freeze ignores dayId: it is built from the enrollment days
+  ///      themselves, so the lock order cannot pick its history or frozenOn.
   ///
   /// Without these, a `kAlgoVersion` bump — which this very change forces —
   /// would re-derive the whole retained window and let sweep order decide every
@@ -10093,16 +10109,29 @@ class DerivationEngine {
       return null;
     }
 
-    final floor = ana.personalDynFloorFromDailySummaries(hist);
+    // The FIRST freeze is built from the enrollment days themselves — the
+    // first `enrollmentDaysForFrozenFloor` stored values, frozen on the day
+    // after the last of them — not from whichever day's worker got the lock
+    // first. That is the floor a day-by-day install freezes, and it does not
+    // depend on dayId, so a concurrent backlog lands on the same one.
+    var basis = hist;
+    var frozenOn = dayId;
+    if (stored == null) {
+      final first =
+          history.leading('dyn_p90', ana.enrollmentDaysForFrozenFloor);
+      basis = [for (final v in first) v.value];
+      frozenOn = dayLabelBefore(first.last.date, -1) ?? dayId;
+    }
+    final floor = ana.personalDynFloorFromDailySummaries(basis);
     if (floor == null) return stored?.floorG;
     await LocalDb.putMovementFloor(
       floorG: floor,
-      frozenOn: dayId,
-      days: hist.length,
+      frozenOn: frozenOn,
+      days: basis.length,
     );
     if (kDebugMode) {
       debugPrint('[derive] movement floor FROZEN at '
-          '${floor.toStringAsFixed(4)} g from ${hist.length} days ($dayId)');
+          '${floor.toStringAsFixed(4)} g from ${basis.length} days ($frozenOn)');
     }
     return floor;
   }
@@ -11269,7 +11298,14 @@ class DerivationEngine {
   /// construction as `dynAmp`, so a per-axis offset cancels. Absent seconds
   /// are never still and never enter the mean.
   static List<bool> _stillSeconds(Substrate s, double cut) {
-    final out = List<bool>.filled(s.length, false);
+    final amp = _dynAmpSeconds(s);
+    return [for (final a in amp) a != null && a <= cut];
+  }
+
+  /// Per substrate index: the gravity-removed accel magnitude (g), null where
+  /// accel is absent. See [_stillSeconds].
+  static List<double?> _dynAmpSeconds(Substrate s) {
+    final out = List<double?>.filled(s.length, null);
     final idx = <int>[
       for (var i = 0; i < s.length; i++)
         if (s.accelPresentAt(i)) i,
@@ -11290,7 +11326,7 @@ class DerivationEngine {
       }
       final n = k - lo + 1;
       final dx = s.ax[i] - sx / n, dy = s.ay[i] - sy / n, dz = s.az[i] - sz / n;
-      out[i] = math.sqrt(dx * dx + dy * dy + dz * dz) <= cut;
+      out[i] = math.sqrt(dx * dx + dy * dy + dz * dz);
     }
     return out;
   }
@@ -11408,6 +11444,44 @@ class DerivationEngine {
     };
   }
 
+  @visibleForTesting
+  static List<Map<String, dynamic>> debugRestlessnessMap(Substrate s) =>
+      _restlessnessMap(s);
+
+  @visibleForTesting
+  static Map<String, dynamic> debugRestlessness(Substrate s) =>
+      _restlessness(s);
+
+  /// 5-min movement density over the sleep window.
+  static List<Map<String, dynamic>> _restlessnessMap(Substrate s) {
+    const bucketSec = 300; // 5 min
+    final moveSum = <int, double>{};
+    final moveCount = <int, int>{};
+    // Gravity-removed magnitude, not `||a| - 1 g|`: the raw norm reads the
+    // posture's calibration offset (see [_stillSeconds]), so a still night
+    // painted a flat non-zero map. Absent accel is skipped; a bucket with no
+    // present second is omitted.
+    final amp = _dynAmpSeconds(s);
+    for (var i = 0; i < s.length; i++) {
+      final enmo = amp[i];
+      if (enmo == null) continue;
+      final b = s.tsSec[i] ~/ bucketSec;
+      moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
+      moveCount[b] = (moveCount[b] ?? 0) + 1;
+    }
+    final out = <Map<String, dynamic>>[];
+    final keys = moveSum.keys.toList()..sort();
+    for (final b in keys) {
+      final avgEnmo = moveSum[b]! / moveCount[b]!;
+      final density = math.min(1.0, avgEnmo * 10.0);
+      out.add({
+        't': b * bucketSec,
+        'density': double.parse(density.toStringAsFixed(3)),
+      });
+    }
+    return out;
+  }
+
   /// Nocturnal restlessness from sleep-window orientation change: minutes with
   /// movement, number of distinct movement bouts, longest still stretch (min).
   static Map<String, dynamic> _restlessness(Substrate s) {
@@ -11446,7 +11520,15 @@ class DerivationEngine {
     }
     var restless = 0, bouts = 0, longestStill = 0, curStill = 0;
     var prevMoved = false;
+    int? prevMin;
     for (final m in keys) {
+      // A missing minute (charger, sync gap) breaks both runs: what happened
+      // there was not observed.
+      if (prevMin != null && m != prevMin + 1) {
+        curStill = 0;
+        prevMoved = false;
+      }
+      prevMin = m;
       final moved = (byMinMove[m] ?? 0) / (byMinTot[m] ?? 1) >= 0.20;
       if (moved) {
         restless++;
@@ -12185,33 +12267,7 @@ class DerivationEngine {
 
     // Feature 6: Restlessness Map (5-min ENMO heatmap of the sleep window).
     if (sleepSub.length > 0) {
-      const bucketSec = 300; // 5 min
-      final moveSum = <int, double>{};
-      final moveCount = <int, int>{};
-      for (var i = 0; i < sleepSub.length; i++) {
-        // Absent accel would score ENMO |0 - 1| = 1.0 — maximal restlessness
-        // from no data. Skip it; a bucket with no present second is omitted.
-        if (!sleepSub.accelPresentAt(i)) continue;
-        final b = sleepSub.tsSec[i] ~/ bucketSec;
-        final ax = sleepSub.ax[i];
-        final ay = sleepSub.ay[i];
-        final az = sleepSub.az[i];
-        final mag = math.sqrt(ax * ax + ay * ay + az * az);
-        final enmo = (mag - 1.0).abs();
-        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
-        moveCount[b] = (moveCount[b] ?? 0) + 1;
-      }
-      final out = <Map<String, dynamic>>[];
-      final keys = moveSum.keys.toList()..sort();
-      for (final b in keys) {
-        final avgEnmo = moveSum[b]! / moveCount[b]!;
-        final density = math.min(1.0, avgEnmo * 10.0);
-        out.add({
-          't': b * bucketSec,
-          'density': double.parse(density.toStringAsFixed(3)),
-        });
-      }
-      bundlePatch['restlessness_map'] = out;
+      bundlePatch['restlessness_map'] = _restlessnessMap(sleepSub);
     }
 
     // Feature 2 (fit-quality diagnostic) is GONE, not disabled. It scored band
