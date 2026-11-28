@@ -88,6 +88,14 @@ class TaskerReceiver : BroadcastReceiver() {
             return
         }
 
+        // Same gate as BootReceiver/KeepAliveWorker: with no band paired the
+        // service would re-arm the watchdog and its notification would never
+        // be stopped. The pending flag stays on disk; Dart drops it once stale.
+        if (!KeepAliveWorker.hasPairedDevice(context)) {
+            Log.i(TAG, "no paired band, not starting the service")
+            return
+        }
+
         Log.i(TAG, "engine dead, starting service to deliver the pending buzz")
         EdgeTrackingService.startFromBackground(context, TAG)
     }
