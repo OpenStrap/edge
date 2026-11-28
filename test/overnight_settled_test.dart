@@ -118,6 +118,32 @@ void main() {
     expect(await overnightDay(), isNot(todayLabel()));
   });
 
+  test('a workout sensor row today does not make a missing night "building"',
+      () async {
+    final now = DateTime.now();
+    final midnight =
+        DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/ 1000;
+    // The band last drained yesterday; only a chest strap wrote today.
+    await db.insert('decoded_onehz', {
+      'ts_ms': (midnight - 3600) * 1000,
+      'rec_ts': midnight - 3600,
+      'counter': 1,
+      'hr': 60,
+    });
+    await db.insert('decoded_onehz', {
+      'ts_ms': (midnight + 1) * 1000,
+      'rec_ts': midnight + 1,
+      'counter': 2,
+      'hr': 140,
+      'source': 'hrs',
+    });
+    await LocalDb.refreshComputeFreshness();
+    final row = await LocalDb.computeFreshness('today');
+    final payload = jsonDecode(row!['payload_json'] as String);
+    expect(payload['overnight_state'], 'missing');
+    expect(payload['activity_state'], 'missing');
+  });
+
   test('no window yet with the edge hours behind → not a settled no-sleep night',
       () async {
     // Asleep at 00:30, drain paused at 00:20: today has no window at all.
