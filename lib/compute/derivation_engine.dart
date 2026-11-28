@@ -1947,7 +1947,7 @@ import 'vendor_sleep.dart';
 // had every reading dropped, because the sparse substrate reads only rows
 // with HR. Each reading now joins the HR row of its minute. Wearables whose
 // temperature already rode on the HR rows, and every band day, unchanged.
-const int kAlgoVersion = 133;
+const int kAlgoVersion = 134;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -11006,7 +11006,10 @@ class DerivationEngine {
   static int debugRespGateRejects = 0;
 
   @visibleForTesting
-  static List<Map<String, num>> dayRespCurve(Substrate s) {
+  static List<Map<String, num>> dayRespCurve(Substrate s,
+      {int sleepOnsetSec = 0,
+      int sleepOffsetSec = 0,
+      int tonightSleepOnsetSec = 0}) {
     // RESP-05 — the gate is per-FAMILY, and an unknown strap gets no cut rather
     // than gen4's (device.dart contract). Refusing the whole curve is the
     // correct output for every pre-schema-41 day and every import: we cannot
@@ -11032,16 +11035,31 @@ class DerivationEngine {
     }
     if (rr.length < 60) return const [];
     const winMs = 180000.0; // 3 min
+    const sleepWinMs = 600000.0;
+    final sleepLoMs = sleepOnsetSec * 1000.0;
+    final sleepHiMs = sleepOffsetSec * 1000.0;
+    final tonightMs = tonightSleepOnsetSec * 1000.0;
     final out = <Map<String, num>>[];
-    var lo = 0;
+    var dayLo = 0, sleepLo = 0;
     var lastEmit = -1e18;
     // Cursors into s.tsSec for the window bounds. Both `ts[lo]` and `ts[i]` are
     // non-decreasing across the loop, so these only ever move forward.
     var qLo = 0, qHi = 0;
     for (var i = 0; i < rr.length; i++) {
-      while (ts[i] - ts[lo] > winMs) {
-        lo++;
+      while (ts[i] - ts[dayLo] > winMs) {
+        dayLo++;
       }
+      final inMain =
+          sleepLoMs < sleepHiMs && ts[i] >= sleepLoMs && ts[i] < sleepHiMs;
+      final inTonight = tonightMs > 0 && ts[i] >= tonightMs;
+      final asleep = inMain || inTonight;
+      final sleepStartMs = inTonight ? tonightMs : sleepLoMs;
+      while (sleepLo < i &&
+          (ts[i] - ts[sleepLo] > sleepWinMs ||
+              (asleep && ts[sleepLo] < sleepStartMs))) {
+        sleepLo++;
+      }
+      final lo = asleep ? sleepLo : dayLo;
       if (i - lo >= 30 && ts[i] - lastEmit > 300000) {
         // 5-min cadence
         // STILLNESS GATE, BEFORE the estimator. Rejecting here is also where
@@ -11049,16 +11067,17 @@ class DerivationEngine {
         // that could not have produced a resting rate anyway.
         final loSec = (ts[lo] / 1000).floor();
         final hiSec = (ts[i] / 1000).ceil();
-        while (qLo < s.length && s.tsSec[qLo] < loSec) {
+        while (!asleep && qLo < s.length && s.tsSec[qLo] < loSec) {
           qLo++;
         }
         if (qHi < qLo) qHi = qLo;
-        while (qHi < s.length && s.tsSec[qHi] < hiSec) {
+        while (!asleep && qHi < s.length && s.tsSec[qHi] < hiSec) {
           qHi++;
         }
         final spanSec = hiSec - loSec;
         final stillSec = quietPrefix[qHi] - quietPrefix[qLo];
-        if (spanSec <= 0 || stillSec < _respQuietFraction * spanSec) {
+        if (!asleep &&
+            (spanSec <= 0 || stillSec < _respQuietFraction * spanSec)) {
           // Advance the cadence cursor on a rejection too — otherwise a moving
           // stretch re-tests (and re-scans) once per beat, which is the same
           // shape as the v60 bug this loop already carries a fix for.
@@ -11983,7 +12002,10 @@ class DerivationEngine {
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset,
         tonightSleepOnsetSec: inp.tonightSleepOnsetSec);
     seriesPatch['hrv_day'] = dayHrvCurve(daySub);
-    seriesPatch['resp_day'] = dayRespCurve(daySub);
+    seriesPatch['resp_day'] = dayRespCurve(daySub,
+        sleepOnsetSec: onset,
+        sleepOffsetSec: offset,
+        tonightSleepOnsetSec: inp.tonightSleepOnsetSec);
     seriesPatch['skin_temp_day'] = _daySkinTempCurve(daySub);
     bundlePatch['restlessness'] = _restlessness(sleepSub);
     // napSub extends a few hours past this day's calendar end so a nap/

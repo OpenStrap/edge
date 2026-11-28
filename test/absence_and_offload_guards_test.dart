@@ -275,6 +275,81 @@ void _respGroups() {
       expect(DerivationEngine.debugRespAttempts, 0);
     });
 
+    test('inside the sleep window a restless stretch is still attempted', () {
+      const t0 = 1780000000;
+      final sub = _rrSub(n: 3600, moving: {for (var i = 0; i < 3600; i += 4) i});
+      final spans = <double>[];
+      DerivationEngine.debugRespGateRejects = 0;
+      DerivationEngine.debugRespAttempts = 0;
+      DerivationEngine.debugRespEstimator = (nn, nnt) {
+        spans.add(nnt.last - nnt.first);
+        return 15.0;
+      };
+      addTearDown(() => DerivationEngine.debugRespEstimator = null);
+
+      final out = DerivationEngine.dayRespCurve(sub,
+          sleepOnsetSec: t0 + 1800, sleepOffsetSec: t0 + 3600);
+
+      expect(DerivationEngine.debugRespGateRejects, greaterThan(0));
+      expect(out, isNotEmpty);
+      for (final p in out) {
+        expect(p['t']!, greaterThanOrEqualTo(t0 + 1800));
+      }
+      for (var k = 1; k < out.length; k++) {
+        expect(out[k]['t']! - out[k - 1]['t']!, greaterThanOrEqualTo(300));
+      }
+      expect(spans.length, out.length);
+      for (var k = 0; k < out.length; k++) {
+        expect(out[k]['t']! * 1000 - spans[k],
+            greaterThanOrEqualTo((t0 + 1800) * 1000 - 1000));
+      }
+      expect(spans.last, greaterThan(590000));
+    });
+
+    test('the sleep window ends at wake, exclusive', () {
+      const t0 = 1780000000;
+      final sub = _rrSub(n: 3600, moving: {for (var i = 0; i < 3600; i += 4) i});
+      DerivationEngine.debugRespEstimator = (nn, nnt) => 15.0;
+      addTearDown(() => DerivationEngine.debugRespEstimator = null);
+
+      final out = DerivationEngine.dayRespCurve(sub,
+          sleepOnsetSec: t0, sleepOffsetSec: t0 + 1800);
+
+      expect(out, isNotEmpty);
+      for (final p in out) {
+        expect(p['t']!, lessThan(t0 + 1800));
+      }
+    });
+
+    test('tonight\'s sleep before midnight is treated as sleep', () {
+      const t0 = 1780000000;
+      final sub = _rrSub(n: 3600, moving: {for (var i = 0; i < 3600; i += 4) i});
+      final spans = <double>[];
+      DerivationEngine.debugRespEstimator = (nn, nnt) {
+        spans.add(nnt.last - nnt.first);
+        return 15.0;
+      };
+      addTearDown(() => DerivationEngine.debugRespEstimator = null);
+
+      final out = DerivationEngine.dayRespCurve(sub,
+          tonightSleepOnsetSec: t0 + 1800);
+
+      expect(out, isNotEmpty);
+      for (var k = 0; k < out.length; k++) {
+        expect(out[k]['t']!, greaterThanOrEqualTo(t0 + 1800));
+        expect(out[k]['t']! * 1000 - spans[k],
+            greaterThanOrEqualTo((t0 + 1800) * 1000 - 1000));
+      }
+    });
+
+    test('a sleep window with no length changes nothing', () {
+      final sub = _rrSub(n: 1800, moving: {for (var i = 0; i < 1800; i += 4) i});
+      DerivationEngine.debugRespAttempts = 0;
+      DerivationEngine.dayRespCurve(sub,
+          sleepOnsetSec: 1780000000 + 900, sleepOffsetSec: 1780000000 + 900);
+      expect(DerivationEngine.debugRespAttempts, 0);
+    });
+
     test('an unstamped strap gets no curve, not gen4\'s cut', () {
       DerivationEngine.debugRespAttempts = 0;
       expect(DerivationEngine.dayRespCurve(_rrSub(n: 1800, family: null)),
