@@ -180,7 +180,7 @@ class _Engine implements BleEngine {
 class _Scheduler extends DeriveScheduler {
   _Scheduler(this.trace)
       : super(
-          run: ({required kind}) async {},
+          run: ({required kind}) async => DeriveRunOutcome.done,
           log: (_) {},
           onChanged: () {},
         );

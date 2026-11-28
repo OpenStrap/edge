@@ -91,8 +91,13 @@ class DeriveCoordinator {
   /// else the latest pending day); [heavy]=true is the foreground finalize
   /// sweep. Best-effort + non-blocking — never throws into the BLE path.
   /// Refreshes the UI when results land so screens re-read the fresh derived rows.
-  Future<void> afterDrain({bool heavy = false}) async {
+  ///
+  /// Returns what the derive pass did, so the scheduler only retires its job
+  /// when the pass really ran: a pass dropped on a held engine latch (a user
+  /// re-derive, an import, a vacuum) or one that failed stays queued.
+  Future<DeriveRunOutcome> afterDrain({bool heavy = false}) async {
     final mode = heavy ? 'heavy' : 'light';
+    var outcome = DeriveRunOutcome.failed;
     try {
       // Context for whatever crash/ANR report comes next — the derivation
       // engine's heavy per-day compute is isolate-offloaded, but the
@@ -103,18 +108,35 @@ class DeriveCoordinator {
       TelemetryService.instance.breadcrumb('derive: $mode start');
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
       // not only at the end (a multi-day backfill can be many days of work).
-      await TelemetryService.instance.traced('derive_$mode', () {
-        final DeriveRunHook run = debugDeriveRun ?? _derive().run;
-        return run(
+      void onDayDone(String day, int index, int total) {
+        if (index == total || index == 1 || index % 3 == 0) {
+          _notify();
+        }
+      }
+
+      await TelemetryService.instance.traced('derive_$mode', () async {
+        final hook = debugDeriveRun;
+        if (hook != null) {
+          final n = await hook(_profile(), heavy: heavy, onDayDone: onDayDone);
+          outcome = DeriveRunOutcome.done;
+          return n;
+        }
+        // The engine reports an outcome only from a pass that took its latch;
+        // a call that found it held returns 0 without one.
+        outcome = DeriveRunOutcome.busy;
+        return _derive().run(
           _profile(),
           heavy: heavy,
-          onDayDone: (day, index, total) async {
-            if (index == total || index == 1 || index % 3 == 0) {
-              _notify();
-            }
-          },
+          onDayDone: onDayDone,
+          onOutcome: (_, error) => outcome =
+              error == null ? DeriveRunOutcome.done : DeriveRunOutcome.failed,
         );
       });
+      // Nothing ran: skip the post-pass work, the requeued job redoes it.
+      if (outcome == DeriveRunOutcome.busy) {
+        _log('[derive] $mode pass dropped — engine busy');
+        return outcome;
+      }
       TelemetryService.instance.breadcrumb('derive: $mode done');
       // A drain can bank band coverage and a day can have rolled over since the
       // last read — both change which source owns today's steps.
@@ -192,12 +214,16 @@ class DeriveCoordinator {
       // the vacuum holds the derive latch, and a job whose run() found it
       // held would come back 0 and be marked complete without deriving.
       if (heavy) await _maybeReclaimDiskSpace();
+      return outcome;
     } catch (e, st) {
       _log('[derive] post-drain failed: $e');
       // Was silently swallowed before — this is a real pipeline failure
       // (derive/health-export/etc.) that Firebase never saw. Non-fatal, not
       // fatal: the app keeps running, but this is worth knowing about.
       TelemetryService.instance.recordNonFatal(e, st, reason: 'post_drain_failed');
+      // `outcome` is still `failed` if the pass itself threw; if the throw
+      // came from the post-pass work, the derive already landed.
+      return outcome;
     } finally {
       TelemetryService.instance.setContext('derive_active', false);
     }

@@ -5,6 +5,11 @@ import '../data/db.dart';
 
 enum DeriveJobKind { light, heavy }
 
+/// What a job's pass actually did. Only [done] retires the job: [busy] means
+/// another holder had the engine latch and nothing ran, [failed] means the
+/// pass hit an error. Both leave the job queued so the work isn't lost.
+enum DeriveRunOutcome { done, busy, failed }
+
 /// Serializes derive work behind the capture pipeline using durable queued jobs.
 ///
 /// While an offload is active we persist intent in `compute_jobs` and defer the
@@ -20,7 +25,7 @@ class DeriveScheduler {
     this.workoutHoldCap = const Duration(hours: 6),
   });
 
-  final Future<void> Function({required DeriveJobKind kind}) run;
+  final Future<DeriveRunOutcome> Function({required DeriveJobKind kind}) run;
   final void Function(String) log;
   final void Function() onChanged;
   final Duration lightSettle;
@@ -38,6 +43,10 @@ class DeriveScheduler {
   /// live session row from a previous run is already judged "almost certainly
   /// not something the user is still in".
   final Duration workoutHoldCap;
+
+  /// Attempts a failing job gets before it is parked as `failed`. A latch
+  /// that was busy is not an attempt.
+  static const int maxFailedAttempts = 3;
 
   bool _offloadActive = false;
 
@@ -243,9 +252,25 @@ class DeriveScheduler {
     await _refreshSnapshot();
     log('[derive-scheduler] running ${kind == DeriveJobKind.heavy ? "heavy" : "light"} pass');
     try {
-      await run(kind: kind);
+      final outcome = await run(kind: kind);
       if (id != null && id.isNotEmpty) {
-        await LocalDb.completeComputeJob(id);
+        // takeNextComputeJob already counted this attempt in the row.
+        final attempts = ((job['attempts'] as num?)?.toInt() ?? 0) + 1;
+        switch (outcome) {
+          case DeriveRunOutcome.done:
+            await LocalDb.completeComputeJob(id);
+          case DeriveRunOutcome.busy:
+            log('[derive-scheduler] engine busy — job requeued');
+            await LocalDb.requeueComputeJob(id);
+          case DeriveRunOutcome.failed:
+            if (attempts < maxFailedAttempts) {
+              log('[derive-scheduler] pass failed — retrying '
+                  '($attempts/$maxFailedAttempts)');
+              await LocalDb.requeueComputeJob(id, countAttempt: true);
+            } else {
+              await LocalDb.failComputeJob(id, 'derive pass failed');
+            }
+        }
       }
     } catch (e) {
       if (id != null && id.isNotEmpty) {

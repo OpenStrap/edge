@@ -25,7 +25,10 @@ void main() {
     final db = await LocalDb.instance;
     var runs = 0;
     final s = DeriveScheduler(
-      run: ({required DeriveJobKind kind}) async => runs++,
+      run: ({required DeriveJobKind kind}) async {
+        runs++;
+        return DeriveRunOutcome.done;
+      },
       log: (_) {},
       onChanged: () {},
       lightSettle: const Duration(milliseconds: 50),
