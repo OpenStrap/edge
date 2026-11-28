@@ -56,4 +56,32 @@ void main() {
     expect(before['bounded'], isTrue);
     expect(before['oldest'], '2026-05-17');
   });
+
+  test('points are per-minute means of this device, hr 0 left out', () async {
+    final m0 = DateTime(2026, 5, 17, 9, 0).millisecondsSinceEpoch ~/ 1000;
+    var counter = 0;
+    Future<void> row(String dev, int ts, int hr) => db.insert('decoded_onehz', {
+          'device_id': dev,
+          'ts_ms': ts * 1000,
+          'rec_ts': ts,
+          'counter': counter++,
+          'hr': hr,
+          'ax': 0.0,
+          'ay': 0.0,
+          'az': 1.0,
+          'device_family': 'gen4',
+        });
+    await row('band-a', m0, 60);
+    await row('band-a', m0 + 1, 61);
+    await row('band-a', m0 + 2, 0);
+    await row('band-a', m0 + 60, 70);
+    await row('band-b', m0 + 3, 200);
+
+    final c =
+        await repo.getDeviceChart('hr', deviceId: 'band-a', date: '2026-05-17');
+    expect(c['points'], [
+      {'t': m0 ~/ 60 * 60, 'v': 61},
+      {'t': (m0 + 60) ~/ 60 * 60, 'v': 70},
+    ]);
+  });
 }
