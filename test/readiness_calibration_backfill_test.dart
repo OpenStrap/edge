@@ -59,6 +59,15 @@ void main() {
     expect(storedReadinessZ(b), isNull);
   });
 
+  test('an empty store is left UNMARKED for a later restore', () async {
+    expect(await seedRecentReadinessZ(), 0);
+    final r = await backfillReadinessCalibration(
+        rawDays: {}, zHistoryLoader: () async => (_, _) => const <double>[]);
+    expect(r.rescored, 0);
+    expect(await LocalDb.computeFreshness(kReadinessZSeedKey), isNull);
+    expect(await LocalDb.computeFreshness(kReadinessCalibrationKey), isNull);
+  });
+
   test('bounded seed before the derive; re-score picks days by substrate',
       () async {
     // 40 days, a wide (SD ~1.3) alternating spread.

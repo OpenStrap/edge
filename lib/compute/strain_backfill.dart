@@ -110,10 +110,9 @@ Future<StrainBackfillResult> backfillStrainScale({
   }
 
   final strainRows = await LocalDb.metricSeries('strain');
-  if (strainRows.isEmpty) {
-    await _markDone();
-    return none;
-  }
+  // An empty store is NOT marked: rows a restore or import merges in later
+  // still need the rescale (same as the stress backfill).
+  if (strainRows.isEmpty) return none;
 
   // This user's quiet level, resolved once. Without one there is nothing
   // honest to rescale against, so return WITHOUT marking done: the one-shot
