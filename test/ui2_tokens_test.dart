@@ -192,6 +192,9 @@ void main() {
 /// this list fails the test above, so the choice has to be made rather than
 /// drifted into.
 const _notComponents = {
+  // Ghost run: live panel and summary cards read old routes through a loader
+  // and own a race (GhostPanel is pumped by test/ghost_live_test.dart).
+  'GhostLive', 'GhostPanel', 'GhostSummary', 'GhostSummaryCard',
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
   // WHOOP MG ECG routes: the Heart Screener entry reads the database and

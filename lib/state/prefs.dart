@@ -136,6 +136,10 @@ class Prefs {
   /// personalise it from.
   static const String zoneAlertTargetZone = 'workout.zone_alert_target_zone';
 
+  /// Buzz the band when a ghost race changes hands. On by default; the toggle
+  /// sits on the setup screen right under the ghost row.
+  static const String ghostBuzz = 'workout.ghost_buzz';
+
   /// How a non-WHOOP wearable's numbers are drawn: one number per metric
   /// (default) or ours beside the device's own. A UX choice, not a fact.
   static const String wearableSideBySide = 'ui.wearable_side_by_side';

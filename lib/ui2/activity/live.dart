@@ -23,6 +23,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 // The permission enum only — a pure value type, no geolocator call from this
@@ -42,6 +43,7 @@ import '../paint_activity.dart';
 import '../theme.dart';
 import 'catalogue.dart';
 import 'exercise_picker.dart';
+import 'ghost.dart';
 import 'summary.dart';
 
 /// What the band and the phone know right now. Read once per tick.
@@ -82,6 +84,11 @@ class LiveFeed {
   final List<double?> hrCurve;
   final List<Offset> route;
 
+  /// The latest GPS fix, or null before the first one. Real coordinates: the
+  /// ghost race compares them with an old route, which [route] (normalised for
+  /// drawing) can not do.
+  final LatLng? position;
+
   /// Whether a route recorder is actually running and taking fixes. The
   /// catalogue's `gps` flag says an activity DESERVES a route; only this says
   /// one is being recorded.
@@ -116,6 +123,7 @@ class LiveFeed {
     this.zoneLowerBpm,
     this.hrCurve = const [],
     this.route = const [],
+    this.position,
     this.gpsActive = false,
     this.routeIssue,
     this.onFixRoute,
@@ -192,6 +200,16 @@ class ActivityHost {
   /// answer; without one, there is no live heart rate to wait for.
   final bool bandPaired;
 
+  /// One buzz on the band, best effort (silent with no band connected).
+  final Future<void> Function()? buzz;
+
+  /// Earlier sessions of an activity type that have a stored route, for the
+  /// ghost picker. Absent means the feature is not offered.
+  final GhostCandidatesLoader? ghostCandidates;
+
+  /// A session's stored route points (the ghost's, or your own after the race).
+  final GhostRouteLoader? ghostRoute;
+
   const ActivityHost({
     this.feed,
     this.onStart,
@@ -200,6 +218,9 @@ class ActivityHost {
     this.history = const {},
     this.bandConnected = false,
     this.bandPaired = true,
+    this.buzz,
+    this.ghostCandidates,
+    this.ghostRoute,
   });
 
   /// No app behind the screens: they still render, nothing is persisted.
@@ -323,11 +344,28 @@ class LiveDraft {
     if (on) {
       pausedAt ??= DateTime.now();
     } else if (pausedAt != null) {
-      pausedSec += DateTime.now().difference(pausedAt!).inSeconds;
+      final now = DateTime.now();
+      pausedSec += now.difference(pausedAt!).inSeconds;
+      // Closed spans, kept so the ghost summary can take them out of the
+      // route's raw timestamps (the route tracker runs through a pause).
+      data['pauses'] = [
+        ...(data['pauses'] as List? ?? const []),
+        [pausedAt!.millisecondsSinceEpoch, now.millisecondsSinceEpoch],
+      ];
       pausedAt = null;
     }
     _save();
   }
+
+  /// Every pause so far as (start, end) epoch ms, the open one ending now.
+  List<(int, int)> get pauseSpansMs => [
+        for (final v in (data['pauses'] as List? ?? const []))
+          if (v is List && v.length == 2)
+            ((v[0] as num).toInt(), (v[1] as num).toInt()),
+        if (pausedAt != null)
+          (pausedAt!.millisecondsSinceEpoch,
+              DateTime.now().millisecondsSinceEpoch),
+      ];
 
   /// Record one of the archetype's entries. Written straight through — the
   /// point of the draft is that nothing waits for a "save".
@@ -405,6 +443,10 @@ Widget liveFor(
   int? intervalWorkSec,
   int? intervalRestSec,
   int? intervalRounds,
+
+  /// The session to race, chosen on the setup screen. Null falls back to the
+  /// draft (a resume), then to no ghost.
+  String? ghostId,
 }) {
   final p = private ?? a.private;
   final feed = host.feed;
@@ -436,7 +478,13 @@ Widget liveFor(
         restSec: intervalRestSec ?? LiveDraft.current?.restSec ?? 30,
         rounds: intervalRounds ?? LiveDraft.current?.rounds ?? 8),
     _ => LiveMeasured(a,
-        feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
+        feed: feed,
+        weightKg: weightKg,
+        private: p,
+        onFinish: onFinish,
+        buzz: host.buzz,
+        ghostRoute: host.ghostRoute,
+        ghostId: ghostId ?? LiveDraft.current?.data['ghost_id'] as String?),
   };
 }
 
@@ -470,6 +518,11 @@ class LiveShell extends StatefulWidget {
   /// whatever the stores can add to it. Absent in tests and previews.
   final SessionFinish? onFinish;
 
+  /// A card for the top of the summary, built from the saved result (the
+  /// ghost race's comparison). Null for every session without one.
+  final Widget? Function(ActivityResult saved, List<(int, int)> pausedMs)?
+      summaryExtra;
+
   const LiveShell(
     this.a, {
     super.key,
@@ -481,6 +534,7 @@ class LiveShell extends StatefulWidget {
     this.weightKg,
     this.footer,
     this.onFinish,
+    this.summaryExtra,
   });
 
   @override
@@ -537,6 +591,8 @@ class LiveShellState extends State<LiveShell> {
     _finishing = true;
     _t?.cancel();
     final draft = widget.result(elapsed);
+    // Read now: the draft is cleared before the summary is built.
+    final pausedMs = LiveDraft.current?.pauseSpansMs ?? const <(int, int)>[];
     // The app writes the session, flushes the GPS tail and hands back what it
     // could add. A failure here must still land the user on their summary —
     // losing the screen is worse than losing the enrichment.
@@ -580,6 +636,7 @@ class LiveShellState extends State<LiveShell> {
         builder: (_) => ActivitySummary(result,
             weightKg: widget.weightKg,
             onRetrySave: retrySave,
+            ghost: retrySave == null ? widget.summaryExtra?.call(result, pausedMs) : null,
             justFinished: true),
       ),
       (r) => r.isFirst,
@@ -1084,12 +1141,20 @@ class LiveMeasured extends StatelessWidget {
   final bool private;
   final SessionFinish? onFinish;
 
+  /// Ghost race: the session raced, how to load routes, and the band buzz.
+  final String? ghostId;
+  final GhostRouteLoader? ghostRoute;
+  final Future<void> Function()? buzz;
+
   const LiveMeasured(this.a,
       {super.key,
       this.feed,
       this.weightKg,
       this.private = false,
-      this.onFinish});
+      this.onFinish,
+      this.ghostId,
+      this.ghostRoute,
+      this.buzz});
 
   @override
   Widget build(BuildContext c) {
@@ -1098,6 +1163,15 @@ class LiveMeasured extends StatelessWidget {
       private: private,
       weightKg: weightKg,
       onFinish: onFinish,
+      summaryExtra: ghostId == null
+          ? null
+          : (saved, pausedMs) => saved.sessionId == null
+              ? null
+              : GhostSummary(
+                  ghostId: ghostId!,
+                  sessionId: saved.sessionId!,
+                  loadRoute: ghostRoute,
+                  pausedMs: pausedMs),
       result: (elapsed) =>
           _baseResult(a, feed?.call() ?? LiveFeed.none, weightKg, elapsed,
               private),
@@ -1122,6 +1196,22 @@ class LiveMeasured extends StatelessWidget {
               case final card?) ...[
             const SizedBox(height: S.x4),
             card,
+          ],
+          if (ghostId != null) ...[
+            const SizedBox(height: S.x5),
+            GhostLive(
+                ghostId: ghostId!,
+                loadRoute: ghostRoute,
+                elapsedSec: elapsed,
+                fix: f.position,
+                buzz: buzz,
+                buzzOn: Prefs.getBool(Prefs.ghostBuzz, true),
+                keep: LiveDraft.current == null
+                    ? null
+                    : GhostKeep(
+                        '$ghostId@${LiveDraft.current!.startedAt.millisecondsSinceEpoch}',
+                        () => LiveDraft.current?.elapsedSec,
+                        () => (feed?.call() ?? LiveFeed.none).position)),
           ],
           const SizedBox(height: S.x8),
           // The user's own unit system, not km hardcoded. `unitsOf` is null in

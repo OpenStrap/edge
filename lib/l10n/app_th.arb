@@ -17378,5 +17378,115 @@
   "connectedAppsHueWhichLights": "ไฟดวงไหนจะทำตามการนอนของคุณ",
   "connectedAppsHueForget": "ลืมบริดจ์นี้",
   "connectedAppsNoBridge": "ไม่พบบริดจ์",
-  "connectedAppsBridgeIp": "ที่อยู่ IP ของบริดจ์"
+  "connectedAppsBridgeIp": "ที่อยู่ IP ของบริดจ์",
+  "ghostRaceRowTitle": "แข่งกับผีของคุณ",
+  "ghostRaceRowDetail": "แข่งกับการวิ่งครั้งก่อนบนเส้นทางเดิม",
+  "ghostRaceRowChosen": "ผี: {label}",
+  "@ghostRaceRowChosen": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostPickerTitle": "เลือกผี",
+  "ghostPickerEmpty": "ยังไม่มีการออกกำลังกายประเภทนี้ครั้งก่อนที่บันทึกเส้นทางไว้ ทำให้จบสักครั้งโดยเปิดตำแหน่งไว้ แล้วกลับมาใหม่",
+  "ghostReadFailed": "อ่านเส้นทางที่บันทึกไว้ไม่ได้ แตะเพื่อลองอีกครั้ง",
+  "ghostPickerNone": "ไม่ใช้ผี",
+  "ghostRefusedFewPoints": "จุด GPS น้อยเกินไป",
+  "ghostRefusedShort": "สั้นเกินกว่าจะแข่ง",
+  "ghostRefusedBrief": "ใช้เวลาน้อยเกินไป",
+  "ghostRefusedClock": "อ่านข้อมูลเวลาของเส้นทางนี้ไม่ได้",
+  "ghostRefusedGappy": "ส่วนที่ไม่ได้บันทึกมีมากเกินไป",
+  "ghostBuzzLabel": "สั่นเมื่อผู้นำเปลี่ยน",
+  "ghostBuzzDetail": "สายรัดของคุณ เฉพาะเมื่อนำหรือตามอย่างชัดเจน",
+  "ghostAhead": "นำ {gap}",
+  "@ghostAhead": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostBehind": "ตาม {gap}",
+  "@ghostBehind": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLevel": "เท่ากับผีของคุณ",
+  "ghostWaiting": "รอสัญญาณ GPS",
+  "ghostOffRoute": "ไม่ได้อยู่บนเส้นทางของผี จึงไม่มีระยะห่างให้แสดง",
+  "ghostSecAhead": "นำผีของคุณ {t}",
+  "@ghostSecAhead": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostSecBehind": "ตามผีของคุณ {t}",
+  "@ghostSecBehind": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLoading": "กำลังโหลดผี",
+  "ghostLoadFailed": "โหลดเส้นทางของผีนี้ไม่ได้",
+  "ghostYou": "คุณ",
+  "ghostGhostLegend": "ผี",
+  "ghostSummaryTitle": "การแข่งกับผี",
+  "ghostWon": "คุณชนะผีของคุณ {t}",
+  "@ghostWon": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostLost": "ผีของคุณชนะ {t}",
+  "@ghostLost": {
+    "placeholders": {
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostTied": "เกือบเสมอกับผีของคุณ",
+  "ghostNoCompare": "ไม่เปรียบเทียบ: ไม่ใช่เส้นทางเดียวกับผี หรือวิ่งได้น้อยเกินไป",
+  "ghostBestStretch": "ได้เวลามากสุด: กม. {km} เร็วกว่า {t}",
+  "@ghostBestStretch": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostWorstStretch": "เสียเวลามากสุด: กม. {km} ช้ากว่า {t}",
+  "@ghostWorstStretch": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      },
+      "t": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostSplitLabel": "กม. {km}",
+  "@ghostSplitLabel": {
+    "placeholders": {
+      "km": {
+        "type": "String"
+      }
+    }
+  },
+  "ghostEstimateNote": "ระยะห่างมาจากจุด GPS และเป็นค่าประมาณ ไม่กี่เมตรอยู่ในช่วงคลาดเคลื่อนของ GPS จึงแสดงว่าเท่ากัน"
 }
