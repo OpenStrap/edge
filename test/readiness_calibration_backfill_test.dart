@@ -75,7 +75,9 @@ void main() {
         series: {'readiness': (b['scalars'] as Map)['readiness'] as double},
       );
     }
-    // Before the derive: only the newest window is seeded.
+    // Before the derive: only the newest window is seeded, across more than
+    // one decode chunk.
+    expect(kReadinessZSeedDays, greaterThan(kReadinessZSeedChunk));
     expect(await seedRecentReadinessZ(), kReadinessZSeedDays);
     final seededDates = {
       for (final r in await LocalDb.metricSeries('readiness_z'))
