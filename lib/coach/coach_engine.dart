@@ -65,17 +65,19 @@ class ChartSpec {
 
   static double? _asNum(dynamic v) {
     if (v == null) return null;
-    if (v is num) return v.toDouble();
+    // NaN/Infinity is not a value, and jsonEncode cannot save it.
+    if (v is num) return v.isFinite ? v.toDouble() : null;
     if (v is String) {
       final d = double.tryParse(v.trim());
-      if (d != null) return d;
+      if (d != null) return d.isFinite ? d : null;
       // tolerate "62 ms" / "62ms": one number, then unit text with no more
       // digits. "12,345", "7:30", "2h 15m" and "1.2k" are not a single plain
       // number, so they read as absent rather than as 12, 7, 2 or 1.2.
       final m = RegExp(r'^\s*(-?\d+(?:\.\d+)?)\s*([^\d,.:]*)$').firstMatch(v);
       if (m == null) return null;
       if (RegExp(r'^[kKMB]$').hasMatch(m.group(2)!.trim())) return null;
-      return double.tryParse(m.group(1)!);
+      final u = double.tryParse(m.group(1)!);
+      return u != null && u.isFinite ? u : null;
     }
     if (v is Map) return _asNum(v['value'] ?? v['y'] ?? v['v']); // {value:62}/{y:62}
     return null;
@@ -394,6 +396,15 @@ class CoachEngine {
       '${_idRandom.nextInt(1 << 32).toRadixString(16).padLeft(8, '0')}';
   static final _idRandom = Random();
 
+  /// The `render` types `CoachFigure` draws (aliases included). Anything else
+  /// would show an "app does not draw this" card while the model is told it
+  /// worked, so it is refused back to the model instead.
+  static const _renderTypes = {
+    'line', 'area', 'multi_series', 'bar', 'bars', 'lanes', 'dual_axis',
+    'hypnogram', 'zone_bar', 'stacked_zone_bar', 'gauge', 'kpi_grid',
+    'heatmap', 'table',
+  };
+
   /// Deletes every saved chat for every storage key. The transcripts live as
   /// files beside the database, not in it, so wiping the database leaves
   /// them, and the key is the same 'local' after a reset — the next profile
@@ -560,13 +571,24 @@ class CoachEngine {
     }
     try {
       final f = await _sessionFile(_sessionId);
-      await f.writeAsString(jsonEncode({
+      // Temp file + rename, same as the index: overwriting in place loses the
+      // whole chat if the app is killed mid-write.
+      final tmp = File('${f.path}.tmp');
+      await tmp.writeAsString(jsonEncode({
         'title': _title, 'createdAt': _createdAt, 'updatedAt': now,
         'history': _history, 'transcript': transcript.map((e) => e.toJson()).toList(),
-      }));
+      }, toEncodable: _encodable), flush: true);
+      await tmp.rename(f.path);
       await _updateIndex(_sessionId, _title, now, _preview());
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('coach: could not save chat: $e');
+    }
   }
+
+  /// NaN/Infinity from a model's tool args (a render payload, `1e999`) would
+  /// make jsonEncode throw and the chat unsaveable; save them as null.
+  static Object? _encodable(dynamic o) =>
+      o is num ? null : (o as dynamic).toJson();
 
   Future<void> _updateIndex(String id, String title, int updatedAt, String preview) async {
     final metas = await listSessions();
@@ -577,6 +599,8 @@ class CoachEngine {
       try {
         final f = await _sessionFile(d.id);
         if (await f.exists()) await f.delete();
+        final t = File('${f.path}.tmp');
+        if (await t.exists()) await t.delete();
       } catch (_) {}
     }
     try {
@@ -593,6 +617,8 @@ class CoachEngine {
     try {
       final f = await _sessionFile(id);
       if (await f.exists()) await f.delete();
+      final t = File('${f.path}.tmp');
+      if (await t.exists()) await t.delete();
     } catch (_) {}
     final metas = await listSessions()..removeWhere((m) => m.id == id);
     try {
@@ -1014,8 +1040,9 @@ class CoachEngine {
   }
 
   @visibleForTesting
-  Future<String> debugRunTool(String name, Map<String, dynamic> args) =>
-      _runTool(name, args, onItem: (_) {}, confirm: (_) async => false);
+  Future<String> debugRunTool(String name, Map<String, dynamic> args,
+          {void Function(CoachItem)? onItem}) =>
+      _runTool(name, args, onItem: onItem ?? (_) {}, confirm: (_) async => false);
 
   /// Today's readiness under the headline rule, for run_sql's views: the
   /// final number or nothing. If today can't be read, today's readiness is
@@ -1079,6 +1106,10 @@ class CoachEngine {
         // render — rich typed widget spec ({type, title?, ...payload})
         case 'render':
           if (args['type'] == null) return 'render needs a "type" field.';
+          if (!_renderTypes.contains('${args['type']}'.toLowerCase())) {
+            return 'The app cannot draw a "${args['type']}" figure. Use one of: '
+                '${_renderTypes.join(', ')}.';
+          }
           onItem(CoachItem.render(Map<String, dynamic>.from(args)));
           return 'Rendered "${args['type']}" for the user.';
 
@@ -1329,15 +1360,13 @@ class CoachEngine {
     _fn('render',
         'Render a RICH figure from data you fetched. Pick a "type" and provide its '
         'payload. Types: line/area/bar/multi_series {x_labels,series:[{name,values}],unit}; '
-        'scatter {points:[{x,y,label?}],x_label,y_label}; '
-        'dual_axis {x_labels,left:{name,values,unit},right:{name,values,unit}}; '
-        'stacked_zone_bar {x_labels,zones:[{name,values}]}; '
+        'lanes {series:[{name,values}]} (2-3 quantities in different units); '
         'hypnogram {segments:[{start,end,stage}]} (stage∈wake|light|deep|rem, epoch sec); '
-        'kpi_grid {cards:[{label,value,unit?,delta?,baseline?,spark?:[n]}]}; '
-        'gauge {value,min?,max?,label?,unit?}; '
-        'heatmap {rows:[label],cols:[label],values:[[n]],unit?}; '
-        'range_band {label,value,min,max,unit?}; '
-        'table {columns:[..],rows:[[..]]}. Always include a "title".',
+        'zone_bar {zones:[five numbers]} (minutes in HR zones 1-5); '
+        'gauge {value,min?,max?,unit?}; '
+        'kpi_grid {cards:[{label,value,unit?,baseline?}]}; '
+        'heatmap {weeks:[[7 numbers, Mon-Sun]],unit?} (null for a day with no data); '
+        'table {columns:[..],rows:[[..]]}. Nothing else renders. Always include a "title".',
         {
           'type': {'type': 'string'},
           'title': {'type': 'string'},
