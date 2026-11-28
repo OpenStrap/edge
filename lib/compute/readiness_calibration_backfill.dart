@@ -131,26 +131,36 @@ Future<Set<String>> _haveZ() async => {
         if (r['value'] is num) r['date'] as String,
     };
 
+/// Stored bundles read and decoded per [Isolate.run] in [_seedZ]. A bundle is
+/// tens of KB, so this caps the payloads held at once on a long history.
+const int kReadinessZSeedChunk = 30;
+
 /// Write `readiness_z` for [days] that lack it. The payload decode runs off the
-/// calling isolate ([Isolate.run]): it is the expensive part.
+/// calling isolate ([Isolate.run]): it is the expensive part. Done in chunks
+/// of [kReadinessZSeedChunk] days so a year of history is never in memory at
+/// once.
 Future<int> _seedZ(Iterable<String> days) async {
   final have = await _haveZ();
-  final todo = <(String, String)>[
-    for (final day in days)
-      if (!have.contains(day))
+  final missing = [for (final d in days) if (!have.contains(d)) d];
+  var n = 0;
+  for (var i = 0; i < missing.length; i += kReadinessZSeedChunk) {
+    final todo = <(String, String)>[
+      for (final day in missing.skip(i).take(kReadinessZSeedChunk))
         if ((await LocalDb.dayResult(day))?['payload_json'] case final String j)
           (day, j),
-  ];
-  if (todo.isEmpty) return 0;
-  final zs = await Isolate.run(() => [
-        for (final (day, json) in todo)
-          if (_decode(json) case final p?)
-            if (storedReadinessZ(p) case final s?) (day, s.z),
-      ]);
-  for (final (day, z) in zs) {
-    await LocalDb.putMetricSeriesValue(day, 'readiness_z', z);
+    ];
+    if (todo.isEmpty) continue;
+    final zs = await Isolate.run(() => [
+          for (final (day, json) in todo)
+            if (_decode(json) case final p?)
+              if (storedReadinessZ(p) case final s?) (day, s.z),
+        ]);
+    for (final (day, z) in zs) {
+      await LocalDb.putMetricSeriesValue(day, 'readiness_z', z);
+    }
+    n += zs.length;
   }
-  return zs.length;
+  return n;
 }
 
 /// BEFORE the derive: the readiness_z history today's (and every re-derived
