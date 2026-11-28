@@ -208,6 +208,7 @@ class _MoreSettingsState extends State<MoreSettings>
       cycleTracking: app.cycleTrackingEnabled,
       zoneAlertEnabled: app.zoneAlertEnabled,
       zoneAlertZone: app.zoneAlertTargetZone,
+      showHrBroadcast: !app.isConnected || app.engine.isWhoopLink,
       hrBroadcast: app.hrBroadcastEnabled,
       hrBroadcastBusy: app.hrBroadcastBusy,
       appIcon: _icon,
@@ -600,6 +601,7 @@ class MoreSettingsView extends StatelessWidget {
   /// (1..5) is only meaningful — and only drawn — while this is on.
   final bool zoneAlertEnabled;
   final int zoneAlertZone;
+  final bool showHrBroadcast;
   final bool hrBroadcast;
   final bool hrBroadcastBusy;
 
@@ -690,6 +692,7 @@ class MoreSettingsView extends StatelessWidget {
     this.cycleTracking = false,
     this.zoneAlertEnabled = false,
     this.zoneAlertZone = 3,
+    this.showHrBroadcast = true,
     this.hrBroadcast = false,
     this.hrBroadcastBusy = false,
     this.showHealthShare = false,
@@ -783,16 +786,17 @@ class MoreSettingsView extends StatelessWidget {
                                   ?.settingsDoubleTapRowSub ??
                               'What a double-tap on the band does',
                           onTap: () => goto(c, const BandGestures()))),
-                  SetRow(
-                    LucideIcons.radio,
-                    C.blue,
-                    l?.settingsHrBroadcastRowTitle ?? 'HR broadcast',
-                    sub: l?.settingsHrBroadcastRowSub ??
-                        'Broadcast live heart rate over standard Bluetooth to gym equipment and fitness apps',
-                    value: hrBroadcastBusy ? '…' : (hrBroadcast ? on : off),
-                    chevron: false,
-                    onTap: hrBroadcastBusy ? null : onToggleHrBroadcast,
-                  ),
+                  if (showHrBroadcast)
+                    SetRow(
+                      LucideIcons.radio,
+                      C.blue,
+                      l?.settingsHrBroadcastRowTitle ?? 'HR broadcast',
+                      sub: l?.settingsHrBroadcastRowSub ??
+                          'Broadcast live heart rate over standard Bluetooth to gym equipment and fitness apps',
+                      value: hrBroadcastBusy ? '…' : (hrBroadcast ? on : off),
+                      chevron: false,
+                      onTap: hrBroadcastBusy ? null : onToggleHrBroadcast,
+                    ),
                   if (backgroundExempt != null)
                     SetRow(LucideIcons.batteryCharging, C.green,
                         l?.settingsKeepAliveRowTitle ??

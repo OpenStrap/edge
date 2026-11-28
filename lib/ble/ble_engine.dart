@@ -2632,7 +2632,7 @@ class BleEngine {
       state.batteryPackPct = null;
       _batteryPackEventTs = null;
     }
-    if (p == BleConnState.disconnected) {
+    if (p == BleConnState.idle || p == BleConnState.error) {
       state.hrBroadcast = null;
     }
     onState(state);
@@ -8819,6 +8819,13 @@ class BleEngine {
     _log('SET_ADVERTISING_NAME → "$name"');
   }
 
+  /// True when the active connection is a WHOOP strap (Gen4 or Gen5/MG).
+  bool get isWhoopLink {
+    final session = _session;
+    if (session == null || !session.connected || session.closing) return false;
+    return session.entry.id == kWhoopGen4.id || session.entry.id == kWhoopGen5.id;
+  }
+
   /// Toggle WHOOP Heart Rate Broadcast (standard BLE Heart Rate Service 0x180D).
   ///
   /// `Cmd.setGenericHrProfile` (0x0E) is in `dangerousCmds` because it writes to
@@ -8852,15 +8859,15 @@ class BleEngine {
       return false;
     }
     final resp = await pending.response;
-    if (resp != null && (resp.failed || resp.unsupported)) {
-      _log('SET_GENERIC_HR_PROFILE($enabled) rejected (status=${resp.status}).');
+    if (resp == null || resp.status != CommandAwaiter.statusSuccess) {
+      _log('SET_GENERIC_HR_PROFILE($enabled) not confirmed '
+          '(status=${resp?.status ?? 'timeout'}).');
       return false;
     }
     if (_session != session || !session.connected) return false;
     state.hrBroadcast = enabled;
     onState(state);
-    _log('SET_GENERIC_HR_PROFILE → ${enabled ? 'on' : 'off'} '
-        '(status=${resp?.status ?? 'no-reply'})');
+    _log('SET_GENERIC_HR_PROFILE → ${enabled ? 'on' : 'off'}');
     return true;
   }
 

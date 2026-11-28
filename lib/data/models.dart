@@ -452,6 +452,7 @@ class DeviceState {
     chargingTs = null;
     batteryPackPct = null;
     wristOn = null;
+    hrBroadcast = null;
     liveHr = null;
     liveHrAt = null;
     alarmEpoch = null;

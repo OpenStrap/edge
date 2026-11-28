@@ -1739,22 +1739,37 @@ class AppState extends ChangeNotifier {
   bool _hrBroadcastBusy = false;
   bool get hrBroadcastBusy => _hrBroadcastBusy;
 
-  bool get hrBroadcastEnabled =>
-      device.hrBroadcast ?? Prefs.getBool(Prefs.hrBroadcastEnabled, false);
+  String? get _hrBroadcastPrefKey {
+    final id = (paired?.remoteId.isNotEmpty == true)
+        ? paired!.remoteId
+        : device.address;
+    if (id == null || id.isEmpty) return null;
+    return Prefs.hrBroadcastFor(id);
+  }
+
+  bool get hrBroadcastEnabled {
+    final live = device.hrBroadcast;
+    if (live != null) return live;
+    final key = _hrBroadcastPrefKey;
+    return key == null ? false : Prefs.getBool(key, false);
+  }
 
   /// Toggle WHOOP Heart Rate Broadcast (0x180D) on the connected strap.
-  /// Returns true when the command was delivered and accepted.
+  /// Returns true when the command was confirmed by the strap and persisted.
   Future<bool> setHrBroadcast(bool enabled) async {
     if (!isConnected || _hrBroadcastBusy) return false;
     _hrBroadcastBusy = true;
     notifyListeners();
     try {
       final ok = await engine.setHrBroadcast(enabled);
-      if (ok) {
-        device.hrBroadcast = enabled;
-        Prefs.setBool(Prefs.hrBroadcastEnabled, enabled);
+      if (!ok) return false;
+      device.hrBroadcast = enabled;
+      final key = _hrBroadcastPrefKey;
+      if (key != null && !await Prefs.setBoolAcked(key, enabled)) {
+        _log('[hr_broadcast] failed to persist preference for $key');
+        return false;
       }
-      return ok;
+      return true;
     } finally {
       _hrBroadcastBusy = false;
       notifyListeners();
@@ -4550,9 +4565,11 @@ class AppState extends ChangeNotifier {
         Prefs.setString(_kStrapName, nm);
       }
     }
-    if (s.hrBroadcast != null &&
-        s.hrBroadcast != Prefs.getBool(Prefs.hrBroadcastEnabled, false)) {
-      Prefs.setBool(Prefs.hrBroadcastEnabled, s.hrBroadcast!);
+    if (s.hrBroadcast != null) {
+      final key = _hrBroadcastPrefKey;
+      if (key != null && s.hrBroadcast != Prefs.getBool(key, false)) {
+        unawaited(Prefs.setBoolAcked(key, s.hrBroadcast!));
+      }
     }
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(
