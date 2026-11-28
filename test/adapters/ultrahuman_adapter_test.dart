@@ -404,6 +404,48 @@ void main() {
     expect(all.firstWhere((o) => o.key == 'steps').value, 288 * 30);
   });
 
+  test('a session cut short partway through the latest day does not file '
+      'that day', () async {
+    final day0 = DateTime(2026, 9, 1, 22);
+    final t0 = day0.millisecondsSinceEpoch ~/ 1000;
+    var pulls = 0;
+    final (events, _) = await _drive(
+      UltrahumanAdapter(
+        replyTimeout: _kFast,
+        confirmTimeout: _kFast,
+        nowSeconds: () => t0 + 86400,
+      ),
+      (i, v) {
+        if (v.first == kUltrahumanOpGetEarliestIndex) {
+          return _index(kUltrahumanOpGetEarliestIndex, 1);
+        }
+        if (v.first == kUltrahumanOpGetLatestIndex) {
+          return _index(kUltrahumanOpGetLatestIndex, 10);
+        }
+        // Records 1-2 are 09-01, 3-5 the start of 09-02; then the link
+        // goes quiet short of the latest index.
+        if (v.first == kUltrahumanOpGetRecordings && pulls++ == 0) {
+          return _frames([
+            for (var n = 1; n <= 5; n++)
+              _record(tsA: t0 + (n - 1) * 3600, index: n)
+          ], 7);
+        }
+        return const [];
+      },
+      spinDelay: const Duration(milliseconds: 5),
+    );
+    final rows = [
+      for (final e in events.whereType<VendorScalars>()) ...e.rows
+    ];
+    expect({for (final o in rows) o.at}, {DateTime(2026, 9, 1)});
+    expect(
+        events
+            .whereType<BandNote>()
+            .lastWhere((n) => n.key == 'ultrahuman_cursor')
+            .value,
+        3);
+  });
+
   test('a resumed session does not refile the day before its bookmark from a '
       'record whose step or skin clock lands on it', () async {
     final t = DateTime(2026, 9, 1, 23, 50).millisecondsSinceEpoch ~/ 1000;

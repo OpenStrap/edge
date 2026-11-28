@@ -22,7 +22,10 @@
 // `raw_archive` is keyed on the bytes and `decoded_onehz` on the second), so
 // every day a session reports on is complete from its first record. The
 // days before the latest go out with each confirmed batch, ahead of the
-// bookmark that passes them, so a session cut short keeps them.
+// bookmark that passes them, so a session cut short keeps them. The latest
+// day itself goes out only when the drain read to the end of the ring's
+// history: a session cut short holds a part of it, and filing that would
+// replace the fuller total an earlier session stored.
 //
 // FETCH-BY-INDEX, LIKE OURA'S FETCH-BY-CURSOR BUT SIMPLER. `0x04` asks for
 // recordings starting at a record index, and nothing in this protocol deletes
@@ -130,6 +133,7 @@ class UltrahumanAdapter extends BandAdapter {
   Stream<BandEvent> run(BandLink link) async* {
     final days = _Days(nowSeconds());
     yield* _drain(link, days);
+    if (!days.reachedEnd) return;
     final rows = days.observations();
     if (rows.isNotEmpty) yield VendorScalars(rows);
   }
@@ -240,6 +244,7 @@ class UltrahumanAdapter extends BandAdapter {
             return;
           }
           cursor = newCursor;
+          if (got.ended) days.reachedEnd = true;
           // The days before the latest one are never read again once the
           // bookmark below passes them: their values go out now, ahead of
           // it, or a session cut short after this batch loses them for good.
@@ -261,9 +266,15 @@ class UltrahumanAdapter extends BandAdapter {
           }
           return;
         }
-        if (got.reachedLatest) return;
+        if (got.reachedLatest) {
+          days.reachedEnd = true;
+          return;
+        }
         if (got.records.isEmpty) {
           // Empty, or a reply gap with nothing in it: stop and keep the cursor.
+          // Only the ring's own empty answer says the history ended here; a
+          // gap may be a dropped link partway through the latest day.
+          days.reachedEnd = days.reachedEnd || !got.replyGap;
           link.log('ultrahuman: nothing more from $cursor.');
           // Silent on both index requests and on the first pull: the ring
           // never answered at all. An empty ok frame is a ring with nothing
@@ -316,7 +327,7 @@ class UltrahumanAdapter extends BandAdapter {
       final r = await inbox.next(kUltrahumanOpGetRecordings, replyTimeout);
       if (r == null) return _Pull(records, raw, replyGap: true);
       if (r.failed) return _Pull(records, raw, failedResult: r.result);
-      if (r.empty || r.count == 0) return _Pull(records, raw);
+      if (r.empty || r.count == 0) return _Pull(records, raw, ended: true);
       var reached = false;
       for (var off = 0;
           off + kUltrahumanRecordLen <= r.payload.length;
@@ -364,6 +375,10 @@ class _Days {
   final _spo2 = <DateTime, List<num>>{};
   final _temp = <DateTime, List<num>>{};
   DateTime? _lastDay;
+
+  /// The drain read to the end of the ring's history, so the latest day is
+  /// complete and [observations] may file it.
+  bool reachedEnd = false;
 
   /// The first record (in arrival order) with any of its three clocks on
   /// each day.
@@ -494,8 +509,13 @@ class _Pull {
   /// The pull ended because nothing more arrived inside the reply window,
   /// not on a frame from the ring.
   final bool replyGap;
+
+  /// The ring itself answered with an empty frame: history ended here, even
+  /// when records came before it in the same pull.
+  final bool ended;
   const _Pull(this.records, this.raw,
       {this.failedResult,
+      this.ended = false,
       this.reachedLatest = false,
       this.streaming = false,
       this.replyGap = false});
