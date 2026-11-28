@@ -957,9 +957,13 @@ List<bool> _lutealFlags(List<String> dates, List<String> cycleStartDates) {
     if (si < 0) continue; // before she ever logged — nothing to count from
     final elapsed = d.difference(starts[si]).inDays;
     // Closed cycle → its own measured length. Open cycle → her median, if she
-    // has one.
-    final len = si + 1 < starts.length
+    // has one. A closed gap outside 15..60 days is missed logs, not a cycle, so
+    // it is treated like an open one rather than stretching luteal for weeks.
+    final closed = si + 1 < starts.length
         ? starts[si + 1].difference(starts[si]).inDays.toDouble()
+        : null;
+    final len = closed != null && closed >= 15 && closed <= 60
+        ? closed
         : medianGap;
     if (len == null || len < 15) continue;
     if (elapsed > 1.5 * len) continue; // stale log, not a long luteal phase
@@ -968,9 +972,9 @@ List<bool> _lutealFlags(List<String> dates, List<String> cycleStartDates) {
   return out;
 }
 
-/// Guard on how far [_denseDailyTrimp] will densify. Past this the input is not
-/// a plausible recent-history window (a corrupt/absurd date), so we fall back to
-/// the raw per-row series rather than allocating an unbounded list.
+/// Guard on how far [_denseDailyTrimp] will densify. A longer span (a user back
+/// after a long break, or a corrupt date) keeps only the newest this-many
+/// calendar days; load older than that has long since decayed out of CTL/ATL.
 const int _maxDenseTrimpDays = 400;
 
 /// A DENSE per-calendar-day TRIMP series (oldest→newest) over the span covered
@@ -981,34 +985,41 @@ const int _maxDenseTrimpDays = 400;
 /// PURE: `DateTime.parse` / `DateTime(y, m, d + 1)` are deterministic functions
 /// of the input strings, and the day-step normalizes DST-length days correctly.
 List<double> _denseDailyTrimp(List<String> dates, List<double?> trimps) {
+  String? last;
+  for (var i = 0; i < dates.length && i < trimps.length; i++) {
+    final date = dates[i];
+    if (date.isEmpty || DateTime.tryParse(date) == null) continue;
+    if (last == null || date.compareTo(last) > 0) last = date;
+  }
+  if (last == null) return const <double>[];
+  final end = DateTime.parse(last);
+  final stop = DateTime(end.year, end.month, end.day);
+  // Densify only the newest [_maxDenseTrimpDays] calendar days. Falling back to
+  // the per-row series here would hand back the compressed calendar this
+  // function exists to remove.
+  final from = DateTime(stop.year, stop.month, stop.day - (_maxDenseTrimpDays - 1));
+  final byDate = <String, double>{};
+  String? first;
+  var anyLoad = false;
+  for (var i = 0; i < dates.length && i < trimps.length; i++) {
+    final date = dates[i];
+    final dt = DateTime.tryParse(date);
+    if (date.isEmpty || dt == null) continue;
+    if (DateTime(dt.year, dt.month, dt.day).isBefore(from)) continue;
+    byDate[date] = trimps[i] ?? 0.0;
+    if (trimps[i] != null) anyLoad = true;
+    if (first == null || date.compareTo(first) < 0) first = date;
+  }
   // NO observed load at all is not "a run of zero-load days" — it is no load
   // history. Densifying it would hand the EWMA a synthetic all-zero series and
   // turn "we have never seen a workout" into a confident CTL/ATL/TSB of 0,
   // which is the fabrication this whole pass exists to remove. Abstain by
   // handing back an empty series and let the load model decline.
-  if (!trimps.any((t) => t != null)) return const <double>[];
-  final byDate = <String, double>{};
-  String? first, last;
-  for (var i = 0; i < dates.length && i < trimps.length; i++) {
-    final date = dates[i];
-    if (date.isEmpty || DateTime.tryParse(date) == null) continue;
-    byDate[date] = trimps[i] ?? 0.0;
-    first ??= date;
-    if (last == null || date.compareTo(last) > 0) last = date;
-    if (date.compareTo(first) < 0) first = date;
-  }
-  if (first == null || last == null) return const <double>[];
+  if (!anyLoad || first == null) return const <double>[];
   final start = DateTime.parse(first);
-  final end = DateTime.parse(last);
   final out = <double>[];
   var cursor = DateTime(start.year, start.month, start.day);
-  final stop = DateTime(end.year, end.month, end.day);
   while (!cursor.isAfter(stop)) {
-    if (out.length >= _maxDenseTrimpDays) {
-      // Implausible span — don't densify; the honest per-row series is better
-      // than an arbitrarily long zero-padded one.
-      return [for (final v in trimps) v ?? 0.0];
-    }
     out.add(byDate[dayLabelOf(cursor)] ?? 0.0);
     cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
   }
