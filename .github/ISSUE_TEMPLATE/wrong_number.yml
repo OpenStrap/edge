@@ -6,9 +6,9 @@ body:
     attributes:
       value: |
         Worth saying up front, so nobody wastes time: **OpenStrap's numbers are
-        not meant to match WHOOP's.** Different algorithms, published methods,
+        not meant to match the device maker's app.** Different algorithms, published methods,
         computed on your phone from the device's raw data. "It doesn't match the
-        WHOOP app" on its own isn't a bug.
+        other app" on its own isn't a bug.
 
         What *is* a bug: a number that's physiologically implausible, one that
         contradicts the app's own raw data, one that jumps around without
@@ -19,7 +19,7 @@ body:
     id: metric
     attributes:
       label: Which metric?
-      placeholder: "Readiness / RHR / Sleep stages / Strain / Steps / …"
+      placeholder: "Recovery / RHR / Sleep stages / Strain / Steps / …"
     validations:
       required: true
 
@@ -31,7 +31,7 @@ body:
         Include the value, the day, and what you'd have expected. If another
         screen in the app disagrees with it, that's a strong signal — say so.
       placeholder: |
-        Readiness 100 after about 10 minutes of wear. There's no overnight data
+        Recovery 100 after about 10 minutes of wear. There's no overnight data
         yet, so it shouldn't be able to produce a confident score at all.
     validations:
       required: true
@@ -43,8 +43,8 @@ body:
       options:
         - Physiologically implausible (impossible value)
         - Contradicts other screens in this app
-        - Confident number where the data is missing (should show "—")
-        - Shows "—" where there clearly is data
+        - Confident number where the data is missing (should show no score)
+        - Shows no score where there clearly is data
         - Jumps or changes without new data
         - Other
     validations:
@@ -61,13 +61,16 @@ body:
   - type: dropdown
     id: band
     attributes:
-      label: Which band?
+      label: Which device?
       description: >-
-        Matters more than it looks — WHOOP 5.0 / MG feeds a thinner record than
-        4.0 does, so a metric can be wrong on one and fine on the other.
+        Matters more than it looks. Each device sends different data, so a
+        metric can be wrong on one and fine on another.
       options:
         - WHOOP 4.0
-        - WHOOP 5.0 / MG (experimental — expect breakage)
+        - WHOOP 5.0 / MG
+        - Oura Ring
+        - Bluetooth heart-rate strap (Polar, Garmin HRM, etc.)
+        - Another device (say which above)
         - Not sure
     validations:
       required: true
