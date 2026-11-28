@@ -160,12 +160,7 @@ Map<String, Cell> _sparseColumn(
     // Minutes in an HR zone stand in for movement (no accelerometer): a
     // measure of effort, labelled estimated, as on a Garmin.
     'movement': Cell(
-      estimated: (d, _) => d['zones'] is Map
-          ? (d['zones'] as Map)
-              .values
-              .whereType<num>()
-              .fold<num>(0, (a, b) => a + b)
-          : null,
+      estimated: (d, _) => zoneMinutes(d),
       estimatedMethod: '${method}_zone_minutes',
       reason: Why.noWakeHr,
     ),
