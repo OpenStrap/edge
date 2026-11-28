@@ -274,7 +274,7 @@ class UltrahumanAdapter extends BandAdapter {
           // Empty, or a reply gap with nothing in it: stop and keep the cursor.
           // Only the ring's own empty answer says the history ended here; a
           // gap may be a dropped link partway through the latest day.
-          days.reachedEnd = !got.replyGap;
+          days.reachedEnd = days.reachedEnd || !got.replyGap;
           link.log('ultrahuman: nothing more from $cursor.');
           // Silent on both index requests and on the first pull: the ring
           // never answered at all. An empty ok frame is a ring with nothing
